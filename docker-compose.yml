@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # The Orchestrator (FastAPI)
+  portfolio-api:
+    build: .
+    container_name: fastapi-orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      - COMFY_API_URL=http://comfyui:8188
+    # Mount the current directory for live code reloading during Sprint 1
+    volumes:
+      - .:/app
+    # Override the Dockerfile CMD to enable hot-reloading
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - comfyui
+
+  # The Engine (ComfyUI Headless)
+  comfyui:
+    image: yanwk/comfyui-boot:latest # A popular community image, or build your own
+    container_name: comfyui-backend
+    ports:
+      - "8188:8188"
+    volumes:
+      # Map your local models, outputs, and custom nodes so they persist outside the container
+      - ./comfy_data/models:/opt/ComfyUI/models
+      - ./comfy_data/output:/opt/ComfyUI/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # Request access to all available local GPUs
+              count: all
+              capabilities: [ gpu ]
