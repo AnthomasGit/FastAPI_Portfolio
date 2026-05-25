@@ -37,7 +37,7 @@ async def generate_pic(model_name: ModelName, query: str):
 
     # 1. Load your exported ComfyUI "API Format" JSON
     # (In production, load this from a saved .json file)
-    workflow = load_default_workflow()
+    workflow = load_workflow()
 
     # 2. Inject the user's query dynamically
     # NOTE: "6" is typically the CLIPTextEncode node ID for the positive prompt, 
@@ -45,7 +45,7 @@ async def generate_pic(model_name: ModelName, query: str):
     try:
         workflow["57:27"]["inputs"]["text"] = query
     except KeyError:
-        pass  # Handle missing node gracefully in production
+        print("Warning: Node ID '57:27' for text prompt not found. Check your JSON!")
 
     client_id = str(uuid.uuid4())
     payload = {"prompt": workflow, "client_id": client_id}
@@ -54,6 +54,13 @@ async def generate_pic(model_name: ModelName, query: str):
         # 3. Queue the prompt in ComfyUI
         try:
             response = await client.post(f"{COMFY_API_URL}/prompt", json=payload)
+            #---THE TRAP--
+            if response.status_code != 200:
+                error_detail = response.text
+                print(f"❌ COMFYUI REJECTION REASON: {error_detail}")
+                raise HTTPException(status_code=500, detail=f"ComfyUI rejected the workflow: {error_detail}")
+            #--------------
+
             response.raise_for_status()
         except httpx.RequestError:
             raise HTTPException(status_code=503, detail="ComfyUI server is unreachable")
@@ -96,10 +103,12 @@ async def wait_for_comfy_execution(client_id: str, prompt_id: str):
                         break
 
 
-def load_default_workflow():
+def load_workflow() -> dict:
     """Helper function to return your raw API workflow dict."""
-    # Replace this with a json.load() of your actual workflow file
-    return {
-        "3": {"class_type": "KSampler", "inputs": {"seed": 123}},
-        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}}
-    }
+    """Loads the ComfyUI API JSON from your local directory."""
+    try:
+        # Assuming your folder is named 'workflow' and your file is 'my_workflow.json'
+        with open(f"workflows/image_z_image_turbo.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail=f"Workflow not found.")
