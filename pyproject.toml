@@ -1,4 +1,4 @@
-[tool.fastapi]a
+[tool.fastapi]
 entrypoint = "main:app"
 
 [project]
