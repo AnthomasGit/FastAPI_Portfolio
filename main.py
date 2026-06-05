@@ -198,8 +198,8 @@ async def check_status(job_id: str):
 async def get_image(job_id: str):
     """Serves the generated image securely with job_id."""
     #retrieve image_info
-    if job_id not in jobs_db:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if job_id not in jobs_db or "image_info" not in jobs_db[job_id]:
+        raise HTTPException(status_code=404, detail=f"Image not found or not ready for {job_id}")
 
     img_info = jobs_db[job_id]["image_info"]
 
