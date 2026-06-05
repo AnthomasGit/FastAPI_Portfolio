@@ -3,10 +3,8 @@ import json
 import uuid
 import random
 import asyncio
-from dataclasses import Field
 
 import httpx
-import websockets
 from enum import Enum
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
@@ -26,6 +24,10 @@ WORKFLOW_MAP = {
     ModelName.imagegen: "image_z_image_turbo.json",
     # direct ModelName.new_workflow to JSON
 }
+
+# Used for JIT model warming
+class WarmupRequest(BaseModel):
+    model_name: ModelName
 
 # Pydantic model for strict input validation
 class GenerateRequest(BaseModel):
@@ -53,6 +55,58 @@ def load_workflow(workflow: ModelName) -> dict:
     except FileNotFoundError:
         raise HTTPException(status_code=500, detail=f"Workflow not found.")
 
+# For JIT model warming: Parses and modifies JSON to decrease steps and image size. (Loads model in VRAM with minimal output)
+def prepare_warmup_workflow(workflow: dict) -> dict:
+    """Dynamically finds and shrinks samplers/images for a lightning-fast warmup."""
+    for node_id, node_data in workflow.items():
+        class_type = node_data.get("class_type", "")
+        inputs = node_data.get("inputs", {})
+
+        # 1. Drop steps to 1 to bypass long compute times
+        if "KSampler" in class_type and "steps" in inputs:
+            inputs["steps"] = 1
+
+        # 2. Shrink the latent image so the GPU doesn't waste VRAM generating a dummy image
+        elif "LatentImage" in class_type and "width" in inputs:
+            inputs["width"] = 256
+            inputs["height"] = 256
+
+        # 3. Inject a dummy prompt
+        elif class_type == "CLIPTextEncode" and "text" in inputs:
+            inputs["text"] = "warmup"
+
+    return workflow
+
+# 
+@app.post("/portfolio/warmup")
+async def trigger_warmup(request: WarmupRequest):
+    """Fires a 1-step dummy payload to load models into VRAM."""
+    # 1. Load the specific workflow they clicked
+    base_workflow = load_workflow(request.model_name)
+
+    # 2. Modify it for a fast warmup
+    warmup_workflow = prepare_warmup_workflow(base_workflow)
+
+    payload = {
+        "prompt": warmup_workflow,
+        "client_id": f"warmup-{uuid.uuid4()}"
+    }
+
+    # 3. Fire and forget! Do not 'await' the full execution.
+    asyncio.create_task(send_warmup_to_comfy(payload))
+
+    # Immediately let the frontend continue loading the next page
+    return {"status": "warming_up", "model": request.model_name.value}
+
+
+async def send_warmup_to_comfy(payload: dict):
+    """Background task to push the payload to ComfyUI."""
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            await client.post(f"{COMFY_API_URL}/prompt", json=payload)
+            print("🚀 Warmup payload sent to ComfyUI successfully.")
+        except Exception as e:
+            print(f"⚠️ Warmup request failed (server might be down): {e}")
 
 @app.post("/portfolio/imagegen")
 async def queue_generation(request: GenerateRequest):
@@ -115,32 +169,54 @@ async def check_status(job_id: str):
 
         # If the prompt_id query returns from "/history" then imagegen is complete, retrieve.
         if in_history:
-            #init filename store
-            filename = None
+            #init image info store
+            img_info = None
             outputs = in_history.get("outputs", {})
             for node_id, node_output in outputs.items():
                 if "images" in node_output:
-                    filename = node_output["images"][0]["filename"]
+                    # Grab the entire dictionary ComfyUI provides (filename, subfolder, type)
+                    img_info = node_output["images"][0]
                     break
 
-            # Once filename is filled, return URL where frontend can download image
-            if filename:
+            # Once img_info is filled, return URL where frontend can download image
+            if img_info:
                jobs_db[job_id]["status"] = "completed"
+               # Store the exact parameters safely in our backend memory
+               jobs_db[job_id]["image_info"] = img_info
+
                return {
                    "job_id": job_id,
                    "status": "completed",
-                   "download_url": f"/portfolio/image/{filename}"
+                   "download_url": f"/portfolio/image/{job_id}"
                }
             else:
                 return {"job_id": job_id, "status": "failed", "detail": "No image output found."}
         # If it's not in the history yet, it's still queued or executing
         return {"job_id": job_id, "status": "processing"}
 
-@app.get(f"/portfolio/image/{filename}")
-async def get_image(filename: str):
-    """Serves the generated image."""
+@app.get("/portfolio/image/{job_id}")
+async def get_image(job_id: str):
+    """Serves the generated image securely with job_id."""
+    #retrieve image_info
+    if job_id not in jobs_db:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    img_info = jobs_db[job_id]["image_info"]
+
+    params = {"filename": img_info["filename"]}
+
+    # Only add subfolder and type if ComfyUI actually provided them as non-empty strings
+    if img_info.get("subfolder"):
+        params["subfolder"] = img_info["subfolder"]
+    if img_info.get("type"):
+        params["type"] = img_info["type"]
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        img_res = await client.get(f"{COMFY_API_URL}/view/", params={"filename": filename})
+        # Pass all the exact parameters back to ComfyUI so it never gets confused
+        img_res = await client.get(
+            f"{COMFY_API_URL}/view",
+               params=params
+        )
         if img_res.status_code != 200:
             raise HTTPException(status_code=404, detail="Image not found on server.")
 
