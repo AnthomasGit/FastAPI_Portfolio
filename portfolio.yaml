@@ -85,6 +85,7 @@ spec:
       containers:
         - name: fastapi
           image: anthomasl/portfolio-api:v1
+          #imagePullPolicy: Always
           ports:
             - containerPort: 8000
           env:
@@ -130,6 +131,7 @@ spec:
       containers:
         - name: frontend
           image: anthomasl/portfolio-ui:v1
+          #imagePullPolicy: Always
           ports:
             - containerPort: 80
 
