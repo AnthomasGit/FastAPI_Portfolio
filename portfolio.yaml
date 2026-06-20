@@ -7,82 +7,77 @@ metadata:
 # block you just found in the grep output
 handler: nvidia
 ---
+# ==========================================
+# 1. THE IMAGEGEN ENGINE (Runs on Main Server)
+# ==========================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: portfolio-ai-system
+  name: portfolio-imagegen-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: portfolio-ai-system
+      app: portfolio-imagegen
   template:
     metadata:
       labels:
-        app: portfolio-ai-system
+        app: portfolio-imagegen
     spec:
+      # PINS THIS TO THE MAIN SERVER
       nodeSelector:
         hardware-type: gpu-server
       runtimeClassName: nvidia
       containers:
-        # ---------------------------------------------------
-        # CONTAINER 1: The Orchestrator (FastAPI)
-        # ---------------------------------------------------
-        - name: fastapi
-          image: anthomasl/portfolio-api:v1
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8000
-          env:
-            # Talks directly to the sidecar over the pod's shared localhost
-            - name: COMFY_API_URL
-              value: "http://127.0.0.1:8188"
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-
-        # ---------------------------------------------------
-        # CONTAINER 2: The Engine (ComfyUI)
-        # ---------------------------------------------------
         - name: comfyui
           image: yanwk/comfyui-boot:cu126-slim
           ports:
-            # Port 8188 is exposed locally to the Pobut NOT to the K8s Service
             - containerPort: 8188
           resources:
             limits:
-              # This requires the NVIDIA device plugin to be running on your K3s node
-              nvidia.com/gpu: 1
-            # This ensures the mapping/config file is found
+              nvidia.com/gpu: all
           env:
             - name: CLI_ARGS
               value: "--extra-model-paths-config /data/models/extra_model_paths.yaml"
-
           volumeMounts:
             - name: local-model-storage
-              # This is where the yanwk image expects to find models
               mountPath: /data/models
-            - name: local-output-storage
-              mountPath: /data/models/output
-
-        # ---------------------------------------------------
-        # SHARED POD VOLUMES
-        # ---------------------------------------------------
-
       volumes:
-        #This is where we map the physical hardware to the container directory
         - name: local-model-storage
           hostPath:
-            path: /opt/ComfyUI/models # The path on your actual physical node
+            path: /opt/ComfyUI/models
             type: Directory
-        - name: local-output-storage
-          hostPath:
-            path: /opt/ComfyUI/output
-            type: Directory
+---
+# ==========================================
+# 2. THE FASTAPI ORCHESTRATOR (Runs on Mac Mini)
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-api-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portfolio-api
+  template:
+    metadata:
+      labels:
+        app: portfolio-api
+    spec:
+      # PINS THIS TO THE MAC MINI
+      nodeSelector:
+        node-role: frontend-api
+      containers:
+        - name: fastapi
+          image: anthomasl/portfolio-api:v1
+          ports:
+            - containerPort: 8000
+          env:
+            # Talks across the cluster network now, NOT localhost
+            - name: COMFY_API_URL
+              value: "http://portfolio-imagegen-service:8188"
+
 ---
 apiVersion: v1
 kind: Service
@@ -96,19 +91,76 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 8000
+
+---
+# ==========================================
+# 3. THE FRONTEND UI (Runs on Mac Mini)
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-ui-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portfolio-ui
+  template:
+    metadata:
+      labels:
+        app: portfolio-ui
+    spec:
+      # PINS THIS TO THE MAC MINI
+      nodeSelector:
+        node-role: frontend-api
+      containers:
+        - name: frontend
+          image: anthomasl/portfolio-ui:v1
+          ports:
+            - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-ui-service
+spec:
+  type: ClusterIP
+  selector:
+    app: portfolio-ui
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: portfolio-ingress
+  annotations:
+    # This prevents the Ingress from dropping requests that take a long time
+    # (crucial for waiting on the imagegen process to finish)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   rules:
   - http:
       paths:
-      - path: /
+      # 1. Route /api traffic to the FastAPI backend
+      - path: /api
         pathType: Prefix
         backend:
           service:
             name: portfolio-api-service
+            port:
+              number: 80
+
+      # 2. Route everything else (/) to the React Frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: portfolio-ui-service
             port:
               number: 80
