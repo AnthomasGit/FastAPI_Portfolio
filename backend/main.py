@@ -197,7 +197,7 @@ async def check_status(job_id: str):
                return {
                    "job_id": job_id,
                    "status": "completed",
-                   "download_url": f"/api/portfolio/image/{job_id}"
+                   "download_url": f"/portfolio/image/{job_id}"
                }
             else:
                 return {"job_id": job_id, "status": "failed", "detail": "No image output found."}
