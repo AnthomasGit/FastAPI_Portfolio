@@ -9,6 +9,7 @@ from enum import Enum
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 # Pull the ComfyUI URL from the environment variable set in docker-compose
 COMFY_API_URL = os.environ.get("COMFY_API_URL", "http://127.0.0.1:8188")
@@ -34,6 +35,15 @@ class GenerateRequest(BaseModel):
     model_name: ModelName
     query: str
 app = FastAPI(title="FastAPI_Portfolio")
+
+# Allows the Reach frontend to communicate with FastAPI
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173","http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Set for job tracking (in memory)->switch to Redis(multi-pod))
 jobs_db = {}
@@ -78,7 +88,7 @@ def prepare_warmup_workflow(workflow: dict) -> dict:
     return workflow
 
 # 
-@app.post("/portfolio/warmup")
+@app.post("/api/portfolio/warmup")
 async def trigger_warmup(request: WarmupRequest):
     """Fires a 1-step dummy payload to load models into VRAM."""
     # 1. Load the specific workflow they clicked
@@ -108,7 +118,7 @@ async def send_warmup_to_comfy(payload: dict):
         except Exception as e:
             print(f"⚠️ Warmup request failed (server might be down): {e}")
 
-@app.post("/portfolio/imagegen")
+@app.post("/api/portfolio/imagegen")
 async def queue_generation(request: GenerateRequest):
     # Load JSON according to model_name
     workflow = load_workflow(request.model_name)
@@ -153,7 +163,7 @@ async def queue_generation(request: GenerateRequest):
         "message": "Image generation started"
     }
 
-@app.get("/portfolio/status/{job_id}")
+@app.get("/api/portfolio/status/{job_id}")
     # The frontend polls this endpoint to check if the image is ready.
 async def check_status(job_id: str):
     if job_id not in jobs_db:
@@ -187,14 +197,14 @@ async def check_status(job_id: str):
                return {
                    "job_id": job_id,
                    "status": "completed",
-                   "download_url": f"/portfolio/image/{job_id}"
+                   "download_url": f"/api/portfolio/image/{job_id}"
                }
             else:
                 return {"job_id": job_id, "status": "failed", "detail": "No image output found."}
         # If it's not in the history yet, it's still queued or executing
         return {"job_id": job_id, "status": "processing"}
 
-@app.get("/portfolio/image/{job_id}")
+@app.get("/api/portfolio/image/{job_id}")
 async def get_image(job_id: str):
     """Serves the generated image securely with job_id."""
     #retrieve image_info
