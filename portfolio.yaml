@@ -35,7 +35,7 @@ spec:
             - containerPort: 8188
           resources:
             limits:
-              nvidia.com/gpu: all
+              nvidia.com/gpu: 1
           env:
             - name: CLI_ARGS
               value: "--extra-model-paths-config /data/models/extra_model_paths.yaml"
@@ -47,6 +47,20 @@ spec:
           hostPath:
             path: /opt/ComfyUI/models
             type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-imagegen-service
+spec:
+  type: ClusterIP
+  selector:
+    app: portfolio-imagegen
+  ports:
+    - protocol: TCP
+      port: 8188
+      targetPort: 8188
+
 ---
 # ==========================================
 # 2. THE FASTAPI ORCHESTRATOR (Runs on Mac Mini)
@@ -67,7 +81,7 @@ spec:
     spec:
       # PINS THIS TO THE MAC MINI
       nodeSelector:
-        node-role: frontend-api
+        kubernetes.io/hostname: mac-mini
       containers:
         - name: fastapi
           image: anthomasl/portfolio-api:v1
@@ -86,7 +100,7 @@ metadata:
 spec:
   type: ClusterIP    # Changed from LoadBalancer
   selector:
-    app: portfolio-ai-system
+    app: portfolio-api
   ports:
     - protocol: TCP
       port: 80
@@ -112,7 +126,7 @@ spec:
     spec:
       # PINS THIS TO THE MAC MINI
       nodeSelector:
-        node-role: frontend-api
+        kubernetes.io/hostname: mac-mini
       containers:
         - name: frontend
           image: anthomasl/portfolio-ui:v1
