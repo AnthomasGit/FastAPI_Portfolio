@@ -3,13 +3,16 @@ import json
 import uuid
 import random
 import asyncio
-
 import httpx
 from enum import Enum
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import SessionLocal, JobRecord, init_db
 
 # Pull the ComfyUI URL from the environment variable set in docker-compose
 COMFY_API_URL = os.environ.get("COMFY_API_URL", "http://127.0.0.1:8188")
@@ -34,7 +37,18 @@ class WarmupRequest(BaseModel):
 class GenerateRequest(BaseModel):
     model_name: ModelName
     query: str
-app = FastAPI(title="FastAPI_Portfolio")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Initializing Database...")
+    await init_db()
+    print("Database Ready!")
+    yield
+
+async def get_db():
+    async with SessionLocal() as session:
+        yield session
+app = FastAPI(title="FastAPI_Portfolio", lifespan=lifespan)
 
 # Allows the Reach frontend to communicate with FastAPI
 app.add_middleware(
@@ -46,7 +60,7 @@ app.add_middleware(
 )
 
 # Set for job tracking (in memory)->switch to Redis(multi-pod))
-jobs_db = {}
+#jobs_db = {}
 
 # Dynamically loads the ComfyUI workflow JSON into memory from local directory.
 def load_workflow(workflow: ModelName) -> dict:
@@ -119,7 +133,7 @@ async def send_warmup_to_comfy(payload: dict):
             print(f"⚠️ Warmup request failed (server might be down): {e}")
 
 @app.post("/api/portfolio/imagegen")
-async def queue_generation(request: GenerateRequest):
+async def queue_generation(request: GenerateRequest, db: AsyncSession = Depends(get_db)):
     # Load JSON according to model_name
     workflow = load_workflow(request.model_name)
 
@@ -128,9 +142,13 @@ async def queue_generation(request: GenerateRequest):
         workflow["57:27"]["inputs"]["text"] = request.query
     except KeyError:
         print("Warning: Node ID '57:27' for text prompt not found. Check your JSON!")
+
     # Inject random seed to ensure unique generation
+    # FIX: Define the variable FIRST, then inject it
+    seed_val = random.randint(1, 1000000000000000)
+
     try:
-        workflow["57:3"]["inputs"]["seed"] = random.randint(1, 1000000000000000)
+        workflow["57:3"]["inputs"]["seed"] = seed_val
     except KeyError:
         print("Warning: Node ID '57:3' for text seed not found. Check your JSON!")
 
@@ -149,13 +167,19 @@ async def queue_generation(request: GenerateRequest):
             raise HTTPException(status_code=503, detail="ComfyUI server is unreachable")
     # "/prompt" returns prompt ID
     prompt_id = response.json().get("prompt_id")
-
-    # Unique id for DB.
     job_id = str(uuid.uuid4())
 
-    # Save to DB
-    # Key: job_id        Value: prompt_id
-    jobs_db[job_id] = {"prompt_id": prompt_id, "status": "queued"}
+    # DATABASE INSERT
+    new_job = JobRecord(
+        job_id=job_id,
+        prompt_id=prompt_id,
+        status="queued",
+        model_name=request.model_name.value,
+        query=request.query,
+        seed=seed_val
+    )
+    db.add(new_job)
+    await db.commit()
 
     return {
         "job_id": job_id,
@@ -165,17 +189,26 @@ async def queue_generation(request: GenerateRequest):
 
 @app.get("/api/portfolio/status/{job_id}")
     # The frontend polls this endpoint to check if the image is ready.
-async def check_status(job_id: str):
-    if job_id not in jobs_db:
+async def check_status(job_id: str, db: AsyncSession = Depends(get_db)):
+    # DATABASE SELECT
+    result = await db.execute(select(JobRecord).where(JobRecord.job_id == job_id))
+    job = result.scalars().first()
+
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Retrieve prompt_id
-    prompt_id = jobs_db[job_id]["prompt_id"]
+    # If it's already completed in the DB, just return it without pinging ComfyUI
+    if job.status == "completed":
+        return {
+            "job_id": job.job_id,
+            "status": "completed",
+            "download_url": job.image_url
+        }
 
     async with httpx.AsyncClient(timeout=5.0) as client:
         # Query "/history{prompt_id}"
-        history_rest = await client.get(f"{COMFY_API_URL}/history/{prompt_id}")
-        in_history = history_rest.json().get(prompt_id, {})
+        history_rest = await client.get(f"{COMFY_API_URL}/history/{job.prompt_id}")
+        in_history = history_rest.json().get(job.prompt_id, {})
 
         # If the prompt_id query returns from "/history" then imagegen is complete, retrieve.
         if in_history:
@@ -190,28 +223,38 @@ async def check_status(job_id: str):
 
             # Once img_info is filled, return URL where frontend can download image
             if img_info:
-               jobs_db[job_id]["status"] = "completed"
-               # Store the exact parameters safely in our backend memory
-               jobs_db[job_id]["image_info"] = img_info
+                # DATABASE UPDATE
+                job.status = "completed"
+                job.image_url = f"/api/portfolio/image/{job_id}"
+                job.image_info = img_info
 
-               return {
-                   "job_id": job_id,
-                   "status": "completed",
-                   "download_url": f"/portfolio/image/{job_id}"
-               }
+                await db.commit()
+
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "download_url": job.image_url
+                }
             else:
+                job.status = "failed"
+                await db.commit()
                 return {"job_id": job_id, "status": "failed", "detail": "No image output found."}
+
+            return {"job_id": job_id, "status": "processing"}
         # If it's not in the history yet, it's still queued or executing
         return {"job_id": job_id, "status": "processing"}
 
 @app.get("/api/portfolio/image/{job_id}")
-async def get_image(job_id: str):
-    """Serves the generated image securely with job_id."""
+async def get_image(job_id: str, db: AsyncSession = Depends(get_db)):
+    """Serves the generated image securely via database record."""
     #retrieve image_info
-    if job_id not in jobs_db or "image_info" not in jobs_db[job_id]:
+    result = await db.execute(select(JobRecord).where(JobRecord.job_id == job_id))
+    job = result.scalars().first()
+
+    if not job or not job.image_info:
         raise HTTPException(status_code=404, detail=f"Image not found or not ready for {job_id}")
 
-    img_info = jobs_db[job_id]["image_info"]
+    img_info = job.image_info
 
     params = {"filename": img_info["filename"]}
 
@@ -231,6 +274,28 @@ async def get_image(job_id: str):
             raise HTTPException(status_code=404, detail="Image not found on server.")
 
         return Response(content=img_res.content, media_type="image/png")
+
+@app.get("/api/portfolio/history")
+async def get_history(db: AsyncSession = Depends(get_db)):
+    """Returns all completed jobs for the React UI gallery, sorted newest first."""
+    # Order by created_at descending
+    result = await db.execute(
+        select(JobRecord)
+        .where(JobRecord.status == "completed")
+        .order_by(JobRecord.created_at.desc())
+    )
+    jobs = result.scalars().all()
+
+    return [
+        {
+            "job_id": job.job_id,
+            "query": job.query,
+            "seed": job.seed,
+            "image_url": job.image_url,
+            "created_at": job.created_at
+        }
+        for job in jobs
+    ]
 
 @app.get("/")
 async def root():
