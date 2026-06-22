@@ -1,13 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 function App() {
-  // State tracking
+  // --- EXISTING STATE & LOGIC ---
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("idle"); // idle, processing, completed, error
+  const [status, setStatus] = useState("idle");
   const [imageUrl, setImageUrl] = useState(null);
   const [warmedUp, setWarmedUp] = useState(false);
+  const [history, setHistory] = useState([]);
 
-  // 1. Fire-and-Forget Warmup
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch("/api/portfolio/history");
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch history:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
   const handleWarmup = () => {
     if (warmedUp) return; // Only do this once
 
@@ -29,7 +45,7 @@ function App() {
 
     try {
       // Step A: Submit the job
-      const generateRes = await fetch("api/portfolio/imagegen", {
+      const generateRes = await fetch("/api/portfolio/imagegen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_name: "imagegen", query: query })
@@ -42,14 +58,15 @@ function App() {
 
       // Step B: Poll for status every 2 seconds
       const poll = setInterval(async () => {
-        const statusRes = await fetch(`api/portfolio/status/${jobId}`);
+        const statusRes = await fetch(`/api/portfolio/status/${jobId}`);
         const statusData = await statusRes.json();
 
         if (statusData.status === "completed") {
           clearInterval(poll);
           // Append a timestamp so the browser doesn't load a cached image
-          setImageUrl(`api${statusData.download_url}?t=${new Date().getTime()}`);
+          setImageUrl(`${statusData.download_url}?t=${new Date().getTime()}`);
           setStatus("completed");
+          fetchHistory();
         } else if (statusData.status === "failed") {
           clearInterval(poll);
           setStatus("error");
@@ -62,67 +79,155 @@ function App() {
     }
   };
 
+  // --- UI ---
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center p-10 font-sans">
+    // Deep, ambient background with a subtle radial gradient
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black text-slate-200 font-sans selection:bg-cyan-500/30">
 
-      <header className="mb-10 text-center">
-        <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 mb-3">
-          Z-Turbo Image Generator
-        </h1>
-        <p className="text-slate-400">Powered by FastAPI & ComfyUI on K3s</p>
-      </header>
+      {/* Mobile-friendly container with padding */}
+      <div className="max-w-6xl mx-auto px-4 py-8 md:py-16 flex flex-col items-center">
 
-      <main className="w-full max-w-2xl bg-slate-800 rounded-2xl shadow-2xl p-8 border border-slate-700">
+        {/* Header Section */}
+        <header className="mb-10 text-center space-y-4 w-full max-w-2xl">
+          <div className="inline-block relative">
+            <div className="absolute inset-0 bg-cyan-500 blur-3xl opacity-20 animate-pulse"></div>
+            <h1 className="relative text-4xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-emerald-300 tracking-tight">
+              Z-Turbo Engine
+            </h1>
+          </div>
+          <p className="text-sm md:text-base text-slate-400 font-light tracking-wide">
+            High-Performance AI Generation • K3s Orchestrated
+          </p>
+        </header>
 
-        {/* Input Section */}
-        <div className="flex flex-col gap-4 mb-8">
-          <textarea
-            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none transition-all"
-            rows="3"
-            placeholder="Describe the image you want to generate..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={handleWarmup} // Wakes up the GPU the second they click!
-          />
+        {/* Main Generator Glass Panel */}
+        <main className="w-full max-w-2xl relative">
+          {/* Subtle glow behind the main panel */}
+          <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-[2rem] blur-lg opacity-20"></div>
 
-          <button
-            onClick={handleGenerate}
-            disabled={status === "processing" || !query.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg"
-          >
-            {status === "processing" ? "Generating (Polling Server)..." : "Generate Image"}
-          </button>
-        </div>
+          <div className="relative bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-6 md:p-8 overflow-hidden">
 
-        {/* Dynamic Image Display Area */}
-        <div className="bg-slate-900 rounded-lg min-h-[400px] flex items-center justify-center border border-slate-700 overflow-hidden">
+            {/* Input Section */}
+            <div className="flex flex-col gap-4 mb-8">
+              <div className="relative group">
+                <textarea
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 resize-none transition-all duration-300 backdrop-blur-sm"
+                  rows="3"
+                  placeholder="Describe your vision in high detail..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onFocus={handleWarmup}
+                />
+                {/* Decorative corner accent */}
+                <div className="absolute top-0 right-0 w-8 h-8 bg-gradient-to-bl from-cyan-500/20 to-transparent rounded-tr-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              </div>
 
-          {status === "idle" && (
-            <p className="text-slate-500 italic">Your generated image will appear here</p>
-          )}
+              <button
+                onClick={handleGenerate}
+                disabled={status === "processing" || !query.trim()}
+                className="group relative w-full overflow-hidden rounded-2xl p-[2px] focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-400 opacity-80 group-hover:opacity-100 transition-opacity duration-300"></span>
+                <div className="relative bg-black/20 backdrop-blur-md px-8 py-4 rounded-[14px] flex items-center justify-center gap-2">
+                  <span className="font-bold text-white tracking-wide">
+                    {status === "processing" ? "Synthesizing Latents..." : "Initialize Generation"}
+                  </span>
+                  {/* Small animated spark/arrow icon */}
+                  {status !== "processing" && (
+                     <svg className="w-5 h-5 text-cyan-200 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  )}
+                </div>
+              </button>
+            </div>
 
-          {status === "processing" && (
-            <div className="flex flex-col items-center animate-pulse">
-              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-blue-400 font-semibold">Warming up GPUs and diffusing latents...</p>
+            {/* Dynamic Image Display Area */}
+            <div className="relative bg-black/60 rounded-2xl min-h-[300px] md:min-h-[450px] flex items-center justify-center border border-white/5 overflow-hidden group transition-all duration-500">
+
+              {status === "idle" && (
+                <div className="text-center text-slate-500 p-8">
+                  <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  <p className="font-light tracking-wide">Awaiting parameters</p>
+                </div>
+              )}
+
+              {status === "processing" && (
+                <div className="flex flex-col items-center">
+                  {/* Custom animated scanner effect */}
+                  <div className="relative w-20 h-20 mb-6">
+                    <div className="absolute inset-0 border-t-2 border-cyan-400 rounded-full animate-spin"></div>
+                    <div className="absolute inset-2 border-r-2 border-blue-500 rounded-full animate-spin border-dashed opacity-70" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+                  </div>
+                  <p className="text-cyan-400 font-medium animate-pulse tracking-wide text-sm md:text-base">Connecting to ComfyUI Engine...</p>
+                </div>
+              )}
+
+              {status === "completed" && imageUrl && (
+                <img
+                  src={imageUrl}
+                  alt="Generated output"
+                  className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
+                />
+              )}
+
+              {status === "error" && (
+                <div className="text-red-400 flex items-center gap-2 bg-red-400/10 px-6 py-3 rounded-full border border-red-400/20">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                  <span className="font-medium tracking-wide">Pipeline Failure</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </main>
+
+        {/* Database History Gallery */}
+        <section className="w-full mt-24 mb-10">
+          <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/10">
+            <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+              Output <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Telemetry</span>
+            </h2>
+            <span className="text-xs md:text-sm font-medium text-slate-500 bg-white/5 px-3 py-1 rounded-full border border-white/5">
+              {history.length} Records
+            </span>
+          </div>
+
+          {history.length === 0 ? (
+            <div className="bg-white/5 border border-white/5 rounded-2xl py-16 text-center backdrop-blur-sm">
+              <p className="text-slate-500 font-light tracking-wide">No persistent records detected in PostgreSQL.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
+              {history.map((job) => (
+                <div
+                  key={job.job_id}
+                  className="group relative bg-slate-900/40 backdrop-blur-md rounded-2xl overflow-hidden border border-white/10 shadow-xl hover:border-cyan-500/50 transition-all duration-300 hover:-translate-y-1 flex flex-col"
+                >
+                  <div className="relative aspect-square overflow-hidden bg-black/50">
+                    <img
+                      src={job.image_url}
+                      alt={job.query}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-90 group-hover:opacity-100"
+                      loading="lazy"
+                    />
+                    {/* Hover gradient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  </div>
+
+                  <div className="p-5 flex flex-col flex-grow relative z-10 bg-slate-900/80">
+                    <p className="text-sm text-slate-300 line-clamp-3 mb-4 flex-grow font-light leading-relaxed" title={job.query}>
+                      "{job.query}"
+                    </p>
+                    <div className="flex justify-between items-center text-[10px] md:text-xs text-slate-500 pt-3 border-t border-white/10 font-mono tracking-wider">
+                      <span className="bg-black/30 px-2 py-1 rounded-md">ID: {job.job_id.substring(0,6)}</span>
+                      <span>{new Date(job.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+        </section>
 
-          {status === "completed" && imageUrl && (
-            <img
-              src={imageUrl}
-              alt="Generated output"
-              className="w-full h-auto object-contain animate-fade-in"
-            />
-          )}
-
-          {status === "error" && (
-            <p className="text-red-400 font-semibold">Generation failed. Check backend logs.</p>
-          )}
-
-        </div>
-      </main>
-
+      </div>
     </div>
   );
 }
