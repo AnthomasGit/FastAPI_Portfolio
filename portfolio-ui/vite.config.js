@@ -6,11 +6,11 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(),tailwindcss()],
   server: {
-    port: 3000, // The port your frontend runs on locally
+    port: 5173, // The port your frontend runs in docker-compose
     proxy: {
       // Intercept any request starting with /api
-      '/api': {
-        target: 'http://localhost:8000', // Forward to local FastAPI backend
+      '/api': { //redirect to backend container
+        target: 'http://portfolio-api:8000', // Forward to containerized FastAPI backend
         changeOrigin: true,
         secure: false,
         // Optional: Remove /api prefix before hitting FastAPI if your
