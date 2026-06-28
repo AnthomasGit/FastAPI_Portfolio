@@ -1,11 +1,7 @@
-import os
-import json
-import uuid
-import random
-import asyncio
-import httpx
+import os, json, uuid, random, asyncio, httpx, shutil
+from PIL import Image
 from enum import Enum
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,11 +17,13 @@ COMFY_WS_URL = COMFY_API_URL.replace("http://", "ws://").replace("https://", "ws
 # This decides what workflow/model to use
 class ModelName(str, Enum):
     imagegen = "imagegen"
+    imageedit = "imageedit"
     # add new workflow
 
 # Maps the Enum->local JSON
 WORKFLOW_MAP = {
     ModelName.imagegen: "image_z_image_turbo.json",
+    ModelName.imageedit: "image_flux2_klein_image_edit_4b_base.json",
     # direct ModelName.new_workflow to JSON
 }
 
@@ -37,11 +35,23 @@ class WarmupRequest(BaseModel):
 class GenerateRequest(BaseModel):
     model_name: ModelName
     query: str
+    image_filename: str | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Initializing Database...")
     await init_db()
+
+    # NEW: Safely generate a 256x256 black dummy image for FFmpeg compatibility
+    input_dir = "/opt/ComfyUI/input"
+    os.makedirs(input_dir, exist_ok=True)
+    dummy_path = os.path.join(input_dir, "dummy_warmup.png")
+
+    if not os.path.exists(dummy_path):
+        # Creates a standard 256x256 RGB image
+        img = Image.new('RGB', (256, 256), color='black')
+        img.save(dummy_path)
+
     print("Database Ready!")
     yield
 
@@ -86,11 +96,11 @@ def prepare_warmup_workflow(workflow: dict) -> dict:
         class_type = node_data.get("class_type", "")
         inputs = node_data.get("inputs", {})
 
-        # 1. Drop steps to 1 to bypass long compute times
-        if "KSampler" in class_type and "steps" in inputs:
+        # 1. Drop steps to 1 (ADDED "Scheduler" to catch your new Flux workflow!)
+        if ("KSampler" in class_type or "Scheduler" in class_type) and "steps" in inputs:
             inputs["steps"] = 1
 
-        # 2. Shrink the latent image so the GPU doesn't waste VRAM generating a dummy image
+        # 2. Shrink the latent image so the GPU doesn't waste VRAM
         elif "LatentImage" in class_type and "width" in inputs:
             inputs["width"] = 256
             inputs["height"] = 256
@@ -98,6 +108,10 @@ def prepare_warmup_workflow(workflow: dict) -> dict:
         # 3. Inject a dummy prompt
         elif class_type == "CLIPTextEncode" and "text" in inputs:
             inputs["text"] = "warmup"
+
+        # 4. NEW: Intercept the Image Node and inject our 1x1 dummy image
+        elif class_type == "LoadImage" and "image" in inputs:
+            inputs["image"] = "dummy_warmup.png"
 
     return workflow
 
@@ -132,25 +146,54 @@ async def send_warmup_to_comfy(payload: dict):
         except Exception as e:
             print(f"⚠️ Warmup request failed (server might be down): {e}")
 
+
+@app.post("/api/portfolio/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """Receives file from React and saves it to the ComfyUI input folder."""
+    file_extension = file.filename.split(".")[-1]
+    unique_filename = f"upload_{uuid.uuid4().hex}.{file_extension}"
+
+    # This matches the physical folder on your server we mounted
+    input_dir = "/opt/ComfyUI/input"
+    os.makedirs(input_dir, exist_ok=True)
+    file_path = os.path.join(input_dir, unique_filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {"filename": unique_filename}
+
+
 @app.post("/api/portfolio/imagegen")
 async def queue_generation(request: GenerateRequest, db: AsyncSession = Depends(get_db)):
-    # Load JSON according to model_name
     workflow = load_workflow(request.model_name)
-
-    # Inject user input into JSON text_encoder node
-    try:
-        workflow["57:27"]["inputs"]["text"] = request.query
-    except KeyError:
-        print("Warning: Node ID '57:27' for text prompt not found. Check your JSON!")
-
-    # Inject random seed to ensure unique generation
-    # FIX: Define the variable FIRST, then inject it
     seed_val = random.randint(1, 1000000000000000)
+    job_id = str(uuid.uuid4())
 
-    try:
-        workflow["57:3"]["inputs"]["seed"] = seed_val
-    except KeyError:
-        print("Warning: Node ID '57:3' for text seed not found. Check your JSON!")
+    # --- CONDITIONAL JSON INJECTION ---
+    if request.model_name == ModelName.imagegen:
+        try:
+            workflow["57:27"]["inputs"]["text"] = request.query
+            workflow["57:3"]["inputs"]["seed"] = seed_val
+            workflow["9"]["inputs"]["filename_prefix"] = job_id
+        except KeyError as e:
+            print(f"Warning: Node ID not found in imagegen JSON: {e}")
+
+    elif request.model_name == ModelName.imageedit:
+        try:
+            # Flux Image-to-Image Nodes
+            workflow["75:74"]["inputs"]["text"] = request.query
+            workflow["75:73"]["inputs"]["noise_seed"] = seed_val
+            workflow["9"]["inputs"]["filename_prefix"] = job_id  # Strict Contract reused!
+
+            # Inject the uploaded filename into LoadImage (Node 76)
+            if request.image_filename:
+                workflow["76"]["inputs"]["image"] = request.image_filename
+            else:
+                raise HTTPException(status_code=400, detail="Image file required for edit workflow")
+        except KeyError as e:
+            print(f"Warning: Node ID not found in imageedit JSON: {e}")
+
 
     # Create unique client-side ID, replace with login
     client_id = str(uuid.uuid4())
@@ -167,7 +210,6 @@ async def queue_generation(request: GenerateRequest, db: AsyncSession = Depends(
             raise HTTPException(status_code=503, detail="ComfyUI server is unreachable")
     # "/prompt" returns prompt ID
     prompt_id = response.json().get("prompt_id")
-    job_id = str(uuid.uuid4())
 
     # DATABASE INSERT
     new_job = JobRecord(
@@ -212,14 +254,21 @@ async def check_status(job_id: str, db: AsyncSession = Depends(get_db)):
 
         # If the prompt_id query returns from "/history" then imagegen is complete, retrieve.
         if in_history:
-            #init image info store
-            img_info = None
-            outputs = in_history.get("outputs", {})
-            for node_id, node_output in outputs.items():
-                if "images" in node_output:
-                    # Grab the entire dictionary ComfyUI provides (filename, subfolder, type)
-                    img_info = node_output["images"][0]
-                    break
+
+            # 1. Check if ComfyUI explicitly reported a node failure
+            if in_history.get("status", {}).get("status_str") == "error":
+                job.status = "failed"
+                await db.commit()
+                return {"job_id": job_id, "status": "failed", "detail": "ComfyUI threw an internal error."}
+
+            # 2. Bypass the missing outputs dictionary entirely!
+            # Because we forced ComfyUI to use our unique job_id as the prefix,
+            # it will ALWAYS append _00001_.png to the first generation.
+            img_info = {
+                "filename": f"{job_id}_00001_.png",
+                "subfolder": "",
+                "type": "output"
+            }
 
             # Once img_info is filled, return URL where frontend can download image
             if img_info:
@@ -240,7 +289,6 @@ async def check_status(job_id: str, db: AsyncSession = Depends(get_db)):
                 await db.commit()
                 return {"job_id": job_id, "status": "failed", "detail": "No image output found."}
 
-            return {"job_id": job_id, "status": "processing"}
         # If it's not in the history yet, it's still queued or executing
         return {"job_id": job_id, "status": "processing"}
 

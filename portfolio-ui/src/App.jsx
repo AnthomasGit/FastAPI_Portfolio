@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function App() {
   // --- EXISTING STATE & LOGIC ---
@@ -7,6 +7,9 @@ function App() {
   const [imageUrl, setImageUrl] = useState(null);
   const [warmedUp, setWarmedUp] = useState(false);
   const [history, setHistory] = useState([]);
+  const [workflow, setWorkflow] = useState("imagegen");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
   const fetchHistory = async () => {
     try {
@@ -30,7 +33,7 @@ function App() {
     fetch("api/portfolio/warmup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_name: "imagegen" })
+      body: JSON.stringify({ model_name: workflow })
     }).catch(console.error); // Silently fail if server is down
 
     setWarmedUp(true);
@@ -39,16 +42,41 @@ function App() {
   // 2. The Core Generation & Polling Loop
   const handleGenerate = async () => {
     if (!query.trim()) return;
+    if (workflow === "imageedit" && !selectedFile) {
+      alert("Please upload a reference image for the Image Edit workflow.");
+      return;
+    }
 
     setStatus("processing");
     setImageUrl(null);
 
     try {
-      // Step A: Submit the job
+      let uploadedFilename = null;
+
+      // Step 1 (Optional): Upload the image if in edit mode
+      if (workflow === "imageedit" && selectedFile) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        const uploadRes = await fetch("/api/portfolio/upload", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!uploadRes.ok) throw new Error("Image upload failed");
+        const uploadData = await uploadRes.json();
+        uploadedFilename = uploadData.filename;
+      }
+
+      // Step 2: Submit the job with the correct model and filename
       const generateRes = await fetch("/api/portfolio/imagegen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_name: "imagegen", query: query })
+        body: JSON.stringify({
+            model_name: workflow,
+            query: query,
+            image_filename: uploadedFilename
+        })
       });
 
       const generateData = await generateRes.json();
@@ -92,11 +120,11 @@ function App() {
           <div className="inline-block relative">
             <div className="absolute inset-0 bg-cyan-500 blur-3xl opacity-20 animate-pulse"></div>
             <h1 className="relative text-4xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-emerald-300 tracking-tight">
-              Z-Turbo Engine
+              Image Studio
             </h1>
           </div>
           <p className="text-sm md:text-base text-slate-400 font-light tracking-wide">
-            High-Performance AI Generation • K3s Orchestrated
+            High-Performance AI Generation • K3s Orchestrated • Running on Consumer Hardware
           </p>
         </header>
 
@@ -110,6 +138,40 @@ function App() {
             {/* Input Section */}
             <div className="flex flex-col gap-4 mb-8">
               <div className="relative group">
+                {/* Workflow Selector & Upload */}
+                <div className="flex flex-col md:flex-row gap-4 mb-4">
+                  <select
+                    value={workflow}
+                    onChange={(e) => {
+                        setWorkflow(e.target.value);
+                        setSelectedFile(null); // Clear file if switching modes
+                        setWarmedUp(false)
+                    }}
+                    className="bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-cyan-500/50 flex-1 backdrop-blur-sm appearance-none"
+                  >
+                    <option value="imagegen">Create an Image</option>
+                    <option value="imageedit">Edit an Image</option>
+                  </select>
+
+                  {/* Conditional File Upload UI */}
+                  {workflow === "imageedit" && (
+                    <div className="flex-1 flex items-center">
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg"
+                        className="hidden"
+                        ref={fileInputRef}
+                        onChange={(e) => setSelectedFile(e.target.files[0])}
+                      />
+                      <button
+                        onClick={() => fileInputRef.current.click()}
+                        className={`w-full p-3 rounded-xl border border-dashed transition-all ${selectedFile ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200' : 'border-white/20 bg-black/40 text-slate-400 hover:border-cyan-500/50 hover:bg-cyan-500/10'}`}
+                      >
+                        {selectedFile ? `Ready: ${selectedFile.name}` : '+ Upload an Image'}
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <textarea
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 resize-none transition-all duration-300 backdrop-blur-sm"
                   rows="3"
@@ -130,7 +192,7 @@ function App() {
                 <span className="absolute inset-0 bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-400 opacity-80 group-hover:opacity-100 transition-opacity duration-300"></span>
                 <div className="relative bg-black/20 backdrop-blur-md px-8 py-4 rounded-[14px] flex items-center justify-center gap-2">
                   <span className="font-bold text-white tracking-wide">
-                    {status === "processing" ? "Synthesizing Latents..." : "Initialize Generation"}
+                    {status === "processing" ? "Gathering paint..." : "Create your vision"}
                   </span>
                   {/* Small animated spark/arrow icon */}
                   {status !== "processing" && (
@@ -143,12 +205,26 @@ function App() {
             {/* Dynamic Image Display Area */}
             <div className="relative bg-black/60 rounded-2xl min-h-[300px] md:min-h-[450px] flex items-center justify-center border border-white/5 overflow-hidden group transition-all duration-500">
 
-              {status === "idle" && (
+              {status === "idle" && (workflow === "imageedit" && selectedFile ? (
+                /* NEW: Show the uploaded reference image immediately while idle */
+                <div className="relative w-full h-full flex flex-col items-center justify-center p-4 animate-fade-in">
+                  <img
+                    src={URL.createObjectURL(selectedFile)}
+                    alt="Uploaded reference preview"
+                    className="max-h-[260px] md:max-h-[380px] rounded-xl object-contain border border-white/10 shadow-lg"
+                  />
+                  <p className="text-xs text-slate-400 mt-3 font-light tracking-wide bg-black/40 px-3 py-1 rounded-full border border-white/5">
+                    Reference Image Staged
+                  </p>
+                </div>
+              ) : (
+                /* Default empty state */
                 <div className="text-center text-slate-500 p-8">
                   <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                  <p className="font-light tracking-wide">Awaiting parameters</p>
+                  <p className="font-light tracking-wide">C'mon create something cool</p>
                 </div>
-              )}
+              )
+            )}
 
               {status === "processing" && (
                 <div className="flex flex-col items-center">
@@ -157,7 +233,7 @@ function App() {
                     <div className="absolute inset-0 border-t-2 border-cyan-400 rounded-full animate-spin"></div>
                     <div className="absolute inset-2 border-r-2 border-blue-500 rounded-full animate-spin border-dashed opacity-70" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
                   </div>
-                  <p className="text-cyan-400 font-medium animate-pulse tracking-wide text-sm md:text-base">Connecting to ComfyUI Engine...</p>
+                  <p className="text-cyan-400 font-medium animate-pulse tracking-wide text-sm md:text-base">Creating your image...</p>
                 </div>
               )}
 
@@ -183,7 +259,7 @@ function App() {
         <section className="w-full mt-24 mb-10">
           <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/10">
             <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
-              Output <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Telemetry</span>
+              Output <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Gallery</span>
             </h2>
             <span className="text-xs md:text-sm font-medium text-slate-500 bg-white/5 px-3 py-1 rounded-full border border-white/5">
               {history.length} Records
