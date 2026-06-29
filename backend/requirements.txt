@@ -22,3 +22,7 @@ pydantic
 sqlalchemy
 asyncpg
 greenlet
+# ==========================================
+# AI / LLM CLIENT (OpenRouter / OpenAI-compatible)
+# ==========================================
+openai>=1.0.0
