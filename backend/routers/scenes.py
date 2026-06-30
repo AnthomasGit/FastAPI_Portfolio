@@ -9,18 +9,20 @@ from schemas.schemas import SceneCreate, SceneUpdate, SceneResponse, SceneReorde
 
 router = APIRouter()
 
+SCENE_LOAD_OPTS = [
+    selectinload(Scene.characters),
+    selectinload(Scene.locations),
+    selectinload(Scene.props),
+    selectinload(Scene.references),
+    selectinload(Scene.generated_images),
+]
+
 
 @router.get("/api/projects/{project_id}/scenes", response_model=List[SceneResponse])
 async def list_scenes(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Scene)
-        .options(
-            selectinload(Scene.characters),
-            selectinload(Scene.locations),
-            selectinload(Scene.props),
-            selectinload(Scene.references),
-            selectinload(Scene.generated_images),
-        )
+        .options(*SCENE_LOAD_OPTS)
         .where(Scene.project_id == project_id)
         .order_by(Scene.sort_order)
     )
@@ -43,22 +45,27 @@ async def create_scene(project_id: str, data: SceneCreate, db: AsyncSession = De
     )
     db.add(scene)
     await db.commit()
-    await db.refresh(scene)
-    return scene
+
+    result = await db.execute(
+        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene.id)
+    )
+    return result.scalars().first()
+
+
+@router.put("/api/scenes/reorder")
+async def reorder_scenes(data: SceneReorderRequest, db: AsyncSession = Depends(get_db)):
+    for index, scene_id in enumerate(data.scene_ids):
+        await db.execute(
+            update(Scene).where(Scene.id == scene_id).values(sort_order=index)
+        )
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.put("/api/scenes/{scene_id}", response_model=SceneResponse)
 async def update_scene(scene_id: str, data: SceneUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Scene)
-        .options(
-            selectinload(Scene.characters),
-            selectinload(Scene.locations),
-            selectinload(Scene.props),
-            selectinload(Scene.references),
-            selectinload(Scene.generated_images),
-        )
-        .where(Scene.id == scene_id)
+        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene_id)
     )
     scene = result.scalars().first()
     if not scene:
@@ -72,8 +79,11 @@ async def update_scene(scene_id: str, data: SceneUpdate, db: AsyncSession = Depe
         scene.notes = data.notes
 
     await db.commit()
-    await db.refresh(scene)
-    return scene
+
+    result = await db.execute(
+        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene.id)
+    )
+    return result.scalars().first()
 
 
 @router.delete("/api/scenes/{scene_id}", status_code=204)
@@ -84,13 +94,3 @@ async def delete_scene(scene_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Scene not found")
     await db.delete(scene)
     await db.commit()
-
-
-@router.put("/api/scenes/reorder")
-async def reorder_scenes(data: SceneReorderRequest, db: AsyncSession = Depends(get_db)):
-    for index, scene_id in enumerate(data.scene_ids):
-        await db.execute(
-            update(Scene).where(Scene.id == scene_id).values(sort_order=index)
-        )
-    await db.commit()
-    return {"status": "ok"}
