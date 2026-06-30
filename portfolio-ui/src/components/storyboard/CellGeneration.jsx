@@ -12,25 +12,6 @@ export function CellGeneration({ scene }) {
   const [status, setStatus] = useState(scene.generation_status || 'idle');
   const pollingRef = useRef(null);
 
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, []);
-
-  const handleGenerate = async () => {
-    setGenerating(true);
-    setStatus('queued');
-    try {
-      const data = await api.generateScene(scene.id);
-      startPolling(data.generation_id);
-    } catch (e) {
-      console.error('Generation failed', e);
-      setGenerating(false);
-      setStatus('failed');
-    }
-  };
-
   const startPolling = (genId) => {
     pollingRef.current = setInterval(async () => {
       try {
@@ -49,6 +30,35 @@ export function CellGeneration({ scene }) {
       }
     }, 2000);
   };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setStatus('queued');
+    try {
+      const data = await api.generateScene(scene.id);
+      startPolling(data.generation_id);
+    } catch (e) {
+      console.error('Generation failed', e);
+      setGenerating(false);
+      setStatus('failed');
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const gens = scene.generated_images || [];
+    const latest = gens[gens.length - 1];
+    if (latest && (latest.status === 'processing' || latest.status === 'queued') && !pollingRef.current) {
+      setGenerating(true);
+      setStatus(latest.status);
+      startPolling(latest.id);
+    }
+  }, [scene.generated_images]);
 
   if (imageUrl) {
     return (
