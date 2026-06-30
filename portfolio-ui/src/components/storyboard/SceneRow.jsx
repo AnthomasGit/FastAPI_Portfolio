@@ -1,3 +1,5 @@
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { CellScreenplay } from './CellScreenplay';
 import { CellCharacters } from './CellCharacters';
 import { CellLocations } from './CellLocations';
@@ -5,12 +7,39 @@ import { CellProps } from './CellProps';
 import { CellGeneration } from './CellGeneration';
 import { GripVertical, Trash2 } from 'lucide-react';
 
-export function SceneRow({ scene, projectId, index, onDelete }) {
+export function SceneRow({ id, scene, projectId, index, onDelete }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : undefined,
+  };
+
   return (
-    <tr className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group">
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group"
+    >
       <td className="sticky left-0 z-10 bg-[#0f172a] p-3 min-w-[140px] max-w-[140px]">
         <div className="flex items-center gap-2">
-          <GripVertical className="w-3.5 h-3.5 text-slate-600 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          <button
+            ref={setActivatorNodeRef}
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-white/10 transition-colors"
+          >
+            <GripVertical className="w-3.5 h-3.5 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </button>
           <div>
             <span className="text-xs font-bold text-cyan-400">SC {index + 1}</span>
             {scene.slugline && (

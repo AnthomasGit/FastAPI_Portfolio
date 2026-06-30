@@ -1,3 +1,10 @@
+import { useState, useEffect } from 'react';
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { SceneRow } from './SceneRow';
 import { Plus } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -5,12 +12,46 @@ import { useQueryClient } from '@tanstack/react-query';
 
 export function SceneTable({ scenes, projectId }) {
   const queryClient = useQueryClient();
+  const [items, setItems] = useState(scenes);
+
+  useEffect(() => {
+    setItems(scenes);
+  }, [scenes]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    let orderedIds;
+    setItems((current) => {
+      const oldIndex = current.findIndex((s) => s.id === active.id);
+      const newIndex = current.findIndex((s) => s.id === over.id);
+      const reordered = [...current];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(newIndex, 0, moved);
+      orderedIds = reordered.map((s) => s.id);
+      return reordered;
+    });
+
+    try {
+      await api.reorderScenes(orderedIds);
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    } catch (e) {
+      console.error('Failed to reorder scenes', e);
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    }
+  };
 
   const handleAddScene = async () => {
     try {
-      const sceneNumber = (scenes?.length || 0) + 1;
+      const sceneNumber = (items?.length || 0) + 1;
       await api.createScene(projectId, { scene_number: sceneNumber, sort_order: sceneNumber });
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId], refetchType: 'all' });
     } catch (e) {
       console.error('Failed to add scene', e);
     }
@@ -51,17 +92,22 @@ export function SceneTable({ scenes, projectId }) {
             <th className="p-3 w-10" />
           </tr>
         </thead>
-        <tbody>
-          {scenes.map((scene, i) => (
-            <SceneRow
-              key={scene.id}
-              scene={scene}
-              projectId={projectId}
-              index={i}
-              onDelete={handleDeleteScene}
-            />
-          ))}
-        </tbody>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={items.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+            <tbody>
+              {items.map((scene, i) => (
+                <SceneRow
+                  key={scene.id}
+                  id={scene.id}
+                  scene={scene}
+                  projectId={projectId}
+                  index={i}
+                  onDelete={handleDeleteScene}
+                />
+              ))}
+            </tbody>
+          </SortableContext>
+        </DndContext>
       </table>
       <div className="p-3 border-t border-white/5">
         <button
