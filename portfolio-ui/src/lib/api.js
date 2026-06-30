@@ -9,6 +9,7 @@ async function fetchJSON(url, options = {}) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Request failed');
   }
+  if (res.status == 204) return null;
   return res.json();
 }
 
