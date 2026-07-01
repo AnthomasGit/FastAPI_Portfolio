@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
 } from '@dnd-kit/core';
@@ -10,6 +10,22 @@ import { Plus } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 
+const COLUMN_DEFAULTS = {
+  scene: 140, screenplay: 200, characters: 120, locations: 120, props: 100, video: 100,
+};
+const COLUMN_MIN_WIDTHS = {
+  scene: 120, screenplay: 120, characters: 100, locations: 100, props: 80, video: 80,
+};
+const COLUMN_LABELS = {
+  scene: 'Scene',
+  screenplay: 'Screenplay',
+  characters: 'Characters',
+  locations: 'Locations',
+  props: 'Props',
+  video: 'Video',
+};
+const COLUMN_KEYS = ['scene', 'screenplay', 'characters', 'locations', 'props', 'video'];
+
 export function SceneTable({ scenes, projectId }) {
   const queryClient = useQueryClient();
   const [items, setItems] = useState(scenes);
@@ -17,6 +33,47 @@ export function SceneTable({ scenes, projectId }) {
   useEffect(() => {
     setItems(scenes);
   }, [scenes]);
+
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem('storyboard-col-widths');
+      return saved ? { ...COLUMN_DEFAULTS, ...JSON.parse(saved) } : COLUMN_DEFAULTS;
+    } catch {
+      return COLUMN_DEFAULTS;
+    }
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const colWidthsRef = useRef(colWidths);
+  useEffect(() => { colWidthsRef.current = colWidths; }, [colWidths]);
+
+  useEffect(() => {
+    document.body.style.cursor = isResizing ? 'col-resize' : '';
+    document.body.style.userSelect = isResizing ? 'none' : '';
+  }, [isResizing]);
+
+  const startResize = (colKey, e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = colWidths[colKey];
+
+    setIsResizing(true);
+
+    const handleMouseMove = (move) => {
+      const delta = move.clientX - startX;
+      const newWidth = Math.max(COLUMN_MIN_WIDTHS[colKey], startWidth + delta);
+      setColWidths((prev) => ({ ...prev, [colKey]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      setIsResizing(false);
+      localStorage.setItem('storyboard-col-widths', JSON.stringify(colWidthsRef.current));
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -68,27 +125,22 @@ export function SceneTable({ scenes, projectId }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-white/10">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
-            <th className="sticky left-0 z-10 bg-[#0f172a] p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] max-w-[140px]">
-              Scene
-            </th>
-            <th className="p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[200px]">
-              Screenplay
-            </th>
-            <th className="p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[120px]">
-              Characters
-            </th>
-            <th className="p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[120px]">
-              Locations
-            </th>
-            <th className="p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[100px]">
-              Props
-            </th>
-            <th className="p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider min-w-[100px]">
-              Video
-            </th>
+            {COLUMN_KEYS.map((key) => (
+              <th
+                key={key}
+                className={`relative p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider${key === 'scene' ? ' sticky left-0 z-10 bg-[#0f172a]' : ''}`}
+                style={{ width: colWidths[key], minWidth: COLUMN_MIN_WIDTHS[key] }}
+              >
+                {COLUMN_LABELS[key]}
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-cyan-500/50 active:bg-cyan-500 transition-colors"
+                  onMouseDown={(e) => startResize(key, e)}
+                />
+              </th>
+            ))}
             <th className="p-3 w-10" />
           </tr>
         </thead>
@@ -103,6 +155,7 @@ export function SceneTable({ scenes, projectId }) {
                   projectId={projectId}
                   index={i}
                   onDelete={handleDeleteScene}
+                  colWidths={colWidths}
                 />
               ))}
             </tbody>

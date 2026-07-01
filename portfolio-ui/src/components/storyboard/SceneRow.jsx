@@ -10,7 +10,7 @@ import { GripVertical, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useProjectStore } from '../../stores/projectStore';
 
-export function SceneRow({ id, scene, projectId, index, onDelete }) {
+export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
   const {
     attributes,
     listeners,
@@ -58,7 +58,7 @@ export function SceneRow({ id, scene, projectId, index, onDelete }) {
       style={style}
       className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group"
     >
-      <td className="sticky left-0 z-10 bg-[#0f172a] p-3 min-w-[140px] max-w-[140px]">
+      <td className="sticky left-0 z-10 bg-[#0f172a] p-3" style={{ width: colWidths.scene, minWidth: 120 }}>
         <div className="flex items-center gap-2">
           <button
             ref={setActivatorNodeRef}
@@ -93,19 +93,19 @@ export function SceneRow({ id, scene, projectId, index, onDelete }) {
           </div>
         </div>
       </td>
-      <td className="p-3 min-w-[200px] max-w-[250px]">
+      <td className="p-3" style={{ width: colWidths.screenplay, minWidth: 120 }}>
         <CellScreenplay scene={scene} />
       </td>
-      <td className="p-3 min-w-[120px]">
+      <td className="p-3" style={{ width: colWidths.characters, minWidth: 100 }}>
         <CellCharacters scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3 min-w-[120px]">
+      <td className="p-3" style={{ width: colWidths.locations, minWidth: 100 }}>
         <CellLocations scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3 min-w-[100px]">
+      <td className="p-3" style={{ width: colWidths.props, minWidth: 80 }}>
         <CellProps scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3 min-w-[100px]">
+      <td className="p-3" style={{ width: colWidths.video, minWidth: 80 }}>
         <CellGeneration scene={scene} />
       </td>
       <td className="p-3 w-10">
