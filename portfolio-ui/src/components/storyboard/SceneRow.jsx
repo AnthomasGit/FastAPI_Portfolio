@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { CellScreenplay } from './CellScreenplay';
@@ -6,6 +7,8 @@ import { CellLocations } from './CellLocations';
 import { CellProps } from './CellProps';
 import { CellGeneration } from './CellGeneration';
 import { GripVertical, Trash2 } from 'lucide-react';
+import { api } from '../../lib/api';
+import { useProjectStore } from '../../stores/projectStore';
 
 export function SceneRow({ id, scene, projectId, index, onDelete }) {
   const {
@@ -17,6 +20,31 @@ export function SceneRow({ id, scene, projectId, index, onDelete }) {
     transition,
     isDragging,
   } = useSortable({ id });
+
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [slugValue, setSlugValue] = useState(scene.slugline || '');
+  const updateScene = useProjectStore((s) => s.updateScene);
+
+  const handleSaveSlug = async () => {
+    setEditingSlug(false);
+    const trimmed = slugValue.trim();
+    updateScene(scene.id, { slugline: trimmed || null });
+    try {
+      await api.updateScene(scene.id, { slugline: trimmed || null });
+    } catch (e) {
+      console.error('Failed to save slugline', e);
+    }
+  };
+
+  const handleSlugKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveSlug();
+    } else if (e.key === 'Escape') {
+      setSlugValue(scene.slugline || '');
+      setEditingSlug(false);
+    }
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -36,14 +64,31 @@ export function SceneRow({ id, scene, projectId, index, onDelete }) {
             ref={setActivatorNodeRef}
             {...attributes}
             {...listeners}
-            className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-white/10 transition-colors"
+            className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-white/10 transition-colors shrink-0"
           >
             <GripVertical className="w-3.5 h-3.5 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
           </button>
-          <div>
+          <div className="min-w-0 overflow-hidden">
             <span className="text-xs font-bold text-cyan-400">SC {index + 1}</span>
-            {scene.slugline && (
-              <p className="text-[10px] text-slate-500 truncate mt-0.5">{scene.slugline}</p>
+            {editingSlug ? (
+              <input
+                className="w-full text-[10px] bg-black/60 border border-cyan-500/50 rounded px-1 py-0.5 text-white focus:outline-none mt-0.5"
+                value={slugValue}
+                onChange={(e) => setSlugValue(e.target.value)}
+                onBlur={handleSaveSlug}
+                onKeyDown={handleSlugKeyDown}
+                autoFocus
+              />
+            ) : (
+              <p
+                className="text-[10px] text-slate-500 text-wrap mt-0.5 cursor-text"
+                onClick={() => {
+                  setSlugValue(scene.slugline || '');
+                  setEditingSlug(true);
+                }}
+              >
+                {scene.slugline || <span className="text-slate-600 italic">Add slugline...</span>}
+              </p>
             )}
           </div>
         </div>
