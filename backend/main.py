@@ -2,15 +2,12 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db
 from routers import projects, scenes, characters, locations, props, ai, generate
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Initializing Database...")
-    await init_db()
-    print("Database Ready!")
+    print("Database migrations assumed applied via alembic.")
     yield
 
 

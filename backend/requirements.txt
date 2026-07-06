@@ -26,3 +26,16 @@ greenlet
 # AI / LLM CLIENT (OpenRouter / OpenAI-compatible)
 # ==========================================
 openai>=1.0.0
+
+# ==========================================
+# DATABASE MIGRATIONS
+# ==========================================
+alembic
+
+# ==========================================
+# TESTING
+# ==========================================
+pytest
+pytest-asyncio
+respx
+aiosqlite
