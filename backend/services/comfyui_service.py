@@ -1,42 +1,11 @@
-import os, json, uuid, random, httpx
+import os, json, uuid, random
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Scene, GeneratedImage, Project, Character, Location, Prop, scene_characters, scene_locations, scene_props
+from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
 
-COMFY_API_URL = os.environ.get("COMFY_API_URL", "http://comfyui:8188")
-
-WORKFLOW_FILE = os.environ.get("COMFY_WORKFLOW", "image_z_image_turbo.json")
-WORKFLOW_DIR = os.path.join(os.path.dirname(__file__), "..", "workflows")
-
-
-def load_workflow() -> dict:
-    filepath = os.path.join(WORKFLOW_DIR, WORKFLOW_FILE)
-    try:
-        with open(filepath, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        raise RuntimeError(f"Workflow not found: {filepath}")
-
-
-def inject_prompt(workflow: dict, prompt_text: str, job_id: str, seed: int) -> dict:
-    for node_id, node_data in workflow.items():
-        inputs = node_data.get("inputs", {})
-        class_type = node_data.get("class_type", "")
-
-        if class_type == "CLIPTextEncode" and "text" in inputs:
-            if "negative" in node_id or "neg" in str(node_data).lower():
-                continue
-            inputs["text"] = prompt_text
-
-        if "KSampler" in class_type or "Sampler" in class_type:
-            if "seed" in inputs:
-                inputs["seed"] = seed
-
-        if "filename_prefix" in inputs:
-            inputs["filename_prefix"] = job_id
-
-    return workflow
+WORKFLOW_NAME = "image_z_image_turbo"
 
 
 async def construct_prompt(scene_id: str, db: AsyncSession) -> str:
@@ -93,24 +62,19 @@ async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
     gen_id = gen.id
 
     try:
-        workflow = load_workflow()
+        workflow = load_workflow(WORKFLOW_NAME)
+        node_map = load_node_map(WORKFLOW_NAME)
+
         job_id = str(uuid.uuid4())
         seed_val = random.randint(1, 1000000000000000)
-        workflow = inject_prompt(workflow, prompt_text, job_id, seed_val)
 
-        payload = {
-            "prompt": workflow,
-            "client_id": f"storyboard-{uuid.uuid4()}"
-        }
+        workflow = inject(workflow, node_map, {
+            "prompt": prompt_text,
+            "seed": seed_val,
+            "filename_prefix": job_id,
+        })
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(f"{COMFY_API_URL}/prompt", json=payload)
-            if response.status_code != 200:
-                gen.status = "failed"
-                await db.commit()
-                return gen_id
-
-            prompt_id = response.json().get("prompt_id")
+        prompt_id = await submit(workflow)
 
         gen.status = "processing"
         gen.job_id = job_id
@@ -135,21 +99,14 @@ async def poll_generation_status(generation_id: str, db: AsyncSession) -> dict:
         return {"id": gen.id, "status": gen.status, "image_url": gen.image_url}
 
     if gen.prompt_id:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                history_res = await client.get(f"{COMFY_API_URL}/history/{gen.prompt_id}")
-                history = history_res.json().get(gen.prompt_id, {})
-
-                if history:
-                    if history.get("status", {}).get("status_str") == "error":
-                        gen.status = "failed"
-                        await db.commit()
-                        return {"id": gen.id, "status": "failed"}
-
-                    gen.status = "completed"
-                    await db.commit()
-                    return {"id": gen.id, "status": "completed", "image_url": gen.image_url}
-        except Exception:
-            pass
+        result = await poll(gen.prompt_id)
+        if result["status"] == "error":
+            gen.status = "failed"
+            await db.commit()
+            return {"id": gen.id, "status": "failed"}
+        elif result["status"] == "completed":
+            gen.status = "completed"
+            await db.commit()
+            return {"id": gen.id, "status": "completed", "image_url": gen.image_url}
 
     return {"id": gen.id, "status": gen.status}
