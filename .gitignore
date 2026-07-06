@@ -5,6 +5,9 @@ env/
 __pycache__/
 *.pyc
 
+# Environment
+.env
+
 # Frontend Logs
 logs
 *.log
