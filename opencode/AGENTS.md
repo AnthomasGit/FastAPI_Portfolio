@@ -18,11 +18,6 @@ CHANGE / EDIT MODE
     Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
     After completing features (large or small), always run commands like lint, type check and next build to check code quality
 
-DATABASE SCHEMA CHANGES
-
-    Whenever you make changes to the database schema, ALWAYS run the drizzle generate and migrate commands
-    NEVER run drizzle push!
-
 TESTING
 
     Use any testing tools, libraries available to the project for testing your changes
