@@ -13,6 +13,17 @@ async function fetchJSON(url, options = {}) {
   return res.json();
 }
 
+async function uploadFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Upload failed');
+  }
+  return res.json();
+}
+
 export const api = {
   listProjects: () => fetchJSON('/projects'),
   getProject: (id) => fetchJSON(`/projects/${id}`),
@@ -45,4 +56,16 @@ export const api = {
   getGenerationStatus: (genId) => fetchJSON(`/generate/status/${genId}`),
 
   getProjectGraph: (projectId) => fetchJSON(`/projects/${projectId}/graph`),
+
+  upload: (file) => uploadFile(file),
+
+  listReferences: (entityType, entityId) => fetchJSON(`/${entityType}/${entityId}/references`),
+
+  createReference: (entityType, entityId, data) => fetchJSON(`/${entityType}/${entityId}/references`, { method: 'POST', body: JSON.stringify(data) }),
+
+  updateReference: (id, data) => fetchJSON(`/references/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  deleteReference: (id) => fetchJSON(`/references/${id}`, { method: 'DELETE' }),
+
+  removeBackground: (id) => fetchJSON(`/references/${id}/remove-background`, { method: 'POST' }),
 };

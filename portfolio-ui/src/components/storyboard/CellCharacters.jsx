@@ -5,10 +5,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { api } from '../../lib/api';
+import { ReferenceManager } from './ReferenceManager';
 
 export function CellCharacters({ scene, projectId }) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [refTarget, setRefTarget] = useState(null);
   const characters = scene.characters || [];
 
   const handleAdd = async () => {
@@ -25,9 +27,11 @@ export function CellCharacters({ scene, projectId }) {
   return (
     <div className="flex flex-wrap gap-1.5 min-h-[32px] items-start">
       {characters.map((ch) => (
-        <Badge key={ch.id} variant="secondary" className="text-[10px] bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
-          {ch.name}
-        </Badge>
+        <button key={ch.id} onClick={() => setRefTarget(ch)} className="focus:outline-none">
+          <Badge variant="secondary" className="text-[10px] bg-emerald-500/10 text-emerald-300 border-emerald-500/20 cursor-pointer hover:bg-emerald-500/20 transition-colors">
+            {ch.name}
+          </Badge>
+        </button>
       ))}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
@@ -50,6 +54,15 @@ export function CellCharacters({ scene, projectId }) {
           </div>
         </DialogContent>
       </Dialog>
+      {refTarget && (
+        <ReferenceManager
+          entityType="character"
+          entityId={refTarget.id}
+          entityName={refTarget.name}
+          open={!!refTarget}
+          onOpenChange={(v) => { if (!v) setRefTarget(null); }}
+        />
+      )}
     </div>
   );
 }

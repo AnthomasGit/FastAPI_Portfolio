@@ -5,10 +5,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { api } from '../../lib/api';
+import { ReferenceManager } from './ReferenceManager';
 
 export function CellLocations({ scene, projectId }) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [refTarget, setRefTarget] = useState(null);
   const locations = scene.locations || [];
 
   const handleAdd = async () => {
@@ -25,12 +27,11 @@ export function CellLocations({ scene, projectId }) {
   return (
     <div className="flex flex-wrap gap-1.5 min-h-[32px] items-start">
       {locations.map((loc) => (
-        <Badge key={loc.id} variant="outline" className="text-[10px] bg-amber-500/10 text-amber-300 border-amber-500/20">
-          {loc.name}
-          {loc.shot_type && (
-            <span className="ml-1 text-[9px] text-amber-400/60 uppercase">({loc.shot_type})</span>
-          )}
-        </Badge>
+        <button key={loc.id} onClick={() => setRefTarget(loc)} className="focus:outline-none">
+          <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-300 border-amber-500/20 cursor-pointer hover:bg-amber-500/20 transition-colors">
+            {loc.name}
+          </Badge>
+        </button>
       ))}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
@@ -53,6 +54,15 @@ export function CellLocations({ scene, projectId }) {
           </div>
         </DialogContent>
       </Dialog>
+      {refTarget && (
+        <ReferenceManager
+          entityType="location"
+          entityId={refTarget.id}
+          entityName={refTarget.name}
+          open={!!refTarget}
+          onOpenChange={(v) => { if (!v) setRefTarget(null); }}
+        />
+      )}
     </div>
   );
 }
