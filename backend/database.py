@@ -1,7 +1,7 @@
 import os
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, BigInteger, Table, ForeignKey
+from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, BigInteger, Table, ForeignKey, Index
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -71,7 +71,11 @@ class Scene(Base):
     characters = relationship("Character", secondary=scene_characters, back_populates="scenes")
     locations = relationship("Location", secondary=scene_locations, back_populates="scenes")
     props = relationship("Prop", secondary=scene_props, back_populates="scenes")
-    references = relationship("Reference", back_populates="scene", cascade="all, delete-orphan")
+    references = relationship(
+        "Reference",
+        primaryjoin="and_(foreign(Reference.entity_id)==Scene.id, Reference.entity_type=='scene')",
+        viewonly=False, cascade="all, delete-orphan", overlaps="references",
+    )
     generated_images = relationship("GeneratedImage", back_populates="scene", cascade="all, delete-orphan")
 
 
@@ -83,11 +87,15 @@ class Character(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     traits = Column(JSON, nullable=True)
-    reference_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="characters")
     scenes = relationship("Scene", secondary=scene_characters, back_populates="characters")
+    references = relationship(
+        "Reference",
+        primaryjoin="and_(foreign(Reference.entity_id)==Character.id, Reference.entity_type=='character')",
+        viewonly=False, cascade="all, delete-orphan", overlaps="references",
+    )
 
 
 class Location(Base):
@@ -102,6 +110,11 @@ class Location(Base):
 
     project = relationship("Project", back_populates="locations")
     scenes = relationship("Scene", secondary=scene_locations, back_populates="locations")
+    references = relationship(
+        "Reference",
+        primaryjoin="and_(foreign(Reference.entity_id)==Location.id, Reference.entity_type=='location')",
+        viewonly=False, cascade="all, delete-orphan", overlaps="references",
+    )
 
 
 class Prop(Base):
@@ -115,19 +128,28 @@ class Prop(Base):
 
     project = relationship("Project", back_populates="props")
     scenes = relationship("Scene", secondary=scene_props, back_populates="props")
+    references = relationship(
+        "Reference",
+        primaryjoin="and_(foreign(Reference.entity_id)==Prop.id, Reference.entity_type=='prop')",
+        viewonly=False, cascade="all, delete-orphan", overlaps="references",
+    )
 
 
 class Reference(Base):
     __tablename__ = "references"
+    __table_args__ = (
+        Index("ix_references_entity", "entity_type", "entity_id"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    scene_id = Column(String, ForeignKey('scenes.id', ondelete="CASCADE"), nullable=False)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="moodboard")
     url = Column(String, nullable=True)
+    processed_url = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    type = Column(String, nullable=True)
+    sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    scene = relationship("Scene", back_populates="references")
 
 
 class GeneratedImage(Base):

@@ -39,3 +39,9 @@ pytest
 pytest-asyncio
 respx
 aiosqlite
+
+# ==========================================
+# IMAGE PREPROCESSING
+# ==========================================
+rembg
+onnxruntime

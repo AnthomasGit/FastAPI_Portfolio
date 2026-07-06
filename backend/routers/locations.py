@@ -5,6 +5,7 @@ from typing import List
 
 from database import get_db, Location, Project
 from schemas.schemas import LocationCreate, LocationUpdate, LocationResponse
+from services.reference_service import delete_entity_references
 
 router = APIRouter()
 
@@ -62,5 +63,6 @@ async def delete_location(location_id: str, db: AsyncSession = Depends(get_db)):
     loc = result.scalars().first()
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
+    await delete_entity_references(db, "location", location_id)
     await db.delete(loc)
     await db.commit()

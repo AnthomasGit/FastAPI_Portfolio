@@ -6,6 +6,7 @@ from typing import List
 
 from database import get_db, Scene, Project
 from schemas.schemas import SceneCreate, SceneUpdate, SceneResponse, SceneReorderRequest
+from services.reference_service import delete_entity_references
 
 router = APIRouter()
 
@@ -92,5 +93,6 @@ async def delete_scene(scene_id: str, db: AsyncSession = Depends(get_db)):
     scene = result.scalars().first()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
+    await delete_entity_references(db, "scene", scene_id)
     await db.delete(scene)
     await db.commit()

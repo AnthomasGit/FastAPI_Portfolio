@@ -5,6 +5,7 @@ from typing import List
 
 from database import get_db, Prop, Project
 from schemas.schemas import PropCreate, PropUpdate, PropResponse
+from services.reference_service import delete_entity_references
 
 router = APIRouter()
 
@@ -59,5 +60,6 @@ async def delete_prop(prop_id: str, db: AsyncSession = Depends(get_db)):
     prop = result.scalars().first()
     if not prop:
         raise HTTPException(status_code=404, detail="Prop not found")
+    await delete_entity_references(db, "prop", prop_id)
     await db.delete(prop)
     await db.commit()

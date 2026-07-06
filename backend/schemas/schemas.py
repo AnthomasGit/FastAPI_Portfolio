@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, model_validator
+from typing import Any, Optional, List
 from datetime import datetime
 
 
@@ -49,6 +49,26 @@ class CharacterResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @model_validator(mode='before')
+    @classmethod
+    def derive_reference_url(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            try:
+                refs = data.references
+            except Exception:
+                return data
+            primary = next((r for r in (refs or []) if getattr(r, 'role', None) == 'primary'), None)
+            if primary and getattr(primary, 'url', None):
+                return {
+                    'id': data.id,
+                    'project_id': data.project_id,
+                    'name': data.name,
+                    'description': data.description,
+                    'traits': data.traits,
+                    'reference_url': primary.url,
+                }
+        return data
+
 
 class LocationCreate(BaseModel):
     name: str
@@ -94,17 +114,27 @@ class PropResponse(BaseModel):
 
 
 class ReferenceCreate(BaseModel):
-    url: Optional[str] = None
+    url: str
+    role: str = "moodboard"
     description: Optional[str] = None
-    type: Optional[str] = None
+
+
+class ReferenceUpdate(BaseModel):
+    role: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
 
 
 class ReferenceResponse(BaseModel):
     id: str
-    scene_id: str
+    entity_type: str
+    entity_id: str
+    role: str
     url: Optional[str] = None
+    processed_url: Optional[str] = None
     description: Optional[str] = None
-    type: Optional[str] = None
+    sort_order: int = 0
+    created_at: datetime
 
     class Config:
         from_attributes = True
