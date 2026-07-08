@@ -4,6 +4,7 @@ venv/
 env/
 __pycache__/
 *.pyc
+.*
 
 # Environment
 .env
@@ -34,3 +35,6 @@ dist-ssr/
 *.sln
 *.sw?
 
+# Opencode
+/.opencode/
+3d-staging-lld-sdlc.md
