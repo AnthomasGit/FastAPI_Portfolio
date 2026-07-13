@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, ImageIcon } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { api } from '../../lib/api';
 import { ReferenceManager } from './ReferenceManager';
+import { SetImageDialog } from './SetImageDialog';
 
 export function CellCharacters({ scene, projectId }) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [refTarget, setRefTarget] = useState(null);
+  const [imageTarget, setImageTarget] = useState(null);
   const characters = scene.characters || [];
 
   const handleAdd = async () => {
@@ -27,11 +29,20 @@ export function CellCharacters({ scene, projectId }) {
   return (
     <div className="flex flex-wrap gap-1.5 min-h-[32px] items-start">
       {characters.map((ch) => (
-        <button key={ch.id} onClick={() => setRefTarget(ch)} className="focus:outline-none">
-          <Badge variant="secondary" className="text-[10px] bg-emerald-500/10 text-emerald-300 border-emerald-500/20 cursor-pointer hover:bg-emerald-500/20 transition-colors">
-            {ch.name}
-          </Badge>
-        </button>
+        <div key={ch.id} className="flex items-center gap-0.5">
+          <button onClick={() => setRefTarget(ch)} className="focus:outline-none">
+            <Badge variant="secondary" className="text-[10px] bg-emerald-500/10 text-emerald-300 border-emerald-500/20 cursor-pointer hover:bg-emerald-500/20 transition-colors">
+              {ch.name}
+            </Badge>
+          </button>
+          <button
+            onClick={() => setImageTarget(ch)}
+            className="p-0.5 rounded hover:bg-white/10 text-slate-500 hover:text-cyan-400 transition-colors"
+            title="Set image"
+          >
+            <ImageIcon className="w-3 h-3" />
+          </button>
+        </div>
       ))}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
@@ -61,6 +72,16 @@ export function CellCharacters({ scene, projectId }) {
           entityName={refTarget.name}
           open={!!refTarget}
           onOpenChange={(v) => { if (!v) setRefTarget(null); }}
+        />
+      )}
+      {imageTarget && (
+        <SetImageDialog
+          entityType="character"
+          entityId={imageTarget.id}
+          entityName={imageTarget.name}
+          projectId={projectId}
+          open={!!imageTarget}
+          onOpenChange={(v) => { if (!v) setImageTarget(null); }}
         />
       )}
     </div>
