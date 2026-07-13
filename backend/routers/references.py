@@ -18,6 +18,7 @@ from services.reference_service import get_entity
 router = APIRouter()
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
+COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 
 PLURAL_TO_SINGULAR = {
     "scenes": "scene",
@@ -141,6 +142,8 @@ async def remove_background_from_reference(
         raise HTTPException(status_code=422, detail="Reference has no url to process")
 
     input_path = os.path.join(COMFY_INPUT_DIR, ref.url)
+    if not os.path.exists(input_path) and "/" in ref.url:
+        input_path = os.path.join(COMFY_OUTPUT_DIR, ref.url)
     if not os.path.exists(input_path):
         raise HTTPException(status_code=422, detail="Reference image file not found on disk")
 
