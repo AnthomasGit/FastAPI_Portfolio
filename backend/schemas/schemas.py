@@ -134,10 +134,44 @@ class ReferenceResponse(BaseModel):
     processed_url: Optional[str] = None
     description: Optional[str] = None
     sort_order: int = 0
+    asset_image_id: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class AssetImageGenerateRequest(BaseModel):
+    project_id: str
+    entity_type: str
+    entity_id: Optional[str] = None
+    prompt: Optional[str] = None
+    source_reference_id: Optional[str] = None
+    source_asset_image_id: Optional[str] = None
+
+
+class AssetImageResponse(BaseModel):
+    id: str
+    origin_project_id: Optional[str] = None
+    entity_type: str
+    kind: str = "txt2img"
+    source_reference_id: Optional[str] = None
+    source_asset_image_id: Optional[str] = None
+    prompt: Optional[str] = None
+    image_url: Optional[str] = None
+    status: str = "queued"
+    job_id: Optional[str] = None
+    prompt_id: Optional[str] = None
+    params: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AssetImageAssignRequest(BaseModel):
+    asset_image_id: str
 
 
 class GenerateImageResponse(BaseModel):

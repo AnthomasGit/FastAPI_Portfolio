@@ -68,4 +68,21 @@ export const api = {
   deleteReference: (id) => fetchJSON(`/references/${id}`, { method: 'DELETE' }),
 
   removeBackground: (id) => fetchJSON(`/references/${id}/remove-background`, { method: 'POST' }),
+
+  generateAssetImage: (data) => fetchJSON('/asset-images/generate', { method: 'POST', body: JSON.stringify(data) }),
+
+  listAssetImages: (params = {}) => {
+    const qs = new URLSearchParams();
+    if (params.entity_type) qs.set('entity_type', params.entity_type);
+    if (params.project_id) qs.set('project_id', params.project_id);
+    const q = qs.toString();
+    return fetchJSON(`/asset-images${q ? `?${q}` : ''}`);
+  },
+
+  getAssetImage: (id) => fetchJSON(`/asset-images/${id}`),
+
+  getAssetImageFile: (id) => `${API_BASE}/asset-images/${id}/file`,
+
+  assignAssetImage: (entityType, entityId, assetImageId) =>
+    fetchJSON(`/${entityType}/${entityId}/assign-asset`, { method: 'POST', body: JSON.stringify({ asset_image_id: assetImageId }) }),
 };

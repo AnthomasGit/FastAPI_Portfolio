@@ -125,7 +125,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                 <div className="flex-1 bg-black/30 flex items-center justify-center overflow-hidden">
                   {ref.url ? (
                     <img
-                      src={`/api/uploads/file/${ref.processed_url || ref.url}`}
+                      src={ref.asset_image_id ? `/api/asset-images/${ref.asset_image_id}/file` : `/api/uploads/file/${ref.processed_url || ref.url}`}
                       alt=""
                       className="w-full h-full object-cover"
                     />

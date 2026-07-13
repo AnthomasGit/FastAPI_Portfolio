@@ -38,3 +38,7 @@ dist-ssr/
 # Opencode
 /.opencode/
 3d-staging-lld-sdlc.md
+
+AGENTS.md
+skills-lock.json
+backend/test.db

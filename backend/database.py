@@ -52,6 +52,7 @@ class Project(Base):
     locations = relationship("Location", back_populates="project", cascade="all, delete-orphan")
     props = relationship("Prop", back_populates="project", cascade="all, delete-orphan")
     generated_images = relationship("GeneratedImage", back_populates="project", cascade="all, delete-orphan")
+    asset_images = relationship("AssetImage", back_populates="project", cascade="all, delete-orphan")
 
 
 class Scene(Base):
@@ -149,7 +150,34 @@ class Reference(Base):
     processed_url = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     sort_order = Column(Integer, default=0)
+    asset_image_id = Column(String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    asset_image = relationship("AssetImage", foreign_keys=[asset_image_id], back_populates="references")
+
+
+class AssetImage(Base):
+    __tablename__ = "asset_images"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    origin_project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    entity_type = Column(String, nullable=False)   # 'character' | 'location' | 'prop'
+    kind = Column(String, nullable=False, default="txt2img")  # 'txt2img' | 'img2img'
+    source_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"), nullable=True)
+    source_asset_image_id = Column(String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True)
+    prompt = Column(Text, nullable=True)
+    image_url = Column(String, nullable=True)
+    status = Column(String, default="queued")
+    job_id = Column(String, nullable=True)
+    prompt_id = Column(String, nullable=True)
+    params = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="asset_images")
+    source_reference = relationship("Reference", foreign_keys=[source_reference_id])
+    source_asset_image = relationship("AssetImage", foreign_keys=[source_asset_image_id], remote_side="AssetImage.id")
+    references = relationship("Reference", foreign_keys="Reference.asset_image_id", back_populates="asset_image")
 
 
 class GeneratedImage(Base):
