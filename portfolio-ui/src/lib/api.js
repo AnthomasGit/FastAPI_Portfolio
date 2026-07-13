@@ -85,4 +85,11 @@ export const api = {
 
   assignAssetImage: (entityType, entityId, assetImageId) =>
     fetchJSON(`/${entityType}/${entityId}/assign-asset`, { method: 'POST', body: JSON.stringify({ asset_image_id: assetImageId }) }),
+
+  generateAsset3D: (data) => fetchJSON('/assets3d/generate', { method: 'POST', body: JSON.stringify(data) }),
+  getAsset3D: (id) => fetchJSON(`/assets3d/${id}`),
+  listAssets3D: (projectId) => fetchJSON(`/projects/${projectId}/assets3d`),
+  retryAsset3D: (id) => fetchJSON(`/assets3d/${id}/retry`, { method: 'POST' }),
+  getAsset3DFile: (id, rigged = false) => `${API_BASE}/assets3d/${id}/mesh${rigged ? '?rigged=true' : ''}`,
+  deleteAsset3D: (id) => fetchJSON(`/assets3d/${id}`, { method: 'DELETE' }),
 };

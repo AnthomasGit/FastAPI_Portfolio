@@ -53,6 +53,7 @@ class Project(Base):
     props = relationship("Prop", back_populates="project", cascade="all, delete-orphan")
     generated_images = relationship("GeneratedImage", back_populates="project", cascade="all, delete-orphan")
     asset_images = relationship("AssetImage", back_populates="project", cascade="all, delete-orphan")
+    assets_3d = relationship("Asset3D", back_populates="project", cascade="all, delete-orphan")
 
 
 class Scene(Base):
@@ -197,6 +198,34 @@ class GeneratedImage(Base):
     project = relationship("Project", back_populates="generated_images")
 
 
+class Asset3D(Base):
+    __tablename__ = "assets_3d"
+    __table_args__ = (Index("ix_assets3d_entity", "entity_type", "entity_id"),)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    entity_type = Column(String, nullable=False)          # 'character' | 'prop'
+    entity_id = Column(String, nullable=False)
+    source_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"), nullable=True)
+
+    status = Column(String, default="queued")
+    # queued | mesh_processing | mesh_ready | rig_queued | rig_processing
+    # | rigged | mesh_failed | rig_failed
+
+    mesh_url = Column(String, nullable=True)              # GLB filename in ComfyUI output
+    rigged_mesh_url = Column(String, nullable=True)       # rigged GLB filename
+    preview_url = Column(String, nullable=True)
+
+    mesh_job_id = Column(String, nullable=True)
+    rig_job_id = Column(String, nullable=True)
+    params = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    project = relationship("Project", back_populates="assets_3d")
+
+
 class JobRecord(Base):
     __tablename__ = "jobs"
 
@@ -208,6 +237,12 @@ class JobRecord(Base):
     seed = Column(BigInteger, nullable=True)
     image_url = Column(String, nullable=True)
     image_info = Column(JSON, nullable=True)
+    job_type = Column(String, nullable=False, default="image")
+    # 'image' | 'controlled_image' | 'mesh' | 'rig' | 'video'
+    entity_type = Column(String, nullable=True)
+    entity_id = Column(String, nullable=True)
+    error = Column(Text, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

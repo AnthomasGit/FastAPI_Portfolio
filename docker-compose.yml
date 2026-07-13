@@ -54,7 +54,7 @@ services:
       - "8188:8188"
     environment:
       # Pass the exact same CLI args you use in K3s
-      - CLI_ARGS=--extra-model-paths-config /data/models/extra_model_paths.yaml --fp8_e4m3fn-unet --highvram
+      - CLI_ARGS=--extra-model-paths-config /data/models/extra_model_paths.yaml
     volumes:
       # Map your server's global hostPath to the exact mountPath from K3s
       - /opt/ComfyUI/models:/data/models

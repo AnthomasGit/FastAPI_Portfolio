@@ -170,6 +170,32 @@ class AssetImageResponse(BaseModel):
         from_attributes = True
 
 
+class Asset3DMeshGenerateRequest(BaseModel):
+    entity_type: str
+    entity_id: str
+    reference_id: Optional[str] = None
+    params: Optional[dict] = None
+
+
+class Asset3DResponse(BaseModel):
+    id: str
+    project_id: str
+    entity_type: str
+    entity_id: str
+    source_reference_id: Optional[str] = None
+    status: str = "queued"
+    mesh_url: Optional[str] = None
+    rigged_mesh_url: Optional[str] = None
+    preview_url: Optional[str] = None
+    params: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class AssetImageAssignRequest(BaseModel):
     asset_image_id: str
 

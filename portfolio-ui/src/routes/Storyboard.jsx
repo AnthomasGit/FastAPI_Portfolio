@@ -8,6 +8,7 @@ import { SceneTable } from '../components/storyboard/SceneTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Play, GitBranch, Loader2 } from 'lucide-react';
+import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 
 export function Storyboard() {
   const { id } = useParams();
@@ -83,6 +84,7 @@ export function Storyboard() {
           <TabsTrigger value="characters" className="text-xs px-3 py-1 text-slate-400 data-active:text-emerald-300">Characters</TabsTrigger>
           <TabsTrigger value="locations" className="text-xs px-3 py-1 text-slate-400 data-active:text-amber-300">Locations</TabsTrigger>
           <TabsTrigger value="props" className="text-xs px-3 py-1 text-slate-400 data-active:text-purple-300">Props</TabsTrigger>
+          <TabsTrigger value="assets3d" className="text-xs px-3 py-1 text-slate-400 data-active:text-blue-300">3D Assets</TabsTrigger>
         </TabsList>
 
         <div className="pt-6">
@@ -140,6 +142,17 @@ export function Storyboard() {
               ) : (
                 <p className="text-slate-500 text-sm">No props yet.</p>
               )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="assets3d">
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+              <h3 className="text-lg font-semibold mb-4">3D Assets</h3>
+              <AssetDrawer
+                projectId={id}
+                characters={project.characters || []}
+                props={project.props || []}
+              />
             </div>
           </TabsContent>
         </div>
