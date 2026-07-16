@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
-import { useCaptureDepth } from './captureContext';
 
 const MODES = [
   { key: 'translate', icon: Move, label: 'Move' },
@@ -22,8 +21,7 @@ export function StageToolbar() {
   const transformMode = useStagingStore((s) => s.transformMode);
   const setTransformMode = useStagingStore((s) => s.setTransformMode);
   const isCapturing = useStagingStore((s) => s.isCapturing);
-
-  const captureCtx = useCaptureDepth();
+  const captureFn = useStagingStore((s) => s.captureFn);
 
   const deleteSelected = () => {
     if (!selection) return;
@@ -111,8 +109,8 @@ export function StageToolbar() {
 
       <Button
         size="sm"
-        onClick={() => captureCtx?.capture()}
-        disabled={isCapturing || !captureCtx}
+        onClick={() => captureFn?.()}
+        disabled={isCapturing || !captureFn}
         className="bg-gradient-to-r from-rose-600 to-purple-600 text-white hover:from-rose-500 hover:to-purple-500"
       >
         {isCapturing ? (

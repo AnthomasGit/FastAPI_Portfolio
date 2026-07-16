@@ -10,7 +10,7 @@ import { ShotPreview } from './ShotPreview';
 import { getFormat, pipSize, PIP_MARGIN } from './cameraFormats';
 import { useStagingStore } from '@/stores/stagingStore';
 
-function SceneContent({ captures, backdropUrl }) {
+function SceneContent({ sceneId, backdropUrl }) {
   const placements = useStagingStore((s) => s.placements);
   const blockout = useStagingStore((s) => s.blockout);
   const selection = useStagingStore((s) => s.selection);
@@ -85,7 +85,7 @@ function SceneContent({ captures, backdropUrl }) {
 
       <CameraRig />
       <ShotPreview />
-      <CaptureRenderer captures={captures} />
+      <CaptureRenderer sceneId={sceneId} />
     </>
   );
 }
@@ -109,7 +109,7 @@ function ShotPreviewFrame() {
   );
 }
 
-export function StageCanvas({ captures, backdropUrl }) {
+export function StageCanvas({ sceneId, backdropUrl }) {
   return (
     <div className="w-full h-full relative">
       <Canvas
@@ -129,7 +129,7 @@ export function StageCanvas({ captures, backdropUrl }) {
         className="w-full h-full"
       >
         <color attach="background" args={['#1e293b']} />
-        <SceneContent captures={captures} backdropUrl={backdropUrl} />
+        <SceneContent sceneId={sceneId} backdropUrl={backdropUrl} />
         <Suspense fallback={null}>
           <Environment preset="studio" />
         </Suspense>

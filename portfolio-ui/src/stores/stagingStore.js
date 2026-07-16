@@ -31,6 +31,7 @@ export const useStagingStore = create((set, get) => ({
   transformMode: 'translate',
   dirty: false,
   isCapturing: false,
+  captureFn: null,
   editVersion: 0,
 
   setPlacements: (placements) => set((state) => ({
@@ -92,6 +93,10 @@ export const useStagingStore = create((set, get) => ({
   setTransformMode: (mode) => set({ transformMode: mode }),
   setDirty: (v) => set({ dirty: v }),
   setIsCapturing: (v) => set({ isCapturing: v }),
+  // Registered by CaptureRenderer (inside the Canvas) so out-of-Canvas UI can
+  // trigger a capture. Stored via a wrapper so zustand doesn't treat the fn as
+  // a state updater.
+  setCaptureFn: (fn) => set({ captureFn: fn }),
 
   hydrationVersion: 0,
   hydrateFromServer: (data) => set((state) => ({

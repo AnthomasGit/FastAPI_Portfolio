@@ -1,7 +1,15 @@
-import { Loader2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
 export function PipelinePanel({ captures, isLoading, sceneId }) {
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: (captureId) => api.deleteCapture(captureId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
+  });
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-8">
@@ -25,13 +33,24 @@ export function PipelinePanel({ captures, isLoading, sceneId }) {
           key={cap.id}
           className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-2"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-slate-400">
               {new Date(cap.created_at).toLocaleString()}
             </span>
-            <span className="text-[10px] text-slate-500">
-              {cap.width}x{cap.height}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[10px] text-slate-500">
+                {cap.width}x{cap.height}
+              </span>
+              <button
+                type="button"
+                title="Delete this capture"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(cap.id)}
+                className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-40 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">

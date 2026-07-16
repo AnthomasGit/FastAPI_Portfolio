@@ -165,7 +165,7 @@ export function SceneStage() {
           </div>
           <div className="flex-1 relative">
           <StageCanvas
-            captures={captures || []}
+            sceneId={sceneId}
             backdropUrl={backdropUrl}
           />
           </div>
