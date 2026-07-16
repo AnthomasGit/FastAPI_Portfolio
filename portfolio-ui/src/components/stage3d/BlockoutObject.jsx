@@ -1,6 +1,5 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { TransformControls } from '@react-three/drei';
-import { useThree } from '@react-three/fiber';
 import { useStagingStore } from '@/stores/stagingStore';
 
 const PRIMITIVE_GEOMETRY = {
@@ -10,7 +9,7 @@ const PRIMITIVE_GEOMETRY = {
 };
 
 export function BlockoutObject({ blockout, selected, onSelect }) {
-  const meshRef = useRef();
+  const [meshObj, setMeshObj] = useState(null);
   const setBlockout = useStagingStore((s) => s.setBlockout);
   const blockoutList = useStagingStore((s) => s.blockout);
   const transformMode = useStagingStore((s) => s.transformMode);
@@ -27,14 +26,14 @@ export function BlockoutObject({ blockout, selected, onSelect }) {
     }
   }, [selected, transformMode]);
 
-  const handleTransformChange = () => {
-    if (!meshRef.current) return;
-    const pos = meshRef.current.position.toArray();
-    const rot = meshRef.current.rotation.toArray();
-    const scale = meshRef.current.scale.toArray();
+  const handleMouseUp = () => {
+    if (!meshObj) return;
+    const pos = meshObj.position.toArray();
+    const { x, y, z } = meshObj.rotation;
+    const scale = meshObj.scale.toArray();
     const updated = blockoutList.map((b) =>
       b.id === blockout.id
-        ? { ...b, transform: { pos, rot, scale } }
+        ? { ...b, transform: { pos, rot: [x, y, z], scale } }
         : b
     );
     setBlockout(updated);
@@ -43,7 +42,7 @@ export function BlockoutObject({ blockout, selected, onSelect }) {
   return (
     <group>
       <mesh
-        ref={meshRef}
+        ref={setMeshObj}
         position={pos}
         rotation={rot}
         scale={scale}
@@ -61,13 +60,12 @@ export function BlockoutObject({ blockout, selected, onSelect }) {
           wireframe={blockout.kind === 'floor'}
         />
       </mesh>
-      {selected && meshRef.current && (
+      {selected && meshObj && (
         <TransformControls
           ref={transformRef}
-          object={meshRef.current}
+          object={meshObj}
           mode={transformMode}
-          onChange={handleTransformChange}
-          onPointerDown={(e) => e.stopPropagation()}
+          onMouseUp={handleMouseUp}
         />
       )}
     </group>

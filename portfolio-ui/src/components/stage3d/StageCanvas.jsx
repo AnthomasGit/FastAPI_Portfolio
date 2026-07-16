@@ -8,7 +8,7 @@ import { CameraRig } from './CameraRig';
 import { CaptureRenderer } from './CaptureRenderer';
 import { useStagingStore } from '@/stores/stagingStore';
 
-function SceneContent({ projectId, captures }) {
+function SceneContent({ captures }) {
   const placements = useStagingStore((s) => s.placements);
   const blockout = useStagingStore((s) => s.blockout);
   const selection = useStagingStore((s) => s.selection);
@@ -20,6 +20,11 @@ function SceneContent({ projectId, captures }) {
   useEffect(() => {
     const handler = (e) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      ) return;
       const sel = selection;
       if (!sel) return;
       if (blockout.some((b) => b.id === sel)) removeBlockout(sel);
@@ -78,7 +83,7 @@ function SceneContent({ projectId, captures }) {
   );
 }
 
-export function StageCanvas({ sceneId, projectId, captures }) {
+export function StageCanvas({ captures }) {
   return (
     <Canvas
       shadows
@@ -97,7 +102,7 @@ export function StageCanvas({ sceneId, projectId, captures }) {
       className="w-full h-full"
     >
       <color attach="background" args={['#1e293b']} />
-      <SceneContent projectId={projectId} captures={captures} />
+      <SceneContent captures={captures} />
       <Suspense fallback={null}>
         <Environment preset="studio" />
       </Suspense>

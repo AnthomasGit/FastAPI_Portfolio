@@ -57,7 +57,6 @@ function MeshAsset({ url, pos, rot, scl, onSelect, onMeshRef }) {
 export function PlacedAsset({ placement, selected, onSelect, onUpdate }) {
   const [meshObj, setMeshObj] = useState(null);
   const transformRef = useRef();
-  const dragTransform = useRef(null);
   const transformMode = useStagingStore((s) => s.transformMode);
   const gltfUrl = `/api/assets3d/${placement.asset3d_id}/mesh`;
   const pos = placement.transform?.pos || [0, 0, 0];
@@ -74,21 +73,16 @@ export function PlacedAsset({ placement, selected, onSelect, onUpdate }) {
     }
   }, [selected, transformMode]);
 
-  const handleChange = useCallback(() => {
+  const handleMouseUp = useCallback(() => {
     if (!meshObj) return;
-    dragTransform.current = {
-      pos: meshObj.position.toArray(),
-      rot: meshObj.rotation.toArray(),
-      scale: meshObj.scale.toArray(),
-    };
-  }, [meshObj]);
-
-  const handlePointerUp = useCallback(() => {
-    if (dragTransform.current) {
-      onUpdate({ transform: dragTransform.current });
-    }
-    dragTransform.current = null;
-  }, [onUpdate]);
+    onUpdate({
+      transform: {
+        pos: meshObj.position.toArray(),
+        rot: [meshObj.rotation.x, meshObj.rotation.y, meshObj.rotation.z],
+        scale: meshObj.scale.toArray(),
+      },
+    });
+  }, [meshObj, onUpdate]);
 
   return (
     <group>
@@ -133,9 +127,7 @@ export function PlacedAsset({ placement, selected, onSelect, onUpdate }) {
           ref={transformRef}
           object={meshObj}
           mode={transformMode}
-          onChange={handleChange}
-          onPointerUp={handlePointerUp}
-          onPointerDown={(e) => e.stopPropagation()}
+          onMouseUp={handleMouseUp}
         />
       )}
     </group>
