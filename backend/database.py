@@ -240,6 +240,7 @@ class SceneStaging(Base):
                       nullable=False, unique=True)
     backdrop_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"),
                                    nullable=True)
+    backdrop_transform = Column(JSON, nullable=True)
     camera = Column(JSON, nullable=True)
     blockout = Column(JSON, nullable=True)
     placements = Column(JSON, nullable=True)
@@ -276,6 +277,7 @@ class StagingSave(Base):
     name = Column(String, nullable=False)
     backdrop_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"),
                                    nullable=True)
+    backdrop_transform = Column(JSON, nullable=True)
     camera = Column(JSON, nullable=True)
     blockout = Column(JSON, nullable=True)
     placements = Column(JSON, nullable=True)

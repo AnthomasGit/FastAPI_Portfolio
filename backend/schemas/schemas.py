@@ -205,12 +205,14 @@ class SceneStagingUpdate(BaseModel):
     blockout: Optional[list] = None
     placements: Optional[list] = None
     backdrop_reference_id: Optional[str] = None
+    backdrop_transform: Optional[dict] = None
 
 
 class SceneStagingResponse(BaseModel):
     id: str
     scene_id: str
     backdrop_reference_id: Optional[str] = None
+    backdrop_transform: Optional[dict] = None
     camera: Optional[dict] = None
     blockout: Optional[list] = None
     placements: Optional[list] = None

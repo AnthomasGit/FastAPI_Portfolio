@@ -36,6 +36,7 @@ async def update_staging(
     blockout: list | None = None,
     placements: list | None = None,
     backdrop_reference_id: str | None = None,
+    backdrop_transform: dict | None = None,
 ) -> SceneStaging:
     staging = await get_or_create_staging(scene_id, db)
 
@@ -69,6 +70,8 @@ async def update_staging(
         staging.placements = placements
     if backdrop_reference_id is not None:
         staging.backdrop_reference_id = backdrop_reference_id
+    if backdrop_transform is not None:
+        staging.backdrop_transform = backdrop_transform
 
     staging.updated_at = datetime.utcnow()
     await db.commit()
@@ -159,6 +162,7 @@ async def create_save(scene_id: str, name: str, db: AsyncSession) -> StagingSave
         scene_id=scene_id,
         name=name,
         backdrop_reference_id=staging.backdrop_reference_id,
+        backdrop_transform=staging.backdrop_transform,
         camera=staging.camera,
         blockout=staging.blockout,
         placements=staging.placements,
@@ -195,6 +199,7 @@ async def restore_save(save_id: str, db: AsyncSession) -> SceneStaging | None:
     # including fields that were empty when it was taken
     staging.camera = save.camera
     staging.backdrop_reference_id = save.backdrop_reference_id
+    staging.backdrop_transform = save.backdrop_transform
     staging.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(staging)
@@ -211,6 +216,7 @@ async def update_save(save_id: str, db: AsyncSession) -> StagingSave | None:
 
     staging = await get_or_create_staging(save.scene_id, db)
     save.backdrop_reference_id = staging.backdrop_reference_id
+    save.backdrop_transform = staging.backdrop_transform
     save.camera = staging.camera
     save.blockout = staging.blockout
     save.placements = staging.placements

@@ -55,6 +55,19 @@ async def test_put_staging_updates_camera_blockout_placements(client, scene):
 
 
 @pytest.mark.asyncio
+async def test_put_staging_roundtrips_backdrop_transform(client, scene):
+    payload = {
+        "backdrop_transform": {"pos": [1, 2, 3], "rot": [0, 0, 0], "scale": [4, 3, 1]},
+    }
+    resp = await client.put(f"/api/scenes/{scene.id}/staging", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["backdrop_transform"]["pos"] == [1, 2, 3]
+
+    get_resp = await client.get(f"/api/scenes/{scene.id}/staging")
+    assert get_resp.json()["backdrop_transform"]["scale"] == [4, 3, 1]
+
+
+@pytest.mark.asyncio
 async def test_put_staging_validates_asset3d_id_belongs_to_project(client, db_session, scene, project):
     other_project_id = str(uuid.uuid4())
     asset = Asset3D(

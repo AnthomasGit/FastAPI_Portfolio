@@ -52,6 +52,7 @@ async def put_staging(
             blockout=data.blockout,
             placements=data.placements,
             backdrop_reference_id=data.backdrop_reference_id,
+            backdrop_transform=data.backdrop_transform,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

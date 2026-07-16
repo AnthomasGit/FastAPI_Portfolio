@@ -91,6 +91,7 @@ async def test_restore_applies_save_to_staging(client, db_session, scene, projec
         "camera": {"position": [5, 5, 5], "target": [0, 1, 0], "fov": 45, "aspect": 1.777},
         "blockout": [{"id": "b1", "kind": "box", "transform": {"pos": [1, 0, 1], "rot": [0, 0, 0], "scale": [1, 1, 1]}}],
         "placements": [{"id": "p1", "asset3d_id": asset.id, "transform": {"pos": [2, 0, 2], "rot": [0, 0, 0], "scale": [1, 1, 1]}}],
+        "backdrop_transform": {"pos": [0, 2, -6], "rot": [0, 0, 0], "scale": [5, 4, 1]},
     }
     await client.put(f"/api/scenes/{scene.id}/staging", json=saved_state)
     save = (
@@ -100,7 +101,12 @@ async def test_restore_applies_save_to_staging(client, db_session, scene, projec
     # Mutate the staging afterwards
     await client.put(
         f"/api/scenes/{scene.id}/staging",
-        json={"camera": {"position": [9, 9, 9]}, "blockout": [], "placements": []},
+        json={
+            "camera": {"position": [9, 9, 9]},
+            "blockout": [],
+            "placements": [],
+            "backdrop_transform": {"pos": [0, 0, 0], "rot": [0, 0, 0], "scale": [1, 1, 1]},
+        },
     )
 
     resp = await client.post(f"/api/staging-saves/{save['id']}/restore")
@@ -109,6 +115,7 @@ async def test_restore_applies_save_to_staging(client, db_session, scene, projec
     assert data["camera"]["position"] == [5, 5, 5]
     assert len(data["blockout"]) == 1
     assert data["placements"][0]["transform"]["pos"] == [2, 0, 2]
+    assert data["backdrop_transform"]["pos"] == [0, 2, -6]
 
 
 @pytest.mark.asyncio
