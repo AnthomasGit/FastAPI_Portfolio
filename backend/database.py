@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, BigInteger, Table, ForeignKey, Index
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, backref
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -79,6 +79,7 @@ class Scene(Base):
         viewonly=False, cascade="all, delete-orphan", overlaps="references",
     )
     generated_images = relationship("GeneratedImage", back_populates="scene", cascade="all, delete-orphan")
+    staging = relationship("SceneStaging", back_populates="scene", uselist=False, cascade="all, delete-orphan")
 
 
 class Character(Base):
@@ -187,15 +188,20 @@ class GeneratedImage(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     scene_id = Column(String, ForeignKey('scenes.id', ondelete="SET NULL"), nullable=True)
     project_id = Column(String, ForeignKey('projects.id', ondelete="SET NULL"), nullable=True)
+    capture_id = Column(String, ForeignKey("scene_captures.id", ondelete="SET NULL"), nullable=True)
+    kind = Column(String, default="txt2img")
     prompt = Column(Text, nullable=True)
     image_url = Column(String, nullable=True)
     status = Column(String, default="pending")
     job_id = Column(String, nullable=True)
     prompt_id = Column(String, nullable=True)
+    params = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     scene = relationship("Scene", back_populates="generated_images")
     project = relationship("Project", back_populates="generated_images")
+    capture = relationship("SceneCapture", back_populates="generated_images")
 
 
 class Asset3D(Base):
@@ -224,6 +230,42 @@ class Asset3D(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     project = relationship("Project", back_populates="assets_3d")
+
+
+class SceneStaging(Base):
+    __tablename__ = "scene_stagings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    scene_id = Column(String, ForeignKey("scenes.id", ondelete="CASCADE"),
+                      nullable=False, unique=True)
+    backdrop_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"),
+                                   nullable=True)
+    camera = Column(JSON, nullable=True)
+    blockout = Column(JSON, nullable=True)
+    placements = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    scene = relationship("Scene", back_populates="staging")
+    captures = relationship("SceneCapture", back_populates="staging",
+                            cascade="all, delete-orphan")
+
+
+class SceneCapture(Base):
+    __tablename__ = "scene_captures"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    staging_id = Column(String, ForeignKey("scene_stagings.id", ondelete="CASCADE"), nullable=False)
+    camera = Column(JSON, nullable=False)
+    staging_snapshot = Column(JSON, nullable=False)
+    depth_map_url = Column(String, nullable=False)
+    edge_map_url = Column(String, nullable=True)
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    staging = relationship("SceneStaging", back_populates="captures")
+    generated_images = relationship("GeneratedImage", back_populates="capture")
 
 
 class JobRecord(Base):

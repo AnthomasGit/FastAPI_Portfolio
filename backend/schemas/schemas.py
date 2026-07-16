@@ -200,6 +200,42 @@ class AssetImageAssignRequest(BaseModel):
     asset_image_id: str
 
 
+class SceneStagingUpdate(BaseModel):
+    camera: Optional[dict] = None
+    blockout: Optional[list] = None
+    placements: Optional[list] = None
+    backdrop_reference_id: Optional[str] = None
+
+
+class SceneStagingResponse(BaseModel):
+    id: str
+    scene_id: str
+    backdrop_reference_id: Optional[str] = None
+    camera: Optional[dict] = None
+    blockout: Optional[list] = None
+    placements: Optional[list] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SceneCaptureResponse(BaseModel):
+    id: str
+    staging_id: str
+    camera: dict
+    staging_snapshot: dict
+    depth_map_url: str
+    edge_map_url: Optional[str] = None
+    width: int
+    height: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class GenerateImageResponse(BaseModel):
     id: str
     scene_id: Optional[str] = None

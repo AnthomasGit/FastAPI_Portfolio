@@ -92,4 +92,28 @@ export const api = {
   retryAsset3D: (id) => fetchJSON(`/assets3d/${id}/retry`, { method: 'POST' }),
   getAsset3DFile: (id, rigged = false) => `${API_BASE}/assets3d/${id}/mesh${rigged ? '?rigged=true' : ''}`,
   deleteAsset3D: (id) => fetchJSON(`/assets3d/${id}`, { method: 'DELETE' }),
+
+  getStaging: (sceneId) => fetchJSON(`/scenes/${sceneId}/staging`),
+  putStaging: (sceneId, data) => fetchJSON(`/scenes/${sceneId}/staging`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  createCapture: async (sceneId, { depthMap, edgeMap, camera, width, height }) => {
+    const formData = new FormData();
+    formData.append('depth_map', depthMap, 'depth.png');
+    if (edgeMap) formData.append('edge_map', edgeMap, 'edge.png');
+    formData.append('camera', JSON.stringify(camera));
+    formData.append('width', String(width));
+    formData.append('height', String(height));
+    const res = await fetch(`${API_BASE}/scenes/${sceneId}/staging/captures`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Capture failed');
+    }
+    return res.json();
+  },
+
+  listCaptures: (sceneId) => fetchJSON(`/scenes/${sceneId}/staging/captures`),
+
+  getCaptureDepthUrl: (captureId) => `${API_BASE}/captures/${captureId}/depth`,
+
+  deleteCapture: (captureId) => fetchJSON(`/captures/${captureId}`, { method: 'DELETE' }),
 };

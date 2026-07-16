@@ -76,7 +76,13 @@ async def list_assets3d(project_id: str, db: AsyncSession = Depends(get_db)):
         .where(Asset3D.project_id == project_id)
         .order_by(Asset3D.created_at.desc())
     )
-    return assets.scalars().all()
+    assets = assets.scalars().all()
+
+    for asset in assets:
+        if asset.status in ("queued", "mesh_processing", "rig_queued", "rig_processing"):
+            await poll_asset(asset.id, db)
+
+    return assets
 
 
 @router.post("/api/assets3d/{asset3d_id}/retry", status_code=202)

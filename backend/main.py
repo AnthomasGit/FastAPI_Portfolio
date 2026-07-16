@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from routers import projects, scenes, characters, locations, props, ai, generate, references, asset_images, assets3d
+from routers import projects, scenes, characters, locations, props, ai, generate, references, asset_images, assets3d, staging
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(generate.router)
 app.include_router(references.router)
 app.include_router(asset_images.router)
 app.include_router(assets3d.router)
+app.include_router(staging.router)
 
 # Serve uploaded reference images to the frontend.
 # Images are saved into the ComfyUI input dir (shared via docker volume)

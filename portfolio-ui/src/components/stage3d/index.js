@@ -1,1 +1,10 @@
 export { AssetDrawer } from './AssetDrawer';
+export { StageCanvas } from './StageCanvas';
+export { BackdropPlane } from './BackdropPlane';
+export { BlockoutObject } from './BlockoutObject';
+export { PlacedAsset } from './PlacedAsset';
+export { CameraRig } from './CameraRig';
+export { CaptureRenderer } from './CaptureRenderer';
+export { PipelinePanel } from './PipelinePanel';
+export { StageToolbar } from './StageToolbar';
+export { StageErrorBoundary } from './StageErrorBoundary';

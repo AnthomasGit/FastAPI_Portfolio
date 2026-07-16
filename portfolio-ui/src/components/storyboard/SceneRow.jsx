@@ -6,7 +6,8 @@ import { CellCharacters } from './CellCharacters';
 import { CellLocations } from './CellLocations';
 import { CellProps } from './CellProps';
 import { CellGeneration } from './CellGeneration';
-import { GripVertical, Trash2 } from 'lucide-react';
+import { GripVertical, Trash2, Cuboid } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useProjectStore } from '../../stores/projectStore';
 
@@ -69,7 +70,21 @@ export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
             <GripVertical className="w-3.5 h-3.5 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
           </button>
           <div className="min-w-0 overflow-hidden">
-            <span className="text-xs font-bold text-cyan-400">SC {index + 1}</span>
+            <div className="flex items-center gap-1.5">
+              <Link
+                to={`/project/${projectId}/scene/${scene.id}/stage`}
+                className="text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
+              >
+                SC {index + 1}
+              </Link>
+              <Link
+                to={`/project/${projectId}/scene/${scene.id}/stage`}
+                className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors leading-none"
+                title="Open 3D stage editor"
+              >
+                3D
+              </Link>
+            </div>
             {editingSlug ? (
               <input
                 className="w-full text-[10px] bg-black/60 border border-cyan-500/50 rounded px-1 py-0.5 text-white focus:outline-none mt-0.5"

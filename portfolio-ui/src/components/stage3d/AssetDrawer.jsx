@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Plus } from 'lucide-react';
+import { useStagingStore } from '@/stores/stagingStore';
 
 const STATUS_CONFIG = {
   queued: { label: 'Queued', variant: 'outline' },
@@ -45,6 +46,8 @@ export function AssetDrawer({ projectId, characters, props }) {
       setShowRefPicker(null);
     },
   });
+
+  const addPlacement = useStagingStore((s) => s.addPlacement);
 
   const retryMutation = useMutation({
     mutationFn: (id) => api.retryAsset3D(id),
@@ -179,14 +182,23 @@ export function AssetDrawer({ projectId, characters, props }) {
                     <div key={a.id} className="flex items-center justify-between text-xs text-slate-400 bg-black/20 rounded-lg px-3 py-1.5">
                       <span>{new Date(a.created_at).toLocaleString()}</span>
                       <StatusChip status={a.status} />
-                      {a.status === 'mesh_ready' && (
-                        <a
-                          href={api.getAsset3DFile(a.id)}
-                          download
-                          className="text-blue-400 hover:text-blue-300 underline"
-                        >
-                          Download GLB
-                        </a>
+                      {(a.status === 'mesh_ready' || a.status === 'rigged') && (
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={api.getAsset3DFile(a.id)}
+                            download
+                            className="text-blue-400 hover:text-blue-300 underline text-[10px]"
+                          >
+                            Download GLB
+                          </a>
+                          <button
+                            onClick={() => addPlacement(a.id)}
+                            className="flex items-center gap-0.5 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Add to Scene
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}

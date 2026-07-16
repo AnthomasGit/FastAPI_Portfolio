@@ -1,3 +1,4 @@
+import glob
 import os
 import uuid
 import random
@@ -137,7 +138,6 @@ async def trigger_mesh(
         asset.status = "mesh_processing"
         asset.mesh_job_id = job_id
         asset.params = {**(asset.params or {}), "seed": seed_val}
-        asset.mesh_url = f"{prefix}.glb"
 
         job.prompt_id = prompt_id
         job.status = "processing"
@@ -152,6 +152,15 @@ async def trigger_mesh(
         await db.commit()
 
     return asset_id, warning
+
+
+def _find_mesh_by_prefix(project_id: str, entity_type: str, job_id: str) -> str | None:
+    prefix = f"meshes/{project_id}/{entity_type}s/{job_id}"
+    pattern = os.path.join(COMFY_OUTPUT_DIR, f"{prefix}*.glb")
+    matches = glob.glob(pattern)
+    if matches:
+        return os.path.relpath(matches[0], COMFY_OUTPUT_DIR)
+    return None
 
 
 async def poll_asset(asset3d_id: str, db: AsyncSession) -> Asset3D | None:
@@ -195,6 +204,9 @@ async def poll_asset(asset3d_id: str, db: AsyncSession) -> Asset3D | None:
                 job.finished_at = datetime.utcnow()
                 await db.commit()
             elif poll_result["status"] == "completed":
+                actual_url = _find_mesh_by_prefix(asset.project_id, asset.entity_type, asset.mesh_job_id)
+                if actual_url:
+                    asset.mesh_url = actual_url
                 asset.status = "mesh_ready"
                 job.status = "completed"
                 job.finished_at = datetime.utcnow()
@@ -259,7 +271,7 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
         asset.error = None
         asset.mesh_job_id = job_id
         asset.params = {**(asset.params or {}), "seed": seed_val}
-        asset.mesh_url = f"{prefix}.glb"
+        asset.mesh_url = None
 
         job.prompt_id = prompt_id
         job.status = "processing"

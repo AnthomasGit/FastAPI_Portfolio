@@ -20,6 +20,7 @@ lerna-debug.log*
 
 # Frontend Dependencies & Output
 node_modules/
+node_modules_old/
 dist/
 dist-ssr/
 *.local
