@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from database import get_db
-from schemas.schemas import SceneStagingUpdate, SceneStagingResponse, SceneCaptureResponse
+from schemas.schemas import (
+    SceneStagingUpdate,
+    SceneStagingResponse,
+    SceneCaptureResponse,
+    StagingSaveCreate,
+    StagingSaveResponse,
+)
 from services.staging_service import (
     get_or_create_staging,
     update_staging,
@@ -14,6 +20,11 @@ from services.staging_service import (
     get_captures,
     get_capture_depth,
     delete_capture,
+    create_save,
+    list_saves,
+    restore_save,
+    update_save,
+    delete_save,
 )
 
 router = APIRouter()
@@ -84,6 +95,59 @@ async def post_capture(
 )
 async def list_captures(scene_id: str, db: AsyncSession = Depends(get_db)):
     return await get_captures(scene_id, db)
+
+
+@router.post(
+    "/api/scenes/{scene_id}/staging/saves",
+    status_code=201,
+    response_model=StagingSaveResponse,
+)
+async def post_staging_save(
+    scene_id: str,
+    data: StagingSaveCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    if not data.name.strip():
+        raise HTTPException(status_code=422, detail="Save name cannot be empty")
+    try:
+        save = await create_save(scene_id, data.name.strip(), db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return save
+
+
+@router.get(
+    "/api/scenes/{scene_id}/staging/saves",
+    response_model=List[StagingSaveResponse],
+)
+async def list_staging_saves(scene_id: str, db: AsyncSession = Depends(get_db)):
+    return await list_saves(scene_id, db)
+
+
+@router.post("/api/staging-saves/{save_id}/restore", response_model=SceneStagingResponse)
+async def restore_staging_save(save_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        staging = await restore_save(save_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if staging is None:
+        raise HTTPException(status_code=404, detail="Staging save not found")
+    return staging
+
+
+@router.put("/api/staging-saves/{save_id}", response_model=StagingSaveResponse)
+async def overwrite_staging_save(save_id: str, db: AsyncSession = Depends(get_db)):
+    save = await update_save(save_id, db)
+    if save is None:
+        raise HTTPException(status_code=404, detail="Staging save not found")
+    return save
+
+
+@router.delete("/api/staging-saves/{save_id}", status_code=204)
+async def delete_staging_save(save_id: str, db: AsyncSession = Depends(get_db)):
+    deleted = await delete_save(save_id, db)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Staging save not found")
 
 
 @router.get("/api/captures/{capture_id}/depth")

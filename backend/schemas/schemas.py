@@ -221,6 +221,20 @@ class SceneStagingResponse(BaseModel):
         from_attributes = True
 
 
+class StagingSaveCreate(BaseModel):
+    name: str
+
+
+class StagingSaveResponse(BaseModel):
+    id: str
+    scene_id: str
+    name: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class SceneCaptureResponse(BaseModel):
     id: str
     staging_id: str

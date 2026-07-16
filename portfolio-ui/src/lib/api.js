@@ -96,6 +96,12 @@ export const api = {
   getStaging: (sceneId) => fetchJSON(`/scenes/${sceneId}/staging`),
   putStaging: (sceneId, data) => fetchJSON(`/scenes/${sceneId}/staging`, { method: 'PUT', body: JSON.stringify(data) }),
 
+  createStagingSave: (sceneId, name) => fetchJSON(`/scenes/${sceneId}/staging/saves`, { method: 'POST', body: JSON.stringify({ name }) }),
+  listStagingSaves: (sceneId) => fetchJSON(`/scenes/${sceneId}/staging/saves`),
+  restoreStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}/restore`, { method: 'POST' }),
+  updateStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'PUT' }),
+  deleteStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'DELETE' }),
+
   createCapture: async (sceneId, { depthMap, edgeMap, camera, width, height }) => {
     const formData = new FormData();
     formData.append('depth_map', depthMap, 'depth.png');

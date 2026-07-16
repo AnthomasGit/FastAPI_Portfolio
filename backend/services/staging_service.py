@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import SceneStaging, SceneCapture, Asset3D, Scene
+from database import SceneStaging, SceneCapture, StagingSave, Asset3D, Scene
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 
@@ -150,6 +150,86 @@ async def get_capture_depth(capture_id: str, db: AsyncSession) -> bytes | None:
             return f.read()
     except FileNotFoundError:
         return None
+
+
+async def create_save(scene_id: str, name: str, db: AsyncSession) -> StagingSave:
+    staging = await get_or_create_staging(scene_id, db)
+
+    save = StagingSave(
+        scene_id=scene_id,
+        name=name,
+        backdrop_reference_id=staging.backdrop_reference_id,
+        camera=staging.camera,
+        blockout=staging.blockout,
+        placements=staging.placements,
+    )
+    db.add(save)
+    await db.commit()
+    await db.refresh(save)
+    return save
+
+
+async def list_saves(scene_id: str, db: AsyncSession) -> list[StagingSave]:
+    result = await db.execute(
+        select(StagingSave)
+        .where(StagingSave.scene_id == scene_id)
+        .order_by(StagingSave.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def restore_save(save_id: str, db: AsyncSession) -> SceneStaging | None:
+    result = await db.execute(
+        select(StagingSave).where(StagingSave.id == save_id)
+    )
+    save = result.scalars().first()
+    if not save:
+        return None
+
+    staging = await update_staging(
+        save.scene_id, db,
+        blockout=save.blockout or [],
+        placements=save.placements or [],
+    )
+    # update_staging skips None values; a restore must match the save exactly,
+    # including fields that were empty when it was taken
+    staging.camera = save.camera
+    staging.backdrop_reference_id = save.backdrop_reference_id
+    staging.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(staging)
+    return staging
+
+
+async def update_save(save_id: str, db: AsyncSession) -> StagingSave | None:
+    result = await db.execute(
+        select(StagingSave).where(StagingSave.id == save_id)
+    )
+    save = result.scalars().first()
+    if not save:
+        return None
+
+    staging = await get_or_create_staging(save.scene_id, db)
+    save.backdrop_reference_id = staging.backdrop_reference_id
+    save.camera = staging.camera
+    save.blockout = staging.blockout
+    save.placements = staging.placements
+    await db.commit()
+    await db.refresh(save)
+    return save
+
+
+async def delete_save(save_id: str, db: AsyncSession) -> bool:
+    result = await db.execute(
+        select(StagingSave).where(StagingSave.id == save_id)
+    )
+    save = result.scalars().first()
+    if not save:
+        return False
+
+    await db.delete(save)
+    await db.commit()
+    return True
 
 
 async def delete_capture(capture_id: str, db: AsyncSession) -> bool:

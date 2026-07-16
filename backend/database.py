@@ -268,6 +268,20 @@ class SceneCapture(Base):
     generated_images = relationship("GeneratedImage", back_populates="capture")
 
 
+class StagingSave(Base):
+    __tablename__ = "staging_saves"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    scene_id = Column(String, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    backdrop_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"),
+                                   nullable=True)
+    camera = Column(JSON, nullable=True)
+    blockout = Column(JSON, nullable=True)
+    placements = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class JobRecord(Base):
     __tablename__ = "jobs"
 

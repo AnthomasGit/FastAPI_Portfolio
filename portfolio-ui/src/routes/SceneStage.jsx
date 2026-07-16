@@ -1,15 +1,14 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { useProjectStore } from '@/stores/projectStore';
 import { useStagingStore } from '@/stores/stagingStore';
-import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { StageCanvas } from '@/components/stage3d/StageCanvas';
 import { StageToolbar } from '@/components/stage3d/StageToolbar';
 import { PipelinePanel } from '@/components/stage3d/PipelinePanel';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
+import { StagingSaves } from '@/components/stage3d/StagingSaves';
 
 export function SceneStage() {
   const { id: projectId, sceneId } = useParams();
@@ -17,8 +16,10 @@ export function SceneStage() {
   const hydrateFromServer = useStagingStore((s) => s.hydrateFromServer);
   const getUpdatePayload = useStagingStore((s) => s.getUpdatePayload);
   const dirty = useStagingStore((s) => s.dirty);
+  const editVersion = useStagingStore((s) => s.editVersion);
   const setDirty = useStagingStore((s) => s.setDirty);
   const autosaveTimer = useRef(null);
+  const hydratedSceneRef = useRef(null);
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -34,30 +35,37 @@ export function SceneStage() {
   });
 
   useEffect(() => {
-    if (staging) {
+    if (staging && hydratedSceneRef.current !== sceneId) {
       hydrateFromServer(staging);
+      hydratedSceneRef.current = sceneId;
     }
-  }, [staging, hydrateFromServer]);
+  }, [staging, sceneId, hydrateFromServer]);
 
   const saveMutation = useMutation({
-    mutationFn: (payload) => api.putStaging(sceneId, payload),
-    onSuccess: (data) => {
+    mutationFn: ({ payload }) => api.putStaging(sceneId, payload),
+    onSuccess: (data, { version }) => {
       queryClient.setQueryData(['staging', sceneId], data);
-      setDirty(false);
+      if (useStagingStore.getState().editVersion === version) {
+        setDirty(false);
+      }
     },
   });
 
+  const { mutate: saveStaging, isPending: savePending } = saveMutation;
+
   useEffect(() => {
-    if (!dirty || saveMutation.isPending) return;
+    if (!dirty || savePending) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
-      const payload = getUpdatePayload();
-      saveMutation.mutate(payload);
-    }, 8000);
+      saveStaging({
+        payload: getUpdatePayload(),
+        version: useStagingStore.getState().editVersion,
+      });
+    }, 2000);
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [dirty, saveMutation.isPending, getUpdatePayload, saveMutation, setDirty]);
+  }, [dirty, editVersion, savePending, getUpdatePayload, saveStaging]);
 
   const { data: captures, isLoading: capturesLoading } = useQuery({
     queryKey: ['captures', sceneId],
@@ -85,8 +93,8 @@ export function SceneStage() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-950">
-      <header className="border-b border-white/10 backdrop-blur-md bg-black/30 px-4 h-12 flex items-center justify-between shrink-0 z-50">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-white/10 backdrop-blur-md bg-black/30 px-4 h-12 flex items-center shrink-0 z-50">
+        <div className="flex-1 flex items-center gap-3 min-w-0">
           <Link
             to={`/project/${projectId}`}
             className="text-slate-400 hover:text-white transition-colors"
@@ -101,7 +109,11 @@ export function SceneStage() {
             <span className="text-xs text-amber-400 animate-pulse">Unsaved changes...</span>
           )}
         </div>
-        <StageToolbar sceneId={sceneId} />
+        {/* key: reset loaded-save/popover state when switching scenes */}
+        <StagingSaves key={sceneId} sceneId={sceneId} />
+        <div className="flex-1 flex justify-end">
+          <StageToolbar sceneId={sceneId} />
+        </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
