@@ -6,9 +6,11 @@ import { BlockoutObject } from './BlockoutObject';
 import { PlacedAsset } from './PlacedAsset';
 import { CameraRig } from './CameraRig';
 import { CaptureRenderer } from './CaptureRenderer';
+import { ShotPreview } from './ShotPreview';
+import { getFormat, pipSize, PIP_MARGIN } from './cameraFormats';
 import { useStagingStore } from '@/stores/stagingStore';
 
-function SceneContent({ captures }) {
+function SceneContent({ captures, backdropUrl }) {
   const placements = useStagingStore((s) => s.placements);
   const blockout = useStagingStore((s) => s.blockout);
   const selection = useStagingStore((s) => s.selection);
@@ -52,7 +54,11 @@ function SceneContent({ captures }) {
         infiniteGrid
       />
 
-      <BackdropPlane />
+      <BackdropPlane
+        url={backdropUrl}
+        selected={selection === 'backdrop'}
+        onSelect={() => setSelection('backdrop')}
+      />
 
       {blockout.map((obj) => (
         <BlockoutObject
@@ -78,34 +84,57 @@ function SceneContent({ captures }) {
       ))}
 
       <CameraRig />
+      <ShotPreview />
       <CaptureRenderer captures={captures} />
     </>
   );
 }
 
-export function StageCanvas({ captures }) {
+// HTML overlay: a border + label around the WebGL corner preview, positioned to
+// match the scissor rect in ShotPreview (bottom-right, PIP_MARGIN inset).
+function ShotPreviewFrame() {
+  const camera = useStagingStore((s) => s.camera);
+  if (!camera) return null;
+  const fmt = getFormat(camera.format);
+  const { pw, ph } = pipSize(fmt.aspect);
   return (
-    <Canvas
-      shadows
-      dpr={[1, 1.5]}
-      camera={{ position: [5, 5, 5], fov: 45 }}
-      gl={{
-        preserveDrawingBuffer: true,
-        powerPreference: 'high-performance',
-      }}
-      onCreated={({ gl }) => {
-        gl.domElement.addEventListener('webglcontextlost', (e) => {
-          e.preventDefault();
-          console.warn('WebGL context lost');
-        });
-      }}
-      className="w-full h-full"
+    <div
+      className="absolute pointer-events-none rounded-sm ring-1 ring-cyan-400/60"
+      style={{ right: PIP_MARGIN, bottom: PIP_MARGIN, width: pw, height: ph }}
     >
-      <color attach="background" args={['#1e293b']} />
-      <SceneContent captures={captures} />
-      <Suspense fallback={null}>
-        <Environment preset="studio" />
-      </Suspense>
-    </Canvas>
+      <div className="absolute -top-5 left-0 text-[10px] font-medium text-cyan-300 tabular-nums">
+        {camera.focal_length}mm · {fmt.id}
+      </div>
+    </div>
+  );
+}
+
+export function StageCanvas({ captures, backdropUrl }) {
+  return (
+    <div className="w-full h-full relative">
+      <Canvas
+        shadows
+        dpr={[1, 1.5]}
+        camera={{ position: [5, 5, 5], fov: 45 }}
+        gl={{
+          preserveDrawingBuffer: true,
+          powerPreference: 'high-performance',
+        }}
+        onCreated={({ gl }) => {
+          gl.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            console.warn('WebGL context lost');
+          });
+        }}
+        className="w-full h-full"
+      >
+        <color attach="background" args={['#1e293b']} />
+        <SceneContent captures={captures} backdropUrl={backdropUrl} />
+        <Suspense fallback={null}>
+          <Environment preset="studio" />
+        </Suspense>
+      </Canvas>
+      <ShotPreviewFrame />
+    </div>
   );
 }

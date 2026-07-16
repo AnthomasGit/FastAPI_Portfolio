@@ -82,6 +82,9 @@ export const api = {
   getAssetImage: (id) => fetchJSON(`/asset-images/${id}`),
 
   getAssetImageFile: (id) => `${API_BASE}/asset-images/${id}/file`,
+  getReferenceFileUrl: (ref) => ref.asset_image_id
+    ? `${API_BASE}/asset-images/${ref.asset_image_id}/file`
+    : `${API_BASE}/uploads/file/${ref.processed_url || ref.url}`,
 
   assignAssetImage: (entityType, entityId, assetImageId) =>
     fetchJSON(`/${entityType}/${entityId}/assign-asset`, { method: 'POST', body: JSON.stringify({ asset_image_id: assetImageId }) }),

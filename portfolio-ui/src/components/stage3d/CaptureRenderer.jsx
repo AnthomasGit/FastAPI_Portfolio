@@ -1,15 +1,11 @@
-import { useRef, useCallback, createContext, useContext } from 'react';
+import { useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import { useStagingStore } from '@/stores/stagingStore';
 import { api } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
+import { getFormat } from './cameraFormats';
+import { CaptureDepthContext } from './captureContext';
 import * as THREE from 'three';
-
-const CaptureDepthContext = createContext(null);
-
-export function useCaptureDepth() {
-  return useContext(CaptureDepthContext);
-}
 
 export function CaptureRenderer({ sceneId }) {
   const { gl, scene } = useThree();
@@ -22,8 +18,7 @@ export function CaptureRenderer({ sceneId }) {
     if (!shotCamera) return;
     setIsCapturing(true);
 
-    const width = 1024;
-    const height = 576;
+    const [width, height] = getFormat(shotCamera.format).capture;
 
     const target = new THREE.WebGLRenderTarget(width, height, {
       minFilter: THREE.LinearFilter,

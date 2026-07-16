@@ -2,69 +2,70 @@ import { useRef, useMemo, useCallback, useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { useStagingStore } from '@/stores/stagingStore';
+import { getFormat } from './cameraFormats';
 import * as THREE from 'three';
+
+// Fixed, comfortable field of view for free navigation — independent of the
+// shot camera's lens, so flying around an 85mm shot isn't claustrophobic.
+const NAV_FOV = 50;
 
 export function CameraRig() {
   const orbitRef = useRef();
   const appliedVersionRef = useRef(0);
   const get = useThree((s) => s.get);
   const camera = useStagingStore((s) => s.camera);
-  const setCamera = useStagingStore((s) => s.setCamera);
+  const setNavPose = useStagingStore((s) => s.setNavPose);
   const hydrationVersion = useStagingStore((s) => s.hydrationVersion);
 
-  // Apply the stored camera to the live view whenever the store is hydrated
-  // from the server (initial load, save restore) — never on user orbit commits
+  // On hydrate (initial load / save restore) adopt the shot's position+target so
+  // the first thing you see roughly matches the shot — but keep the nav fov.
   useEffect(() => {
     if (appliedVersionRef.current === hydrationVersion) return;
     if (!orbitRef.current) return;
     appliedVersionRef.current = hydrationVersion;
-    if (!camera) return;
     const glCamera = get().camera;
-    if (camera.position) glCamera.position.set(...camera.position);
-    if (camera.target) orbitRef.current.target.set(...camera.target);
-    if (camera.fov) {
-      glCamera.fov = camera.fov;
+    if (glCamera.fov !== NAV_FOV) {
+      glCamera.fov = NAV_FOV;
       glCamera.updateProjectionMatrix();
     }
+    if (camera?.position) glCamera.position.set(...camera.position);
+    if (camera?.target) orbitRef.current.target.set(...camera.target);
     orbitRef.current.update();
-  }, [hydrationVersion, camera, get]);
+    setNavPose({
+      position: glCamera.position.toArray(),
+      target: orbitRef.current.target.toArray(),
+    });
+  }, [hydrationVersion, camera, get, setNavPose]);
 
-  const shotCamera = useMemo(() => {
+  // Frustum gizmo mirroring the shot camera (pose + lens + format aspect).
+  // Rebuilt whenever the shot changes (infrequent) so the object is fully
+  // configured at creation — no post-hoc mutation of a memoized value.
+  const helper = useMemo(() => {
     const cam = new THREE.PerspectiveCamera(
       camera?.fov || 45,
-      camera?.aspect || 16 / 9,
+      getFormat(camera?.format).aspect,
       0.1,
-      100
+      12,
     );
-    if (camera?.position) {
-      cam.position.set(
-        camera.position[0],
-        camera.position[1],
-        camera.position[2]
-      );
-    }
-    if (camera?.target) {
-      cam.lookAt(
-        camera.target[0],
-        camera.target[1],
-        camera.target[2]
-      );
-    }
-    return cam;
+    if (camera?.position) cam.position.set(...camera.position);
+    if (camera?.target) cam.lookAt(...camera.target);
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld(true);
+    const h = new THREE.CameraHelper(cam);
+    h.userData.hideInShot = true; // hide frustum inside its own preview
+    return h;
   }, [camera]);
 
-  const commitCamera = useCallback(() => {
+  useEffect(() => () => helper.dispose(), [helper]);
+
+  const commitNavPose = useCallback(() => {
     if (!orbitRef.current) return;
     const glCamera = get().camera;
-    const pos = glCamera.position;
-    const target = orbitRef.current.target;
-    setCamera({
-      position: [pos.x, pos.y, pos.z],
-      target: [target.x, target.y, target.z],
-      fov: glCamera.fov,
-      aspect: glCamera.aspect,
+    setNavPose({
+      position: glCamera.position.toArray(),
+      target: orbitRef.current.target.toArray(),
     });
-  }, [get, setCamera]);
+  }, [get, setNavPose]);
 
   return (
     <>
@@ -75,13 +76,9 @@ export function CameraRig() {
         dampingFactor={0.1}
         minDistance={1}
         maxDistance={50}
-        onEnd={commitCamera}
+        onEnd={commitNavPose}
       />
-      {shotCamera && (
-        <group>
-          <primitive object={shotCamera} />
-        </group>
-      )}
+      <primitive object={helper} />
     </>
   );
 }

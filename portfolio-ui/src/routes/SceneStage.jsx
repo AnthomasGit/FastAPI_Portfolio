@@ -9,6 +9,9 @@ import { StageToolbar } from '@/components/stage3d/StageToolbar';
 import { PipelinePanel } from '@/components/stage3d/PipelinePanel';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 import { StagingSaves } from '@/components/stage3d/StagingSaves';
+import { BackdropPicker } from '@/components/stage3d/BackdropPicker';
+import { ShotControls } from '@/components/stage3d/ShotControls';
+import { useLocationReferences } from '@/components/stage3d/useLocationReferences';
 
 export function SceneStage() {
   const { id: projectId, sceneId } = useParams();
@@ -79,6 +82,11 @@ export function SceneStage() {
   const sceneLocations = scene?.locations || [];
   const sceneProps = scene?.props || [];
 
+  const backdropReferenceId = useStagingStore((s) => s.backdropReferenceId);
+  const { references: locationReferences } = useLocationReferences(sceneLocations);
+  const backdropRef = locationReferences.find((r) => r.id === backdropReferenceId);
+  const backdropUrl = backdropRef ? api.getReferenceFileUrl(backdropRef) : null;
+
   if (!scene) {
     return (
       <div className="flex items-center justify-center h-64 text-slate-400">
@@ -109,10 +117,16 @@ export function SceneStage() {
             <span className="text-xs text-amber-400 animate-pulse">Unsaved changes...</span>
           )}
         </div>
-        {/* key: reset loaded-save/popover state when switching scenes */}
-        <StagingSaves key={sceneId} sceneId={sceneId} />
+        <div className="flex items-center gap-3">
+          {/* key: reset loaded-save/popover state when switching scenes */}
+          <StagingSaves key={sceneId} sceneId={sceneId} />
+          <div className="w-px h-5 bg-white/10" />
+          <BackdropPicker sceneLocations={sceneLocations} />
+          <div className="w-px h-5 bg-white/10" />
+          <ShotControls />
+        </div>
         <div className="flex-1 flex justify-end">
-          <StageToolbar sceneId={sceneId} />
+          <StageToolbar />
         </div>
       </header>
 
@@ -151,9 +165,8 @@ export function SceneStage() {
           </div>
           <div className="flex-1 relative">
           <StageCanvas
-            sceneId={sceneId}
-            projectId={projectId}
             captures={captures || []}
+            backdropUrl={backdropUrl}
           />
           </div>
         </div>
@@ -162,23 +175,23 @@ export function SceneStage() {
           <div className="p-4 space-y-6">
             <div>
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Assets
-              </h3>
-              <AssetDrawer
-                projectId={projectId}
-                characters={projectCharacters}
-                props={projectProps}
-              />
-            </div>
-
-            <div>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
                 Captures
               </h3>
               <PipelinePanel
                 captures={captures || []}
                 isLoading={capturesLoading}
                 sceneId={sceneId}
+              />
+            </div>
+
+            <div>
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                Assets
+              </h3>
+              <AssetDrawer
+                projectId={projectId}
+                characters={projectCharacters}
+                props={projectProps}
               />
             </div>
           </div>

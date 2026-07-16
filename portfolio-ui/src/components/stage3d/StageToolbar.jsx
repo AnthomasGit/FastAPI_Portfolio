@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
-import { useCaptureDepth } from './CaptureRenderer';
+import { useCaptureDepth } from './captureContext';
 
 const MODES = [
   { key: 'translate', icon: Move, label: 'Move' },
@@ -11,7 +11,7 @@ const MODES = [
 
 let blockoutCounter = 0;
 
-export function StageToolbar({ sceneId }) {
+export function StageToolbar() {
   const setBlockout = useStagingStore((s) => s.setBlockout);
   const blockout = useStagingStore((s) => s.blockout);
   const placements = useStagingStore((s) => s.placements);
