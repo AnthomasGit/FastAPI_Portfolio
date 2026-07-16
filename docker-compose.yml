@@ -39,6 +39,9 @@ services:
     # Maps to your sibling UI folder so hot-reloading works instantly
     volumes:
       - ./portfolio-ui:/app
+      # Container-private node_modules: keeps Alpine/musl binaries and root-owned
+      # files out of the host folder (host npm installs stay usable natively)
+      - /app/node_modules
     # Installs packages (if missing) and starts Vite, exposing it to your host network
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     ports:
