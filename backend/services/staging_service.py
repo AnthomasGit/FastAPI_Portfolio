@@ -79,6 +79,13 @@ async def update_staging(
     return staging
 
 
+def _write_capture_file(prefix: str, data: bytes) -> str:
+    filename = f"{prefix}_{uuid.uuid4()}.png"
+    with open(os.path.join(COMFY_INPUT_DIR, filename), "wb") as f:
+        f.write(data)
+    return filename
+
+
 async def create_capture(
     scene_id: str,
     depth_map_data: bytes,
@@ -86,26 +93,20 @@ async def create_capture(
     width: int,
     height: int,
     edge_map_data: bytes | None = None,
+    color_map_data: bytes | None = None,
     db: AsyncSession | None = None,
 ) -> SceneCapture:
     staging = await get_or_create_staging(scene_id, db)
 
-    depth_filename = f"depth_{uuid.uuid4()}.png"
-    depth_path = os.path.join(COMFY_INPUT_DIR, depth_filename)
-    with open(depth_path, "wb") as f:
-        f.write(depth_map_data)
-
-    edge_filename = None
-    if edge_map_data:
-        edge_filename = f"edge_{uuid.uuid4()}.png"
-        edge_path = os.path.join(COMFY_INPUT_DIR, edge_filename)
-        with open(edge_path, "wb") as f:
-            f.write(edge_map_data)
+    depth_filename = _write_capture_file("depth", depth_map_data)
+    edge_filename = _write_capture_file("edge", edge_map_data) if edge_map_data else None
+    color_filename = _write_capture_file("color", color_map_data) if color_map_data else None
 
     snapshot = {
         "blockout": staging.blockout,
         "placements": staging.placements,
         "backdrop_reference_id": staging.backdrop_reference_id,
+        "backdrop_transform": staging.backdrop_transform,
     }
 
     capture = SceneCapture(
@@ -114,6 +115,7 @@ async def create_capture(
         staging_snapshot=snapshot,
         depth_map_url=depth_filename,
         edge_map_url=edge_filename,
+        color_map_url=color_filename,
         width=width,
         height=height,
     )
@@ -139,20 +141,28 @@ async def get_captures(scene_id: str, db: AsyncSession) -> list[SceneCapture]:
     return captures.scalars().all()
 
 
-async def get_capture_depth(capture_id: str, db: AsyncSession) -> bytes | None:
+async def _read_capture_file(capture_id: str, db: AsyncSession, url_attr: str) -> bytes | None:
     result = await db.execute(
         select(SceneCapture).where(SceneCapture.id == capture_id)
     )
     capture = result.scalars().first()
-    if not capture or not capture.depth_map_url:
+    filename = getattr(capture, url_attr, None) if capture else None
+    if not filename:
         return None
 
-    filepath = os.path.join(COMFY_INPUT_DIR, capture.depth_map_url)
     try:
-        with open(filepath, "rb") as f:
+        with open(os.path.join(COMFY_INPUT_DIR, filename), "rb") as f:
             return f.read()
     except FileNotFoundError:
         return None
+
+
+async def get_capture_depth(capture_id: str, db: AsyncSession) -> bytes | None:
+    return await _read_capture_file(capture_id, db, "depth_map_url")
+
+
+async def get_capture_color(capture_id: str, db: AsyncSession) -> bytes | None:
+    return await _read_capture_file(capture_id, db, "color_map_url")
 
 
 async def create_save(scene_id: str, name: str, db: AsyncSession) -> StagingSave:

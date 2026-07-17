@@ -165,6 +165,53 @@ async def test_create_capture_with_edge_map(client, scene, db_session):
     assert data["edge_map_url"].startswith("edge_")
 
 
+@pytest.mark.asyncio
+async def test_create_capture_with_color_map(client, scene, db_session):
+    staging = SceneStaging(scene_id=scene.id)
+    db_session.add(staging)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/staging/captures",
+        files={
+            "depth_map": ("depth.png", b"depth-data", "image/png"),
+            "color_map": ("color.png", b"color-data", "image/png"),
+        },
+        data={
+            "camera": json.dumps({"position": [0, 0, 5], "target": [0, 0, 0]}),
+            "width": 1024,
+            "height": 576,
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["color_map_url"] is not None
+    assert data["color_map_url"].startswith("color_")
+
+    color_resp = await client.get(f"/api/captures/{data['id']}/color")
+    assert color_resp.status_code == 200
+    assert color_resp.content == b"color-data"
+
+
+@pytest.mark.asyncio
+async def test_create_capture_without_color_map(client, scene, db_session):
+    staging = SceneStaging(scene_id=scene.id)
+    db_session.add(staging)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/staging/captures",
+        files={"depth_map": ("depth.png", b"depth-data", "image/png")},
+        data={"camera": "{}", "width": 100, "height": 100},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["color_map_url"] is None
+
+    color_resp = await client.get(f"/api/captures/{data['id']}/color")
+    assert color_resp.status_code == 404
+
+
 # ── List captures ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

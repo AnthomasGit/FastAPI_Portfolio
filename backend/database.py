@@ -261,6 +261,7 @@ class SceneCapture(Base):
     staging_snapshot = Column(JSON, nullable=False)
     depth_map_url = Column(String, nullable=False)
     edge_map_url = Column(String, nullable=True)
+    color_map_url = Column(String, nullable=True)
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

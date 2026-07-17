@@ -244,6 +244,7 @@ class SceneCaptureResponse(BaseModel):
     staging_snapshot: dict
     depth_map_url: str
     edge_map_url: Optional[str] = None
+    color_map_url: Optional[str] = None
     width: int
     height: int
     created_at: datetime

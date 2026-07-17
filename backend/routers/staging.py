@@ -19,6 +19,7 @@ from services.staging_service import (
     create_capture,
     get_captures,
     get_capture_depth,
+    get_capture_color,
     delete_capture,
     create_save,
     list_saves,
@@ -71,6 +72,7 @@ async def post_capture(
     width: int = Form(...),
     height: int = Form(...),
     edge_map: UploadFile | None = File(None),
+    color_map: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -80,10 +82,11 @@ async def post_capture(
 
     depth_data = await depth_map.read()
     edge_data = await edge_map.read() if edge_map else None
+    color_data = await color_map.read() if color_map else None
 
     try:
         capture = await create_capture(
-            scene_id, depth_data, camera_dict, width, height, edge_data, db,
+            scene_id, depth_data, camera_dict, width, height, edge_data, color_data, db,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -156,6 +159,14 @@ async def get_depth_map(capture_id: str, db: AsyncSession = Depends(get_db)):
     content = await get_capture_depth(capture_id, db)
     if content is None:
         raise HTTPException(status_code=404, detail="Depth map not found")
+    return Response(content=content, media_type="image/png")
+
+
+@router.get("/api/captures/{capture_id}/color")
+async def get_color_map(capture_id: str, db: AsyncSession = Depends(get_db)):
+    content = await get_capture_color(capture_id, db)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Color frame not found")
     return Response(content=content, media_type="image/png")
 
 
