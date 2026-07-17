@@ -57,11 +57,13 @@ export function StagingSaves({ sceneId }) {
   });
 
   const overwriteMutation = useMutation({
-    mutationFn: async (saveId) => {
+    mutationFn: async (save) => {
       await flushStaging();
-      return api.updateStagingSave(saveId);
+      return api.updateStagingSave(save.id);
     },
-    onSuccess: () => {
+    onSuccess: (_, save) => {
+      // The overwritten save now holds the current stage — it becomes the slot.
+      setLoadedSave({ id: save.id, name: save.name });
       closeSavePopover();
       queryClient.invalidateQueries({ queryKey: ['staging-saves', sceneId] });
     },
@@ -205,7 +207,7 @@ export function StagingSaves({ sceneId }) {
               <button
                 type="button"
                 disabled={!loadedSave || overwriteMutation.isPending}
-                onClick={() => overwriteMutation.mutate(loadedSave.id)}
+                onClick={() => overwriteMutation.mutate(loadedSave)}
                 title={
                   loadedSave
                     ? `Overwrite "${loadedSave.name}" with the current stage`
@@ -228,6 +230,48 @@ export function StagingSaves({ sceneId }) {
                 <FilePlus2 className="w-3.5 h-3.5" />
                 New
               </button>
+              <button
+                type="button"
+                disabled={!saves || saves.length === 0}
+                onClick={() => setSaveMode('overwrite')}
+                title="Overwrite a specific save with the current stage"
+                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Overwrite…
+              </button>
+              {overwriteMutation.isError && (
+                <p className="text-[10px] text-red-400">
+                  {overwriteMutation.error.message}
+                </p>
+              )}
+            </div>
+          ) : saveMode === 'overwrite' ? (
+            <div className="space-y-1.5">
+              <p className="text-[10px] text-slate-500">
+                Overwrite which save with the current stage?
+              </p>
+              <div className="max-h-56 overflow-y-auto space-y-1">
+                {(saves || []).map((save) => (
+                  <button
+                    key={save.id}
+                    type="button"
+                    disabled={overwriteMutation.isPending}
+                    onClick={() => overwriteMutation.mutate(save)}
+                    className="w-full text-left px-2 py-1.5 rounded bg-white/5 border border-white/10 hover:bg-cyan-500/10 hover:border-cyan-500/30 disabled:opacity-40 transition-colors"
+                  >
+                    <p className="text-xs text-slate-200 truncate">
+                      {save.name}
+                      {loadedSave?.id === save.id && (
+                        <span className="text-cyan-400 ml-1.5">(loaded)</span>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {new Date(save.created_at).toLocaleString()}
+                    </p>
+                  </button>
+                ))}
+              </div>
               {overwriteMutation.isError && (
                 <p className="text-[10px] text-red-400">
                   {overwriteMutation.error.message}
