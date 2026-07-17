@@ -32,6 +32,19 @@ export function pipSize(aspect) {
     : { pw: PIP_MAX * aspect, ph: PIP_MAX };
 }
 
+// Largest centered rect of the given aspect that fits in (width, height) — the
+// through-the-lens gate. Offsets are symmetric, so they hold for both WebGL
+// (bottom-left origin) and DOM (top-left origin) coordinates.
+export function gateRect(aspect, width, height) {
+  let gw = width;
+  let gh = width / aspect;
+  if (gh > height) {
+    gh = height;
+    gw = height * aspect;
+  }
+  return { x: (width - gw) / 2, y: (height - gh) / 2, gw, gh };
+}
+
 // Vertical FOV (degrees) for a focal length on a Super 35 sensor at the given
 // aspect. The gauge is the horizontal film dimension, so the horizontal FOV is
 // derived from it and the vertical FOV follows from the aspect ratio.

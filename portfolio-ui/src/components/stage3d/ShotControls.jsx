@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Aperture, Frame, Crosshair } from 'lucide-react';
+import { Aperture, Frame, Crosshair, Video } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +14,8 @@ export function ShotControls() {
   const camera = useStagingStore((s) => s.camera);
   const navPose = useStagingStore((s) => s.navPose);
   const updateShotCamera = useStagingStore((s) => s.updateShotCamera);
+  const pilotMode = useStagingStore((s) => s.pilotMode);
+  const setPilotMode = useStagingStore((s) => s.setPilotMode);
 
   // Seed a default shot on scenes that have none yet, matching the initial
   // viewport pose so the preview isn't empty on first open.
@@ -93,12 +95,27 @@ export function ShotControls() {
         size="xs"
         variant="outline"
         onClick={setShotFromView}
-        disabled={!navPose}
+        disabled={!navPose || pilotMode}
         className="border-white/10 text-slate-300 hover:text-white"
         title="Move the shot camera to your current view"
       >
         <Crosshair className="w-3.5 h-3.5 mr-1" />
         Set from view
+      </Button>
+
+      <Button
+        size="xs"
+        variant={pilotMode ? 'default' : 'outline'}
+        onClick={() => setPilotMode(!pilotMode)}
+        className={
+          pilotMode
+            ? 'bg-cyan-600 text-white hover:bg-cyan-500'
+            : 'border-white/10 text-slate-300 hover:text-white'
+        }
+        title={pilotMode ? 'Exit pilot mode (Esc)' : 'Fly the shot camera through the lens'}
+      >
+        <Video className="w-3.5 h-3.5 mr-1" />
+        Pilot
       </Button>
     </div>
   );

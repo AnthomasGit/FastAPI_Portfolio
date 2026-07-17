@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize } from 'lucide-react';
+import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize, Zap } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
 
 const MODES = [
@@ -22,6 +22,8 @@ export function StageToolbar() {
   const setTransformMode = useStagingStore((s) => s.setTransformMode);
   const isCapturing = useStagingStore((s) => s.isCapturing);
   const captureFn = useStagingStore((s) => s.captureFn);
+  const fastMode = useStagingStore((s) => s.fastMode);
+  const toggleFastMode = useStagingStore((s) => s.toggleFastMode);
 
   const deleteSelected = () => {
     if (!selection) return;
@@ -104,6 +106,16 @@ export function StageToolbar() {
           ))}
         </>
       )}
+
+      <Button
+        size="xs"
+        variant={fastMode ? 'default' : 'ghost'}
+        onClick={toggleFastMode}
+        className={fastMode ? 'bg-amber-500 text-black hover:bg-amber-400' : 'text-slate-400 hover:text-white'}
+        title="Fast movement for WASD controls (toggle with Shift)"
+      >
+        <Zap className="w-3.5 h-3.5" />
+      </Button>
 
       <div className="w-px h-5 bg-white/10 mx-1" />
 

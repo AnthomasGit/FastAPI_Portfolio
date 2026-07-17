@@ -32,6 +32,8 @@ export const useStagingStore = create((set, get) => ({
   dirty: false,
   isCapturing: false,
   captureFn: null,
+  pilotMode: false,
+  fastMode: false,
   editVersion: 0,
 
   setPlacements: (placements) => set((state) => ({
@@ -97,6 +99,56 @@ export const useStagingStore = create((set, get) => ({
   // trigger a capture. Stored via a wrapper so zustand doesn't treat the fn as
   // a state updater.
   setCaptureFn: (fn) => set({ captureFn: fn }),
+  setPilotMode: (v) => set({ pilotMode: v }),
+  toggleFastMode: () => set((state) => ({ fastMode: !state.fastMode })),
+
+  // Nudge the selected placement/blockout/backdrop by a world-space offset.
+  // Called at frame rate while movement keys are held (same scale/pattern as
+  // the original drag-time store writes).
+  moveSelected: (offset) => set((state) => {
+    const sel = state.selection;
+    if (!sel) return {};
+    const [dx, dy, dz] = offset;
+    const bump = { dirty: true, editVersion: state.editVersion + 1 };
+
+    if (sel === 'backdrop') {
+      const t = state.backdropTransform || {
+        pos: [0, 1.5, -5], rot: [0, 0, 0], scale: [4, 3, 1],
+      };
+      const pos = t.pos || [0, 1.5, -5];
+      return {
+        backdropTransform: { ...t, pos: [pos[0] + dx, pos[1] + dy, pos[2] + dz] },
+        ...bump,
+      };
+    }
+    if (state.placements.some((p) => p.id === sel)) {
+      return {
+        placements: state.placements.map((p) => {
+          if (p.id !== sel) return p;
+          const pos = p.transform?.pos || [0, 0, 0];
+          return {
+            ...p,
+            transform: { ...p.transform, pos: [pos[0] + dx, pos[1] + dy, pos[2] + dz] },
+          };
+        }),
+        ...bump,
+      };
+    }
+    if (state.blockout.some((b) => b.id === sel)) {
+      return {
+        blockout: state.blockout.map((b) => {
+          if (b.id !== sel) return b;
+          const pos = b.transform?.pos || [0, 0, 0];
+          return {
+            ...b,
+            transform: { ...b.transform, pos: [pos[0] + dx, pos[1] + dy, pos[2] + dz] },
+          };
+        }),
+        ...bump,
+      };
+    }
+    return {};
+  }),
 
   hydrationVersion: 0,
   hydrateFromServer: (data) => set((state) => ({
@@ -108,6 +160,7 @@ export const useStagingStore = create((set, get) => ({
     backdropTransform: data.backdrop_transform || null,
     dirty: false,
     selection: null,
+    pilotMode: false,
     hydrationVersion: state.hydrationVersion + 1,
   })),
 

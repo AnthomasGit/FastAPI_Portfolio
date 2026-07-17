@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, Grid } from '@react-three/drei';
 import { BackdropPlane } from './BackdropPlane';
@@ -7,7 +7,9 @@ import { PlacedAsset } from './PlacedAsset';
 import { CameraRig } from './CameraRig';
 import { CaptureRenderer } from './CaptureRenderer';
 import { ShotPreview } from './ShotPreview';
-import { getFormat, pipSize, PIP_MARGIN } from './cameraFormats';
+import { PilotControls } from './PilotControls';
+import { AssetFlyControls } from './AssetFlyControls';
+import { getFormat, pipSize, gateRect, PIP_MARGIN } from './cameraFormats';
 import { useStagingStore } from '@/stores/stagingStore';
 
 function SceneContent({ sceneId, backdropUrl }) {
@@ -35,6 +37,22 @@ function SceneContent({ sceneId, backdropUrl }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [selection, blockout, placements, removeBlockout, removePlacement]);
+
+  // Shift toggles fast mode for all keyboard movement (nav fly, pilot, asset
+  // nudge). One listener for the whole editor so a single press flips it once.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key !== 'Shift' || e.repeat) return;
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      ) return;
+      useStagingStore.getState().toggleFastMode();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   return (
     <>
@@ -85,17 +103,59 @@ function SceneContent({ sceneId, backdropUrl }) {
 
       <CameraRig />
       <ShotPreview />
+      <PilotControls />
+      <AssetFlyControls />
       <CaptureRenderer sceneId={sceneId} />
     </>
   );
 }
 
-// HTML overlay: a border + label around the WebGL corner preview, positioned to
-// match the scissor rect in ShotPreview (bottom-right, PIP_MARGIN inset).
+// HTML overlay companion to ShotPreview's WebGL output. Normal mode: border +
+// label around the corner PiP. Pilot mode: the through-the-lens gate frame with
+// key legend, matching the centered scissor rect pixel-for-pixel.
 function ShotPreviewFrame() {
   const camera = useStagingStore((s) => s.camera);
+  const pilotMode = useStagingStore((s) => s.pilotMode);
+  const wrapRef = useRef(null);
+  const [box, setBox] = useState(null);
+
+  // Track the canvas box while piloting so the DOM gate matches the WebGL one.
+  // (ResizeObserver delivers an initial measurement on observe.)
+  useEffect(() => {
+    if (!pilotMode) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() =>
+      setBox({ w: el.clientWidth, h: el.clientHeight })
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pilotMode]);
+
   if (!camera) return null;
   const fmt = getFormat(camera.format);
+
+  if (pilotMode) {
+    const gate = box ? gateRect(fmt.aspect, box.w, box.h) : null;
+    return (
+      <div ref={wrapRef} className="absolute inset-0 pointer-events-none">
+        {gate && (
+          <div
+            className="absolute ring-2 ring-cyan-400/70 rounded-sm"
+            style={{ left: gate.x, top: gate.y, width: gate.gw, height: gate.gh }}
+          >
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-semibold text-cyan-300 tracking-wider whitespace-nowrap">
+              PILOT · WASD/QE move · ←→ pan · ↑↓ tilt · Shift speed · Esc done
+            </div>
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-medium text-cyan-300 tabular-nums">
+              {camera.focal_length}mm · {fmt.id}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const { pw, ph } = pipSize(fmt.aspect);
   return (
     <div
