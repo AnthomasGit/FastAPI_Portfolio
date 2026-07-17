@@ -72,6 +72,26 @@ export function PipelinePanel({ captures, isLoading, sceneId }) {
                 />
               </div>
             )}
+            {cap.normal_map_url && (
+              <div>
+                <p className="text-[10px] text-slate-500 mb-1">Normal</p>
+                <img
+                  src={api.getCaptureNormalUrl(cap.id)}
+                  alt="Normal map"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
+                />
+              </div>
+            )}
+            {cap.seg_map_url && (
+              <div>
+                <p className="text-[10px] text-slate-500 mb-1">Segmentation</p>
+                <img
+                  src={api.getCaptureSegUrl(cap.id)}
+                  alt="Segmentation map"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
+                />
+              </div>
+            )}
           </div>
 
           <details className="text-[10px] text-slate-500">

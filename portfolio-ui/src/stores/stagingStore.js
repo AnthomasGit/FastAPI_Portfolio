@@ -34,6 +34,7 @@ export const useStagingStore = create((set, get) => ({
   captureFn: null,
   pilotMode: false,
   fastMode: false,
+  captureMode: 'all', // 'all' (depth+normal+seg) | 'depth'
   editVersion: 0,
 
   setPlacements: (placements) => set((state) => ({
@@ -101,6 +102,7 @@ export const useStagingStore = create((set, get) => ({
   setCaptureFn: (fn) => set({ captureFn: fn }),
   setPilotMode: (v) => set({ pilotMode: v }),
   toggleFastMode: () => set((state) => ({ fastMode: !state.fastMode })),
+  setCaptureMode: (mode) => set({ captureMode: mode }),
 
   // Nudge the selected placement/blockout/backdrop by a world-space offset.
   // Called at frame rate while movement keys are held (same scale/pattern as

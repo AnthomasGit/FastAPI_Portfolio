@@ -1,11 +1,22 @@
 import { Button } from '@/components/ui/button';
-import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize, Zap } from 'lucide-react';
+import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize, Zap, Layers } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 
 const MODES = [
   { key: 'translate', icon: Move, label: 'Move' },
   { key: 'rotate', icon: RotateCw, label: 'Rotate' },
   { key: 'scale', icon: Maximize, label: 'Scale' },
+];
+
+const CAPTURE_MODES = [
+  { key: 'all', label: 'All maps', hint: 'Depth + Normal + Segmentation' },
+  { key: 'depth', label: 'Depth only', hint: 'Just the depth map' },
 ];
 
 let blockoutCounter = 0;
@@ -24,6 +35,8 @@ export function StageToolbar() {
   const captureFn = useStagingStore((s) => s.captureFn);
   const fastMode = useStagingStore((s) => s.fastMode);
   const toggleFastMode = useStagingStore((s) => s.toggleFastMode);
+  const captureMode = useStagingStore((s) => s.captureMode);
+  const setCaptureMode = useStagingStore((s) => s.setCaptureMode);
 
   const deleteSelected = () => {
     if (!selection) return;
@@ -118,6 +131,38 @@ export function StageToolbar() {
       </Button>
 
       <div className="w-px h-5 bg-white/10 mx-1" />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="xs"
+            variant="outline"
+            className="border-white/10 text-slate-300 hover:text-white"
+            title="Which maps Capture produces (color frame is always included)"
+          >
+            <Layers className="w-3.5 h-3.5 mr-1" />
+            {CAPTURE_MODES.find((m) => m.key === captureMode)?.label ?? 'All maps'}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="bg-slate-900 border-white/10 min-w-[13rem]"
+        >
+          {CAPTURE_MODES.map((mode) => (
+            <DropdownMenuItem
+              key={mode.key}
+              onSelect={() => setCaptureMode(mode.key)}
+              className="text-slate-200 focus:bg-cyan-500/10 focus:text-cyan-200 gap-2"
+            >
+              <div className="flex-1">
+                <p className="text-xs">{mode.label}</p>
+                <p className="text-[10px] text-slate-500">{mode.hint}</p>
+              </div>
+              {captureMode === mode.key && <span className="text-cyan-400">●</span>}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Button
         size="sm"

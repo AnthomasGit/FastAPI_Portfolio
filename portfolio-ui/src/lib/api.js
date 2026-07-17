@@ -105,11 +105,13 @@ export const api = {
   updateStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'PUT' }),
   deleteStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'DELETE' }),
 
-  createCapture: async (sceneId, { depthMap, edgeMap, colorMap, camera, width, height }) => {
+  createCapture: async (sceneId, { depthMap, edgeMap, colorMap, normalMap, segMap, camera, width, height }) => {
     const formData = new FormData();
     formData.append('depth_map', depthMap, 'depth.png');
     if (edgeMap) formData.append('edge_map', edgeMap, 'edge.png');
     if (colorMap) formData.append('color_map', colorMap, 'color.png');
+    if (normalMap) formData.append('normal_map', normalMap, 'normal.png');
+    if (segMap) formData.append('seg_map', segMap, 'seg.png');
     formData.append('camera', JSON.stringify(camera));
     formData.append('width', String(width));
     formData.append('height', String(height));
@@ -125,6 +127,8 @@ export const api = {
 
   getCaptureDepthUrl: (captureId) => `${API_BASE}/captures/${captureId}/depth`,
   getCaptureColorUrl: (captureId) => `${API_BASE}/captures/${captureId}/color`,
+  getCaptureNormalUrl: (captureId) => `${API_BASE}/captures/${captureId}/normal`,
+  getCaptureSegUrl: (captureId) => `${API_BASE}/captures/${captureId}/seg`,
 
   deleteCapture: (captureId) => fetchJSON(`/captures/${captureId}`, { method: 'DELETE' }),
 };
