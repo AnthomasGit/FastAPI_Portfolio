@@ -105,10 +105,11 @@ export const api = {
   updateStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'PUT' }),
   deleteStagingSave: (saveId) => fetchJSON(`/staging-saves/${saveId}`, { method: 'DELETE' }),
 
-  createCapture: async (sceneId, { depthMap, edgeMap, camera, width, height }) => {
+  createCapture: async (sceneId, { depthMap, edgeMap, colorMap, camera, width, height }) => {
     const formData = new FormData();
     formData.append('depth_map', depthMap, 'depth.png');
     if (edgeMap) formData.append('edge_map', edgeMap, 'edge.png');
+    if (colorMap) formData.append('color_map', colorMap, 'color.png');
     formData.append('camera', JSON.stringify(camera));
     formData.append('width', String(width));
     formData.append('height', String(height));
@@ -123,6 +124,7 @@ export const api = {
   listCaptures: (sceneId) => fetchJSON(`/scenes/${sceneId}/staging/captures`),
 
   getCaptureDepthUrl: (captureId) => `${API_BASE}/captures/${captureId}/depth`,
+  getCaptureColorUrl: (captureId) => `${API_BASE}/captures/${captureId}/color`,
 
   deleteCapture: (captureId) => fetchJSON(`/captures/${captureId}`, { method: 'DELETE' }),
 };

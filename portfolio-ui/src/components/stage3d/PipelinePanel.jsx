@@ -62,12 +62,12 @@ export function PipelinePanel({ captures, isLoading, sceneId }) {
                 className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
               />
             </div>
-            {cap.edge_map_url && (
+            {cap.color_map_url && (
               <div>
-                <p className="text-[10px] text-slate-500 mb-1">Edge</p>
+                <p className="text-[10px] text-slate-500 mb-1">Color</p>
                 <img
-                  src={api.getCaptureDepthUrl(cap.id)}
-                  alt="Edge map"
+                  src={api.getCaptureColorUrl(cap.id)}
+                  alt="Color frame"
                   className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
                 />
               </div>

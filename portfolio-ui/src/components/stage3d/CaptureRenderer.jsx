@@ -4,7 +4,31 @@ import { useStagingStore } from '@/stores/stagingStore';
 import { api } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { getFormat } from './cameraFormats';
+import { isGizmoObject, isGridMesh } from './sceneFilters';
 import * as THREE from 'three';
+
+// Read a render target back into a PNG blob, flipping rows: WebGL's readback
+// origin is bottom-left while canvas ImageData is top-down — without the flip
+// every capture comes out vertically mirrored.
+async function readTargetToBlob(gl, target, width, height) {
+  const pixelData = new Uint8Array(width * height * 4);
+  gl.readRenderTargetPixels(target, 0, 0, width, height, pixelData);
+
+  const rowBytes = width * 4;
+  const flipped = new Uint8ClampedArray(pixelData.length);
+  for (let y = 0; y < height; y++) {
+    const src = y * rowBytes;
+    const dst = (height - 1 - y) * rowBytes;
+    flipped.set(pixelData.subarray(src, src + rowBytes), dst);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(new ImageData(flipped, width, height), 0, 0);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+}
 
 export function CaptureRenderer({ sceneId }) {
   const gl = useThree((s) => s.gl);
@@ -20,10 +44,19 @@ export function CaptureRenderer({ sceneId }) {
 
     const scene = getThree().scene;
     const [width, height] = getFormat(shotCamera.format).capture;
-    const target = new THREE.WebGLRenderTarget(width, height, {
+
+    const depthTarget = new THREE.WebGLRenderTarget(width, height, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
+    });
+    // SRGB colorSpace so the beauty readback matches what's on screen instead
+    // of coming out as washed-out linear values.
+    const colorTarget = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      colorSpace: THREE.SRGBColorSpace,
     });
 
     const shotCam = new THREE.PerspectiveCamera(shotCamera.fov || 45, width / height, 0.1, 100);
@@ -70,44 +103,66 @@ export function CaptureRenderer({ sceneId }) {
     const prevBackground = scene.background;
 
     try {
-      // Black "far" background: null out the scene's colored background so the
-      // black clear shows through as maximum depth.
+      // ── Pass 1: depth ────────────────────────────────────────────────────
+      // Black "far" background; backdrop excluded (a flat photo plane would
+      // read as a false wall — LLD risk R5); gizmos/grid hidden.
       scene.background = null;
-
+      const excludedRoots = new Set();
       scene.traverse((obj) => {
-        // Exclude the backdrop (a flat photo plane would read as a false wall),
-        // gizmos/helpers, and drei's infinite Grid from the depth pass.
-        const isGizmo = obj.userData?.hideInShot || obj.isTransformControlsRoot;
-        const isGrid = obj.isMesh && obj.material && 'worldCamProjPosition' in obj.material;
-        const isBackdrop = obj.userData?.isBackdrop;
-        if (isGizmo || isGrid || isBackdrop) {
+        if (isGizmoObject(obj) || isGridMesh(obj) || obj.userData?.isBackdrop) {
+          excludedRoots.add(obj);
           restore.push({ obj, visible: obj.visible });
           obj.visible = false;
-        } else if (obj.isMesh) {
+          return;
+        }
+        // Never swap materials inside an excluded subtree: hidden objects still
+        // get updateMatrixWorld, and TransformControls' gizmo handles read
+        // material.color there — the depth ShaderMaterial has none and crashes.
+        for (let p = obj.parent; p; p = p.parent) {
+          if (excludedRoots.has(p)) return;
+        }
+        if (obj.isMesh) {
           restore.push({ obj, material: obj.material });
           obj.material = depthMaterial;
         }
       });
 
-      gl.setRenderTarget(target);
+      gl.setRenderTarget(depthTarget);
       gl.setClearColor(0x000000, 1);
       gl.clear(true, true, true);
       gl.render(scene, shotCam);
+      const depthBlob = await readTargetToBlob(gl, depthTarget, width, height);
 
-      const pixelData = new Uint8Array(width * height * 4);
-      gl.readRenderTargetPixels(target, 0, 0, width, height, pixelData);
+      // Restore materials + backdrop for the beauty pass.
+      restore.forEach(({ obj, material, visible }) => {
+        if (material !== undefined) obj.material = material;
+        if (visible !== undefined) obj.visible = visible;
+      });
+      restore.length = 0;
+      scene.background = prevBackground;
 
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      const imageData = ctx.createImageData(width, height);
-      imageData.data.set(pixelData);
-      ctx.putImageData(imageData, 0, 0);
+      // ── Pass 2: color (beauty) ───────────────────────────────────────────
+      // What the shot camera actually sees: backdrop + assets with their real
+      // materials and background — the img2img init frame. Gizmos/grid stay out.
+      scene.traverse((obj) => {
+        if (isGizmoObject(obj) || isGridMesh(obj)) {
+          restore.push({ obj, visible: obj.visible });
+          obj.visible = false;
+        }
+      });
 
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      gl.setRenderTarget(colorTarget);
+      gl.clear(true, true, true);
+      gl.render(scene, shotCam);
+      const colorBlob = await readTargetToBlob(gl, colorTarget, width, height);
 
-      await api.createCapture(sceneId, { depthMap: blob, camera: shotCamera, width, height });
+      await api.createCapture(sceneId, {
+        depthMap: depthBlob,
+        colorMap: colorBlob,
+        camera: shotCamera,
+        width,
+        height,
+      });
       queryClient.invalidateQueries({ queryKey: ['captures', sceneId] });
     } catch (e) {
       console.error('Capture failed', e);
@@ -118,7 +173,8 @@ export function CaptureRenderer({ sceneId }) {
       });
       scene.background = prevBackground;
       gl.setRenderTarget(null);
-      target.dispose();
+      depthTarget.dispose();
+      colorTarget.dispose();
       depthMaterial.dispose();
       setIsCapturing(false);
     }
