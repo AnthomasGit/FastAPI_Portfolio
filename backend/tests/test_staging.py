@@ -212,6 +212,56 @@ async def test_create_capture_without_color_map(client, scene, db_session):
     assert color_resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_create_capture_with_all_maps(client, scene, db_session):
+    staging = SceneStaging(scene_id=scene.id)
+    db_session.add(staging)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/staging/captures",
+        files={
+            "depth_map": ("depth.png", b"depth-data", "image/png"),
+            "color_map": ("color.png", b"color-data", "image/png"),
+            "normal_map": ("normal.png", b"normal-data", "image/png"),
+            "seg_map": ("seg.png", b"seg-data", "image/png"),
+        },
+        data={"camera": "{}", "width": 1024, "height": 576},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["normal_map_url"].startswith("normal_")
+    assert data["seg_map_url"].startswith("seg_")
+
+    normal_resp = await client.get(f"/api/captures/{data['id']}/normal")
+    assert normal_resp.status_code == 200
+    assert normal_resp.content == b"normal-data"
+
+    seg_resp = await client.get(f"/api/captures/{data['id']}/seg")
+    assert seg_resp.status_code == 200
+    assert seg_resp.content == b"seg-data"
+
+
+@pytest.mark.asyncio
+async def test_create_capture_depth_only_leaves_maps_null(client, scene, db_session):
+    staging = SceneStaging(scene_id=scene.id)
+    db_session.add(staging)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/staging/captures",
+        files={"depth_map": ("depth.png", b"depth-data", "image/png")},
+        data={"camera": "{}", "width": 100, "height": 100},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["normal_map_url"] is None
+    assert data["seg_map_url"] is None
+
+    assert (await client.get(f"/api/captures/{data['id']}/normal")).status_code == 404
+    assert (await client.get(f"/api/captures/{data['id']}/seg")).status_code == 404
+
+
 # ── List captures ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

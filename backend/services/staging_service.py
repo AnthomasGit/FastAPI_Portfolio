@@ -94,6 +94,8 @@ async def create_capture(
     height: int,
     edge_map_data: bytes | None = None,
     color_map_data: bytes | None = None,
+    normal_map_data: bytes | None = None,
+    seg_map_data: bytes | None = None,
     db: AsyncSession | None = None,
 ) -> SceneCapture:
     staging = await get_or_create_staging(scene_id, db)
@@ -101,6 +103,8 @@ async def create_capture(
     depth_filename = _write_capture_file("depth", depth_map_data)
     edge_filename = _write_capture_file("edge", edge_map_data) if edge_map_data else None
     color_filename = _write_capture_file("color", color_map_data) if color_map_data else None
+    normal_filename = _write_capture_file("normal", normal_map_data) if normal_map_data else None
+    seg_filename = _write_capture_file("seg", seg_map_data) if seg_map_data else None
 
     snapshot = {
         "blockout": staging.blockout,
@@ -116,6 +120,8 @@ async def create_capture(
         depth_map_url=depth_filename,
         edge_map_url=edge_filename,
         color_map_url=color_filename,
+        normal_map_url=normal_filename,
+        seg_map_url=seg_filename,
         width=width,
         height=height,
     )
@@ -163,6 +169,14 @@ async def get_capture_depth(capture_id: str, db: AsyncSession) -> bytes | None:
 
 async def get_capture_color(capture_id: str, db: AsyncSession) -> bytes | None:
     return await _read_capture_file(capture_id, db, "color_map_url")
+
+
+async def get_capture_normal(capture_id: str, db: AsyncSession) -> bytes | None:
+    return await _read_capture_file(capture_id, db, "normal_map_url")
+
+
+async def get_capture_seg(capture_id: str, db: AsyncSession) -> bytes | None:
+    return await _read_capture_file(capture_id, db, "seg_map_url")
 
 
 async def create_save(scene_id: str, name: str, db: AsyncSession) -> StagingSave:
