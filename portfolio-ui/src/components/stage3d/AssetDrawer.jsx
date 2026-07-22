@@ -172,6 +172,25 @@ export function AssetDrawer({ projectId, characters, props }) {
               </div>
             )}
 
+            {(latest?.status === 'mesh_ready' || latest?.status === 'rigged') && (
+              <div className="flex items-center gap-3 mt-2">
+                <a
+                  href={api.getAsset3DFile(latest.id)}
+                  download
+                  className="text-blue-400 hover:text-blue-300 underline text-[10px]"
+                >
+                  Download GLB
+                </a>
+                <button
+                  onClick={() => addPlacement(latest.id)}
+                  className="flex items-center gap-0.5 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add to Scene
+                </button>
+              </div>
+            )}
+
             {entityAssets.length > 1 && (
               <details className="mt-2">
                 <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
