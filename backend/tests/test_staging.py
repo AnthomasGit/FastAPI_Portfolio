@@ -225,6 +225,7 @@ async def test_create_capture_with_all_maps(client, scene, db_session):
             "color_map": ("color.png", b"color-data", "image/png"),
             "normal_map": ("normal.png", b"normal-data", "image/png"),
             "seg_map": ("seg.png", b"seg-data", "image/png"),
+            "clean_map": ("clean.png", b"clean-data", "image/png"),
         },
         data={"camera": "{}", "width": 1024, "height": 576},
     )
@@ -232,6 +233,7 @@ async def test_create_capture_with_all_maps(client, scene, db_session):
     data = resp.json()
     assert data["normal_map_url"].startswith("normal_")
     assert data["seg_map_url"].startswith("seg_")
+    assert data["clean_map_url"].startswith("clean_")
 
     normal_resp = await client.get(f"/api/captures/{data['id']}/normal")
     assert normal_resp.status_code == 200
@@ -240,6 +242,10 @@ async def test_create_capture_with_all_maps(client, scene, db_session):
     seg_resp = await client.get(f"/api/captures/{data['id']}/seg")
     assert seg_resp.status_code == 200
     assert seg_resp.content == b"seg-data"
+
+    clean_resp = await client.get(f"/api/captures/{data['id']}/clean")
+    assert clean_resp.status_code == 200
+    assert clean_resp.content == b"clean-data"
 
 
 @pytest.mark.asyncio
@@ -257,9 +263,39 @@ async def test_create_capture_depth_only_leaves_maps_null(client, scene, db_sess
     data = resp.json()
     assert data["normal_map_url"] is None
     assert data["seg_map_url"] is None
+    assert data["clean_map_url"] is None
 
     assert (await client.get(f"/api/captures/{data['id']}/normal")).status_code == 404
     assert (await client.get(f"/api/captures/{data['id']}/seg")).status_code == 404
+    assert (await client.get(f"/api/captures/{data['id']}/clean")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_capture_with_clean_map(client, scene, db_session):
+    staging = SceneStaging(scene_id=scene.id)
+    db_session.add(staging)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/staging/captures",
+        files={
+            "depth_map": ("depth.png", b"depth-data", "image/png"),
+            "clean_map": ("clean.png", b"clean-data", "image/png"),
+        },
+        data={
+            "camera": json.dumps({"position": [0, 0, 5], "target": [0, 0, 0]}),
+            "width": 1024,
+            "height": 576,
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["clean_map_url"] is not None
+    assert data["clean_map_url"].startswith("clean_")
+
+    clean_resp = await client.get(f"/api/captures/{data['id']}/clean")
+    assert clean_resp.status_code == 200
+    assert clean_resp.content == b"clean-data"
 
 
 # ── List captures ───────────────────────────────────────────────────────────

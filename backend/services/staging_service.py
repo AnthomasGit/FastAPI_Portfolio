@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database import SceneStaging, SceneCapture, StagingSave, Asset3D, Scene
 
@@ -96,6 +97,7 @@ async def create_capture(
     color_map_data: bytes | None = None,
     normal_map_data: bytes | None = None,
     seg_map_data: bytes | None = None,
+    clean_map_data: bytes | None = None,
     db: AsyncSession | None = None,
 ) -> SceneCapture:
     staging = await get_or_create_staging(scene_id, db)
@@ -105,6 +107,7 @@ async def create_capture(
     color_filename = _write_capture_file("color", color_map_data) if color_map_data else None
     normal_filename = _write_capture_file("normal", normal_map_data) if normal_map_data else None
     seg_filename = _write_capture_file("seg", seg_map_data) if seg_map_data else None
+    clean_filename = _write_capture_file("clean", clean_map_data) if clean_map_data else None
 
     snapshot = {
         "blockout": staging.blockout,
@@ -122,12 +125,14 @@ async def create_capture(
         color_map_url=color_filename,
         normal_map_url=normal_filename,
         seg_map_url=seg_filename,
+        clean_map_url=clean_filename,
         width=width,
         height=height,
     )
     db.add(capture)
     await db.commit()
     await db.refresh(capture)
+    await db.refresh(capture, ["generated_images"])
     return capture
 
 
@@ -141,6 +146,7 @@ async def get_captures(scene_id: str, db: AsyncSession) -> list[SceneCapture]:
 
     captures = await db.execute(
         select(SceneCapture)
+        .options(selectinload(SceneCapture.generated_images))
         .where(SceneCapture.staging_id == staging.id)
         .order_by(SceneCapture.created_at.desc())
     )
@@ -177,6 +183,10 @@ async def get_capture_normal(capture_id: str, db: AsyncSession) -> bytes | None:
 
 async def get_capture_seg(capture_id: str, db: AsyncSession) -> bytes | None:
     return await _read_capture_file(capture_id, db, "seg_map_url")
+
+
+async def get_capture_clean(capture_id: str, db: AsyncSession) -> bytes | None:
+    return await _read_capture_file(capture_id, db, "clean_map_url")
 
 
 async def create_save(scene_id: str, name: str, db: AsyncSession) -> StagingSave:

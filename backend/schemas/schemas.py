@@ -247,24 +247,40 @@ class SceneCaptureResponse(BaseModel):
     color_map_url: Optional[str] = None
     normal_map_url: Optional[str] = None
     seg_map_url: Optional[str] = None
+    clean_map_url: Optional[str] = None
     width: int
     height: int
+    created_at: datetime
+    generated_images: List["GenerateImageResponse"] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ControlledGenerateRequest(BaseModel):
+    capture_id: str
+    prompt_override: Optional[str] = None
+    params: Optional[dict] = None
+
+
+class GenerateImageResponse(BaseModel):
+    id: str
+    scene_id: Optional[str] = None
+    capture_id: Optional[str] = None
+    kind: str = "txt2img"
+    prompt: Optional[str] = None
+    image_url: Optional[str] = None
+    status: str
+    job_id: Optional[str] = None
+    params: Optional[dict] = None
+    error: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-class GenerateImageResponse(BaseModel):
-    id: str
-    scene_id: Optional[str] = None
-    prompt: Optional[str] = None
-    image_url: Optional[str] = None
-    status: str
-    job_id: Optional[str] = None
-
-    class Config:
-        from_attributes = True
+SceneCaptureResponse.model_rebuild()
 
 
 class SceneCreate(BaseModel):
@@ -281,6 +297,16 @@ class SceneUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class SceneEntityLink(BaseModel):
+    entity_id: str
+    reference_id: Optional[str] = None
+    reference_url: Optional[str] = None
+
+
+class SceneEntityLinkUpdate(BaseModel):
+    reference_id: Optional[str] = None
+
+
 class SceneResponse(BaseModel):
     id: str
     project_id: str
@@ -292,6 +318,9 @@ class SceneResponse(BaseModel):
     characters: List[CharacterResponse] = []
     locations: List[LocationResponse] = []
     props: List[PropResponse] = []
+    character_links: List[SceneEntityLink] = []
+    location_links: List[SceneEntityLink] = []
+    prop_links: List[SceneEntityLink] = []
     references: List[ReferenceResponse] = []
     generated_images: List[GenerateImageResponse] = []
 

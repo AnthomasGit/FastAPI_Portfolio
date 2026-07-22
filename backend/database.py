@@ -19,19 +19,22 @@ Base = declarative_base()
 scene_characters = Table(
     'scene_characters', Base.metadata,
     Column('scene_id', String, ForeignKey('scenes.id', ondelete="CASCADE")),
-    Column('character_id', String, ForeignKey('characters.id', ondelete="CASCADE"))
+    Column('character_id', String, ForeignKey('characters.id', ondelete="CASCADE")),
+    Column('reference_id', String, ForeignKey('references.id', ondelete="SET NULL"), nullable=True)
 )
 
 scene_locations = Table(
     'scene_locations', Base.metadata,
     Column('scene_id', String, ForeignKey('scenes.id', ondelete="CASCADE")),
-    Column('location_id', String, ForeignKey('locations.id', ondelete="CASCADE"))
+    Column('location_id', String, ForeignKey('locations.id', ondelete="CASCADE")),
+    Column('reference_id', String, ForeignKey('references.id', ondelete="SET NULL"), nullable=True)
 )
 
 scene_props = Table(
     'scene_props', Base.metadata,
     Column('scene_id', String, ForeignKey('scenes.id', ondelete="CASCADE")),
-    Column('prop_id', String, ForeignKey('props.id', ondelete="CASCADE"))
+    Column('prop_id', String, ForeignKey('props.id', ondelete="CASCADE")),
+    Column('reference_id', String, ForeignKey('references.id', ondelete="SET NULL"), nullable=True)
 )
 
 
@@ -264,6 +267,7 @@ class SceneCapture(Base):
     color_map_url = Column(String, nullable=True)
     normal_map_url = Column(String, nullable=True)
     seg_map_url = Column(String, nullable=True)
+    clean_map_url = Column(String, nullable=True)
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
