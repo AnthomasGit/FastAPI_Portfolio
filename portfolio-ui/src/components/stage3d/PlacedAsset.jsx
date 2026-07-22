@@ -85,7 +85,7 @@ export function PlacedAsset({ placement, selected, onSelect, onUpdate }) {
   }, [meshObj, onUpdate]);
 
   return (
-    <group>
+    <group userData={{ isStagingObject: true }}>
       <Suspense
         fallback={
           <mesh

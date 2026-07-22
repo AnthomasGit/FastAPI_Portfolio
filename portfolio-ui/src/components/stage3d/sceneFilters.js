@@ -10,6 +10,12 @@ export function isGridMesh(obj) {
   return obj.isMesh && obj.material && 'worldCamProjPosition' in obj.material;
 }
 
+// Placed 3D assets and blockout primitives (the staged geometry). Excluded from
+// the clean-plate pass so it captures the backdrop/environment only.
+export function isStagingObject(obj) {
+  return obj.userData?.isStagingObject === true;
+}
+
 // Hide editor chrome (and optionally more) for a render; returns a restore fn.
 export function hideForShot(scene, extraPredicate = null) {
   const hidden = [];

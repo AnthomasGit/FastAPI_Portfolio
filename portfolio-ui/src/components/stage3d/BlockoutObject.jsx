@@ -40,7 +40,7 @@ export function BlockoutObject({ blockout, selected, onSelect }) {
   };
 
   return (
-    <group>
+    <group userData={{ isStagingObject: true }}>
       <mesh
         ref={setMeshObj}
         position={pos}

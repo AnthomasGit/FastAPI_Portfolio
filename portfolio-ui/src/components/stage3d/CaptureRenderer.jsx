@@ -4,7 +4,7 @@ import { useStagingStore } from '@/stores/stagingStore';
 import { api } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { getFormat } from './cameraFormats';
-import { isGizmoObject, isGridMesh } from './sceneFilters';
+import { isGizmoObject, isGridMesh, isStagingObject } from './sceneFilters';
 import * as THREE from 'three';
 
 // Synchronous readback of a render target's pixels (must run in the same
@@ -396,14 +396,35 @@ export function CaptureRenderer({ sceneId }) {
       gl.render(scene, shotCam);
       const colorPixels = readTargetPixels(gl, colorTarget, width, height);
       restoreAll();
+
+      // ── Clean plate pass (backdrop/environment only) ─────────────────────
+      // Same shot camera and real materials as the beauty frame, but placed
+      // assets + blockout hidden — a background plate for compositing/inpainting.
+      // Only in 'all' mode (mirrors normal/seg). Reuses colorTarget (its beauty
+      // pixels were already read above).
+      let cleanPixels = null;
+      if (captureMode === 'all') {
+        scene.traverse((obj) => {
+          if (isGizmoObject(obj) || isGridMesh(obj) || isStagingObject(obj)) {
+            restore.push({ obj, visible: obj.visible });
+            obj.visible = false;
+          }
+        });
+        gl.setRenderTarget(colorTarget);
+        gl.clear(true, true, true);
+        gl.render(scene, shotCam);
+        cleanPixels = readTargetPixels(gl, colorTarget, width, height);
+        restoreAll();
+      }
       gl.setRenderTarget(null);
 
       // ── Encode + upload (async; GPU state already restored) ──────────────
-      const [depthBlob, colorBlob, normalBlob, segBlob] = await Promise.all([
+      const [depthBlob, colorBlob, normalBlob, segBlob, cleanBlob] = await Promise.all([
         pixelsToBlob(depthPixels, width, height),
         pixelsToBlob(colorPixels, width, height),
         normalPixels ? pixelsToBlob(normalPixels, width, height) : null,
         segPixels ? pixelsToBlob(segPixels, width, height) : null,
+        cleanPixels ? pixelsToBlob(cleanPixels, width, height) : null,
       ]);
 
       await api.createCapture(sceneId, {
@@ -411,6 +432,7 @@ export function CaptureRenderer({ sceneId }) {
         colorMap: colorBlob,
         normalMap: normalBlob,
         segMap: segBlob,
+        cleanMap: cleanBlob,
         camera: shotCamera,
         width,
         height,
