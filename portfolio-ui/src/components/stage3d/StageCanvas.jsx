@@ -36,6 +36,13 @@ function SceneContent({ sceneId, backdropUrl }) {
         if (selection) setSelection(null);
         return;
       }
+      // Space triggers a capture, same as the toolbar button.
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault(); // stop the page from scrolling
+        const { isCapturing, captureFn } = useStagingStore.getState();
+        if (!isCapturing) captureFn?.();
+        return;
+      }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const sel = selection;
       if (!sel) return;
@@ -124,10 +131,12 @@ function SceneContent({ sceneId, backdropUrl }) {
 function ShotPreviewFrame() {
   const camera = useStagingStore((s) => s.camera);
   const pilotMode = useStagingStore((s) => s.pilotMode);
+  const isCapturing = useStagingStore((s) => s.isCapturing);
   const pipScale = useStagingStore((s) => s.pipScale);
   const cyclePipScale = useStagingStore((s) => s.cyclePipScale);
   const wrapRef = useRef(null);
   const [box, setBox] = useState(null);
+  const [shutterClosed, setShutterClosed] = useState(false);
 
   // Track the canvas box while piloting so the DOM gate matches the WebGL one.
   // (ResizeObserver delivers an initial measurement on observe.)
@@ -142,6 +151,26 @@ function ShotPreviewFrame() {
     return () => ro.disconnect();
   }, [pilotMode]);
 
+  // Shutter blink on the rising edge of a capture — a fixed, short blackout
+  // (like a mirror flip), independent of how long the encode/upload actually
+  // takes so the gate doesn't stay dark through a slow save.
+  useEffect(() => {
+    if (isCapturing) {
+      const closeTimer = setTimeout(() => setShutterClosed(true), 0);
+      const openTimer = setTimeout(() => setShutterClosed(false), 90);
+      return () => {
+        clearTimeout(closeTimer);
+        clearTimeout(openTimer);
+      };
+    }
+    // isCapturing just went false (or was already false) — if the real
+    // capture finished faster than the flash's own 90ms timer, that timer
+    // gets cancelled by this same cleanup cycle without ever reopening the
+    // shutter. Reset it here too so a fast capture can never leave it stuck.
+    const resetTimer = setTimeout(() => setShutterClosed(false), 0);
+    return () => clearTimeout(resetTimer);
+  }, [isCapturing]);
+
   if (!camera) return null;
   const fmt = getFormat(camera.format);
 
@@ -155,11 +184,16 @@ function ShotPreviewFrame() {
             style={{ left: gate.x, top: gate.y, width: gate.gw, height: gate.gh }}
           >
             <div className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-semibold text-cyan-300 tracking-wider whitespace-nowrap">
-              PILOT · WASD/QE move · ←→ pan · ↑↓ tilt · Shift speed · Esc done
+              PILOT · WASD/QE move · ←→ pan · ↑↓ tilt · Shift speed · Space capture · Esc done
             </div>
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-medium text-cyan-300 tabular-nums">
               {camera.focal_length}mm · {fmt.id}
             </div>
+            <div
+              className={`absolute inset-0 bg-black transition-opacity duration-150 ${
+                shutterClosed ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
           </div>
         )}
       </div>

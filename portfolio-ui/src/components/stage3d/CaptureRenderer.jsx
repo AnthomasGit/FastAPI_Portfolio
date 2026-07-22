@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { getFormat } from './cameraFormats';
 import { isGizmoObject, isGridMesh, isStagingObject } from './sceneFilters';
+import { pilotState, forwardVector } from './pilotState';
 import * as THREE from 'three';
 
 // Synchronous readback of a render target's pixels (must run in the same
@@ -261,8 +262,22 @@ export function CaptureRenderer({ sceneId }) {
     const fov = shotCamera.fov || 45;
     const aspect = width / height;
     const shotCam = new THREE.PerspectiveCamera(fov, aspect, CAM_NEAR, CAM_FAR);
-    shotCam.position.set(...(shotCamera.position || [0, 0, 0]));
-    shotCam.lookAt(...(shotCamera.target || [0, 0, 0]));
+    // While piloting, the store `camera` is stale (committed only on pilot exit),
+    // so derive the live pose from pilotState — same source ShotPreview renders.
+    const piloting = pilotState.active && useStagingStore.getState().pilotMode;
+    let camPosition, camTarget;
+    if (piloting) {
+      const p = pilotState.pos;
+      const [fx, fy, fz] = forwardVector(pilotState.yaw, pilotState.pitch);
+      const d = pilotState.targetDistance;
+      camPosition = [p[0], p[1], p[2]];
+      camTarget = [p[0] + fx * d, p[1] + fy * d, p[2] + fz * d];
+    } else {
+      camPosition = shotCamera.position || [0, 0, 0];
+      camTarget = shotCamera.target || [0, 0, 0];
+    }
+    shotCam.position.set(...camPosition);
+    shotCam.lookAt(...camTarget);
     shotCam.updateMatrixWorld();
 
     depthViewMaterial.uniforms.tDepth.value = depthTexture;
@@ -433,7 +448,9 @@ export function CaptureRenderer({ sceneId }) {
         normalMap: normalBlob,
         segMap: segBlob,
         cleanMap: cleanBlob,
-        camera: shotCamera,
+        camera: piloting
+          ? { ...shotCamera, position: camPosition, target: camTarget }
+          : shotCamera,
         width,
         height,
       });
