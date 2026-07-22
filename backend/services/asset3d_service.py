@@ -1,5 +1,6 @@
 import glob
 import os
+import shutil
 import uuid
 import random
 from datetime import datetime, timedelta
@@ -15,6 +16,43 @@ MESH_WORKFLOW = "mesh_hunyuan3d_21"
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 MESH_TIMEOUT_MINUTES = 30
+
+
+def _resolve_source_for_load(ref: Reference) -> str:
+    """Return an INPUT-relative filename ComfyUI's LoadImage can read.
+
+    Asset-image references are generated files that live in COMFY_OUTPUT_DIR
+    under a subfolder (e.g. ``assets/<proj>/characters/<id>_00001_.png``);
+    LoadImage only reads COMFY_INPUT_DIR, so stage a flat copy in first
+    (mirrors asset_image_service._resolve_source_image). Then background-remove
+    when the reference has not already been processed.
+    """
+    source_url = ref.processed_url or ref.url
+    if ref.processed_url:
+        return source_url
+
+    if ref.asset_image_id and source_url and "/" in source_url:
+        staged = f"{ref.id}_source.png"
+        try:
+            shutil.copy2(
+                os.path.join(COMFY_OUTPUT_DIR, source_url),
+                os.path.join(COMFY_INPUT_DIR, staged),
+            )
+        except OSError as e:
+            raise ValueError(
+                "Source image file is missing — regenerate the character image "
+                "before creating a mesh"
+            ) from e
+        source_url = staged
+
+    try:
+        processed_filename = remove_background(
+            os.path.join(COMFY_INPUT_DIR, source_url), COMFY_INPUT_DIR
+        )
+        ref.processed_url = processed_filename
+        return processed_filename
+    except Exception:
+        return source_url
 
 
 async def _resolve_reference(
@@ -80,16 +118,7 @@ async def trigger_mesh(
     if not ref:
         raise ValueError("No reference image found for this entity. Upload a photo first.")
 
-    source_url = ref.processed_url or ref.url
-    source_path = os.path.join(COMFY_INPUT_DIR, source_url)
-
-    if not ref.processed_url:
-        try:
-            processed_filename = remove_background(source_path, COMFY_INPUT_DIR)
-            ref.processed_url = processed_filename
-            source_url = processed_filename
-        except Exception:
-            pass
+    source_url = _resolve_source_for_load(ref)
 
     asset = Asset3D(
         project_id=project_id,
@@ -231,9 +260,9 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
     if not ref:
         raise ValueError("Source reference not found or was deleted")
 
-    source_url = ref.processed_url or ref.url
-    if not source_url:
+    if not (ref.processed_url or ref.url):
         raise ValueError("Source reference has no image")
+    source_url = _resolve_source_for_load(ref)
 
     job_id = str(uuid.uuid4())
     seed_val = random.randint(1, 1000000000000000)

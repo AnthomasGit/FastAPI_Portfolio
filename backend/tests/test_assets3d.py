@@ -425,3 +425,81 @@ async def test_retry_creates_new_job_record(
         assert new_job is not None
         assert new_job.job_type == "mesh"
         assert new_job.job_id != old_job_id
+
+
+# ── Mesh from an asset-image-backed reference (OUTPUT-dir file must be staged) ──
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output")
+@patch("services.asset3d_service.remove_background", side_effect=Exception("no rembg"))
+@patch("services.asset3d_service.submit", new_callable=AsyncMock)
+@patch("services.asset3d_service.load_node_map")
+@patch("services.asset3d_service.load_workflow")
+async def test_mesh_from_asset_image_reference_is_staged_into_input(
+    mock_load_workflow, mock_load_node_map, mock_submit, mock_rmbg,
+    client, character, db_session,
+):
+    mock_load_workflow.return_value = {"2": {"inputs": {"image": ""}, "class_type": "LoadImage"}}
+    mock_load_node_map.return_value = {"image_node": "2", "seed_node": "7", "output_node": "10"}
+    mock_submit.return_value = "prompt-staged"
+
+    input_dir = os.environ["COMFY_INPUT_DIR"]
+    output_dir = "/tmp/comfy_test_output"
+    rel = f"assets/{character.project_id}/characters/{character.id}_00001_.png"
+    out_path = os.path.join(output_dir, rel)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "wb") as f:
+        f.write(b"\x89PNG\r\n fake image bytes")
+
+    ref = Reference(
+        entity_type="character", entity_id=character.id,
+        role="primary", url=rel, asset_image_id="asset-img-1",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+    await db_session.refresh(ref)
+
+    resp = await client.post(
+        "/api/assets3d/generate",
+        json={"entity_type": "character", "entity_id": character.id},
+    )
+    assert resp.status_code == 202
+
+    # The OUTPUT-dir file was copied into INPUT under a flat filename ...
+    staged = f"{ref.id}_source.png"
+    assert os.path.exists(os.path.join(input_dir, staged))
+    # ... and that flat filename (not the OUTPUT subfolder path) was injected.
+    submitted_workflow = mock_submit.call_args.args[0]
+    assert submitted_workflow["2"]["inputs"]["image"] == staged
+
+    result = await db_session.execute(
+        select(Asset3D).where(Asset3D.id == resp.json()["asset3d_id"])
+    )
+    assert result.scalars().first().status == "mesh_processing"
+
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output")
+@patch("services.asset3d_service.load_node_map")
+@patch("services.asset3d_service.load_workflow")
+async def test_mesh_missing_asset_image_file_returns_422(
+    mock_load_workflow, mock_load_node_map, client, character, db_session,
+):
+    mock_load_workflow.return_value = {"2": {"inputs": {"image": ""}}}
+    mock_load_node_map.return_value = {"image_node": "2", "seed_node": "7", "output_node": "10"}
+
+    # reference points at an asset-image file that does not exist on disk
+    ref = Reference(
+        entity_type="character", entity_id=character.id, role="primary",
+        url=f"assets/{character.project_id}/characters/missing_00001_.png",
+        asset_image_id="asset-img-2",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/assets3d/generate",
+        json={"entity_type": "character", "entity_id": character.id},
+    )
+    assert resp.status_code == 422
+    assert "missing" in resp.json()["detail"].lower()
