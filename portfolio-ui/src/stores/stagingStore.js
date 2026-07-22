@@ -153,7 +153,9 @@ export const useStagingStore = create((set, get) => ({
   // trigger a capture. Stored via a wrapper so zustand doesn't treat the fn as
   // a state updater.
   setCaptureFn: (fn) => set({ captureFn: fn }),
-  setPilotMode: (v) => set({ pilotMode: v }),
+  // Entering pilot mode drops the current selection (and its gizmo) so the
+  // flight keys don't fight the asset-nudge keys.
+  setPilotMode: (v) => set(v ? { pilotMode: true, selection: null } : { pilotMode: false }),
   toggleFastMode: () => set((state) => ({ fastMode: !state.fastMode })),
   setCaptureMode: (mode) => set({ captureMode: mode }),
   // Cycle the shot-preview PiP through its size presets (ephemeral, not saved).
