@@ -2,11 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 
 from database import get_db, Scene, Project
-from schemas.schemas import SceneCreate, SceneUpdate, SceneResponse, SceneReorderRequest
+from schemas.schemas import (
+    SceneCreate, SceneUpdate, SceneResponse, SceneReorderRequest, SceneEntityLinkUpdate,
+)
 from services.reference_service import delete_entity_references
+from services.scene_link_service import (
+    VALID_ENTITY_TYPES,
+    LinkNotFound,
+    LinkInvalid,
+    load_scene_links,
+    build_scene_response,
+    link_entity,
+    set_entity_reference,
+    unlink_entity,
+)
 
 router = APIRouter()
 
@@ -19,6 +31,16 @@ SCENE_LOAD_OPTS = [
 ]
 
 
+async def _scene_response(scene_id: str, db: AsyncSession) -> SceneResponse:
+    """Load one scene with its relationships + per-scene links as a SceneResponse."""
+    result = await db.execute(
+        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene_id)
+    )
+    scene = result.scalars().first()
+    links = await load_scene_links(db, [scene_id])
+    return build_scene_response(scene, links[scene_id])
+
+
 @router.get("/api/projects/{project_id}/scenes", response_model=List[SceneResponse])
 async def list_scenes(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -27,7 +49,9 @@ async def list_scenes(project_id: str, db: AsyncSession = Depends(get_db)):
         .where(Scene.project_id == project_id)
         .order_by(Scene.sort_order)
     )
-    return result.scalars().all()
+    scenes = result.scalars().all()
+    links = await load_scene_links(db, [s.id for s in scenes])
+    return [build_scene_response(s, links[s.id]) for s in scenes]
 
 
 @router.post("/api/projects/{project_id}/scenes", status_code=201, response_model=SceneResponse)
@@ -47,10 +71,7 @@ async def create_scene(project_id: str, data: SceneCreate, db: AsyncSession = De
     db.add(scene)
     await db.commit()
 
-    result = await db.execute(
-        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene.id)
-    )
-    return result.scalars().first()
+    return await _scene_response(scene.id, db)
 
 
 @router.put("/api/scenes/reorder")
@@ -81,10 +102,7 @@ async def update_scene(scene_id: str, data: SceneUpdate, db: AsyncSession = Depe
 
     await db.commit()
 
-    result = await db.execute(
-        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene.id)
-    )
-    return result.scalars().first()
+    return await _scene_response(scene.id, db)
 
 
 @router.delete("/api/scenes/{scene_id}", status_code=204)
@@ -96,3 +114,57 @@ async def delete_scene(scene_id: str, db: AsyncSession = Depends(get_db)):
     await delete_entity_references(db, "scene", scene_id)
     await db.delete(scene)
     await db.commit()
+
+
+def _validate_entity_type(entity_type: str) -> None:
+    if entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(status_code=422, detail=f"Invalid entity type: {entity_type}")
+
+
+@router.post("/api/scenes/{scene_id}/links/{entity_type}/{entity_id}", response_model=SceneResponse)
+async def link_scene_entity(
+    scene_id: str,
+    entity_type: str,
+    entity_id: str,
+    data: Optional[SceneEntityLinkUpdate] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    _validate_entity_type(entity_type)
+    try:
+        await link_entity(db, scene_id, entity_type, entity_id, data.reference_id if data else None)
+    except LinkNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except LinkInvalid as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return await _scene_response(scene_id, db)
+
+
+@router.put("/api/scenes/{scene_id}/links/{entity_type}/{entity_id}", response_model=SceneResponse)
+async def set_scene_entity_reference(
+    scene_id: str,
+    entity_type: str,
+    entity_id: str,
+    data: SceneEntityLinkUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    _validate_entity_type(entity_type)
+    try:
+        await set_entity_reference(db, scene_id, entity_type, entity_id, data.reference_id)
+    except LinkNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except LinkInvalid as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return await _scene_response(scene_id, db)
+
+
+@router.delete("/api/scenes/{scene_id}/links/{entity_type}/{entity_id}", status_code=204)
+async def unlink_scene_entity(
+    scene_id: str,
+    entity_type: str,
+    entity_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    _validate_entity_type(entity_type)
+    removed = await unlink_entity(db, scene_id, entity_type, entity_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Link not found")

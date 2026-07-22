@@ -9,6 +9,7 @@ from schemas.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListItem,
     GraphNode, GraphEdge, GraphResponse
 )
+from services.scene_link_service import load_scene_links, build_scene_response
 
 router = APIRouter()
 
@@ -55,7 +56,11 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     project = result.scalars().first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return project
+
+    resp = ProjectResponse.model_validate(project)
+    links = await load_scene_links(db, [s.id for s in project.scenes])
+    resp.scenes = [build_scene_response(s, links[s.id]) for s in project.scenes]
+    return resp
 
 
 @router.put("/api/projects/{project_id}")
