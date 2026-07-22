@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize, Zap, Layers } from 'lucide-react';
+import { Camera, Box, Square, Grid, Loader2, X, Move, RotateCw, Maximize, Zap, Layers, Undo2, Redo2 } from 'lucide-react';
 import { useStagingStore } from '@/stores/stagingStore';
 import {
   DropdownMenu,
@@ -37,6 +37,10 @@ export function StageToolbar() {
   const toggleFastMode = useStagingStore((s) => s.toggleFastMode);
   const captureMode = useStagingStore((s) => s.captureMode);
   const setCaptureMode = useStagingStore((s) => s.setCaptureMode);
+  const undo = useStagingStore((s) => s.undo);
+  const redo = useStagingStore((s) => s.redo);
+  const canUndo = useStagingStore((s) => s.past.length > 0);
+  const canRedo = useStagingStore((s) => s.future.length > 0);
 
   const deleteSelected = () => {
     if (!selection) return;
@@ -60,6 +64,27 @@ export function StageToolbar() {
 
   return (
     <div className="flex items-center gap-2">
+      <Button
+        size="xs"
+        variant="ghost"
+        onClick={undo}
+        disabled={!canUndo}
+        className="text-slate-400 hover:text-white disabled:opacity-30"
+        title="Undo (Ctrl+Z)"
+      >
+        <Undo2 className="w-3.5 h-3.5" />
+      </Button>
+      <Button
+        size="xs"
+        variant="ghost"
+        onClick={redo}
+        disabled={!canRedo}
+        className="text-slate-400 hover:text-white disabled:opacity-30"
+        title="Redo (Ctrl+Shift+Z)"
+      >
+        <Redo2 className="w-3.5 h-3.5" />
+      </Button>
+      <div className="w-px h-5 bg-white/10 mx-1" />
       <Button
         size="xs"
         variant="outline"

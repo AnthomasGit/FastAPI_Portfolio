@@ -26,10 +26,11 @@ export function getFormat(id) {
 export const PIP_MAX = 220;    // px, longest edge of the preview
 export const PIP_MARGIN = 16;  // px inset from the canvas edges
 
-export function pipSize(aspect) {
+export function pipSize(aspect, scale = 1) {
+  const longest = PIP_MAX * scale;
   return aspect >= 1
-    ? { pw: PIP_MAX, ph: PIP_MAX / aspect }
-    : { pw: PIP_MAX * aspect, ph: PIP_MAX };
+    ? { pw: longest, ph: longest / aspect }
+    : { pw: longest * aspect, ph: longest };
 }
 
 // Largest centered rect of the given aspect that fits in (width, height) — the

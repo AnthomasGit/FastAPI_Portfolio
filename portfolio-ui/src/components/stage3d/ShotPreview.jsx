@@ -12,6 +12,7 @@ import * as THREE from 'three';
 // shot camera rendered into a centered, format-aspect gate.
 export function ShotPreview() {
   const camera = useStagingStore((s) => s.camera);
+  const pipScale = useStagingStore((s) => s.pipScale);
   const shotCamRef = useRef(null);
   const clearColorRef = useRef(null);
 
@@ -34,7 +35,7 @@ export function ShotPreview() {
       if (!camera || !shotCam) return;
 
       const aspect = getFormat(camera.format).aspect;
-      const { pw, ph } = pipSize(aspect);
+      const { pw, ph } = pipSize(aspect, pipScale);
 
       shotCam.fov = camera.fov || 45;
       shotCam.aspect = aspect;

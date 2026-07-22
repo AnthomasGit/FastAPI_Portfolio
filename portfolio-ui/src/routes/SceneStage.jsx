@@ -70,6 +70,32 @@ export function SceneStage() {
     };
   }, [dirty, editVersion, savePending, getUpdatePayload, saveStaging]);
 
+  // Undo/redo shortcuts, bound at the DOM route level (not inside the R3F
+  // Canvas) so the window listener attaches reliably: Ctrl/Cmd+Z undo,
+  // Ctrl/Cmd+Shift+Z or Ctrl+Y redo. Ignored while typing in a field.
+  useEffect(() => {
+    const handler = (e) => {
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      ) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      const store = useStagingStore.getState();
+      if (key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) store.redo();
+        else store.undo();
+      } else if (key === 'y') {
+        e.preventDefault();
+        store.redo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const { data: captures, isLoading: capturesLoading } = useQuery({
     queryKey: ['captures', sceneId],
     queryFn: () => api.listCaptures(sceneId),

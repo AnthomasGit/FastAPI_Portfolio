@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { Maximize2 } from 'lucide-react';
 import { Environment, Grid } from '@react-three/drei';
 import { BackdropPlane } from './BackdropPlane';
 import { BlockoutObject } from './BlockoutObject';
@@ -116,6 +117,8 @@ function SceneContent({ sceneId, backdropUrl }) {
 function ShotPreviewFrame() {
   const camera = useStagingStore((s) => s.camera);
   const pilotMode = useStagingStore((s) => s.pilotMode);
+  const pipScale = useStagingStore((s) => s.pipScale);
+  const cyclePipScale = useStagingStore((s) => s.cyclePipScale);
   const wrapRef = useRef(null);
   const [box, setBox] = useState(null);
 
@@ -156,7 +159,7 @@ function ShotPreviewFrame() {
     );
   }
 
-  const { pw, ph } = pipSize(fmt.aspect);
+  const { pw, ph } = pipSize(fmt.aspect, pipScale);
   return (
     <div
       className="absolute pointer-events-none rounded-sm ring-1 ring-cyan-400/60"
@@ -165,6 +168,15 @@ function ShotPreviewFrame() {
       <div className="absolute -top-5 left-0 text-[10px] font-medium text-cyan-300 tabular-nums">
         {camera.focal_length}mm · {fmt.id}
       </div>
+      <button
+        type="button"
+        onClick={cyclePipScale}
+        title="Resize preview"
+        className="pointer-events-auto absolute -top-5 right-0 flex items-center gap-1 px-1 rounded text-[10px] font-medium text-cyan-300 hover:text-cyan-200 hover:bg-white/10 transition-colors tabular-nums"
+      >
+        <Maximize2 className="w-3 h-3" />
+        {pipScale}×
+      </button>
     </div>
   );
 }
