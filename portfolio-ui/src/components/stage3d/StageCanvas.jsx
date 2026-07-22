@@ -17,10 +17,16 @@ function SceneContent({ sceneId, backdropUrl }) {
   const placements = useStagingStore((s) => s.placements);
   const blockout = useStagingStore((s) => s.blockout);
   const selection = useStagingStore((s) => s.selection);
+  const pilotMode = useStagingStore((s) => s.pilotMode);
   const setSelection = useStagingStore((s) => s.setSelection);
   const setPlacements = useStagingStore((s) => s.setPlacements);
   const removeBlockout = useStagingStore((s) => s.removeBlockout);
   const removePlacement = useStagingStore((s) => s.removePlacement);
+  // Clicking an asset while piloting must not select it (and pop the
+  // TransformControls gizmo) — piloting is for flying the shot, not editing.
+  const select = (id) => {
+    if (!pilotMode) setSelection(id);
+  };
 
   useEffect(() => {
     const handler = (e) => {
@@ -90,7 +96,7 @@ function SceneContent({ sceneId, backdropUrl }) {
       <BackdropPlane
         url={backdropUrl}
         selected={selection === 'backdrop'}
-        onSelect={() => setSelection('backdrop')}
+        onSelect={() => select('backdrop')}
       />
 
       {blockout.map((obj) => (
@@ -98,7 +104,7 @@ function SceneContent({ sceneId, backdropUrl }) {
           key={obj.id}
           blockout={obj}
           selected={selection === obj.id}
-          onSelect={() => setSelection(obj.id)}
+          onSelect={() => select(obj.id)}
         />
       ))}
 
@@ -107,7 +113,7 @@ function SceneContent({ sceneId, backdropUrl }) {
           key={p.id}
           placement={p}
           selected={selection === p.id}
-          onSelect={() => setSelection(p.id)}
+          onSelect={() => select(p.id)}
           onUpdate={(updates) => {
             setPlacements(
               placements.map((pl) => (pl.id === p.id ? { ...pl, ...updates } : pl))
