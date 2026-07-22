@@ -30,6 +30,7 @@ INJECTION_MAP = {
     "seed": "seed_node",
     "filename_prefix": "output_node",
     "image": "image_node",
+    "controlnet_strength": "controlnet_node",
 }
 
 
@@ -63,6 +64,10 @@ def inject(workflow: dict, node_map: dict, overrides: dict) -> dict:
         elif key == "image":
             if "image" in inputs:
                 inputs["image"] = value
+
+        elif key == "controlnet_strength":
+            if "strength" in inputs:
+                inputs["strength"] = value
 
     return workflow
 

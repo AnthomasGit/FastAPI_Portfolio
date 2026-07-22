@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database import get_db, GeneratedImage, Scene, Project
+from schemas.schemas import ControlledGenerateRequest
 from services.comfyui_service import generate_scene_image, poll_generation_status
+from services.controlled_gen_service import (
+    get_capture,
+    has_inflight_generation,
+    generate_controlled_image,
+)
 
 COMFY_API_URL = os.environ.get("COMFY_API_URL", "http://comfyui:8188")
 
@@ -39,6 +45,33 @@ async def trigger_project_generation(project_id: str, db: AsyncSession = Depends
         generation_ids.append(gen_id)
 
     return {"generation_ids": generation_ids}
+
+
+@router.post("/api/generate/controlled", status_code=202)
+async def trigger_controlled_generation(
+    data: ControlledGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    capture = await get_capture(data.capture_id, db)
+    if not capture:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    if await has_inflight_generation(capture.id, db):
+        raise HTTPException(
+            status_code=409,
+            detail="A controlled generation is already in progress for this capture",
+        )
+
+    try:
+        gen_id = await generate_controlled_image(
+            capture, db,
+            prompt_override=data.prompt_override,
+            params=data.params,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {"generation_id": gen_id}
 
 
 @router.get("/api/generate/status/{generation_id}")
