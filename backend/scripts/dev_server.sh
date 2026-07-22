@@ -7,7 +7,7 @@
 # 1. Update this path to point to where you cloned ComfyUI on your machine
 COMFY_DIR="/home/anthomas/ComfyUI"
 API_DIR="."
-UI_DIR="../portfolio-ui"
+UI_DIR="../../portfolio-ui"
 
 # 2. Cleanup Trap (The secret sauce)
 # This function runs automatically when you press Ctrl+C

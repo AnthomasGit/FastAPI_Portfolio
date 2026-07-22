@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Wand2, Loader2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Badge } from '../ui/badge';
 import { api } from '../../lib/api';
 
 const ROLES = [
@@ -13,6 +12,11 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
   const [references, setReferences] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Per-reference view switch: true = show cut-out, false = show original.
+  // Undefined falls back to !!processed_url (cut-out shown by default once it exists).
+  const [viewProcessed, setViewProcessed] = useState({});
+  // Per-reference guard so a double-click can't fire a second remove/restore.
+  const [bgBusy, setBgBusy] = useState({});
 
   const pluralType = entityType === 'scene' ? 'scenes' : `${entityType}s`;
 
@@ -67,14 +71,46 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
     }
   };
 
+  // Lazily generate the cut-out the first time it's needed, then show it.
   const handleRemoveBg = async (refId) => {
+    if (bgBusy[refId]) return;
+    setBgBusy((prev) => ({ ...prev, [refId]: true }));
     try {
       const updated = await api.removeBackground(refId);
       setReferences((prev) =>
         prev.map((r) => (r.id === refId ? { ...r, processed_url: updated.processed_url } : r))
       );
+      setViewProcessed((prev) => ({ ...prev, [refId]: true }));
     } catch (e) {
       console.error('Background removal failed', e);
+    } finally {
+      setBgBusy((prev) => ({ ...prev, [refId]: false }));
+    }
+  };
+
+  // Frontend-only view switch — never hits the API, never regenerates.
+  const toggleView = (refId) => {
+    setViewProcessed((prev) => ({ ...prev, [refId]: !(prev[refId] ?? true) }));
+  };
+
+  // Delete the cut-out and reset back to the "removable" state.
+  const handleRestoreBg = async (refId) => {
+    if (bgBusy[refId]) return;
+    setBgBusy((prev) => ({ ...prev, [refId]: true }));
+    try {
+      await api.restoreBackground(refId);
+      setReferences((prev) =>
+        prev.map((r) => (r.id === refId ? { ...r, processed_url: null } : r))
+      );
+      setViewProcessed((prev) => {
+        const next = { ...prev };
+        delete next[refId];
+        return next;
+      });
+    } catch (e) {
+      console.error('Background restore failed', e);
+    } finally {
+      setBgBusy((prev) => ({ ...prev, [refId]: false }));
     }
   };
 
@@ -125,7 +161,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                 <div className="flex-1 bg-black/30 flex items-center justify-center overflow-hidden">
                   {ref.url ? (
                     <img
-                      src={ref.asset_image_id ? `/api/asset-images/${ref.asset_image_id}/file` : `/api/uploads/file/${ref.processed_url || ref.url}`}
+                      src={api.getReferenceFileUrl(ref, { processed: viewProcessed[ref.id] ?? true })}
                       alt=""
                       className="w-full h-full object-cover"
                     />
@@ -147,17 +183,42 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
-                      {!ref.processed_url && ref.url && (
+                      {ref.url && !ref.processed_url && (
                         <button
                           onClick={() => handleRemoveBg(ref.id)}
-                          className="p-0.5 rounded hover:bg-purple-500/20 text-purple-400 transition-colors"
+                          disabled={bgBusy[ref.id]}
+                          className="p-0.5 rounded hover:bg-purple-500/20 text-purple-400 transition-colors disabled:opacity-40"
                           title="Remove background"
                         >
-                          <Wand2 className="w-3 h-3" />
+                          {bgBusy[ref.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                         </button>
                       )}
                       {ref.processed_url && (
-                        <Badge className="text-[7px] bg-green-700 text-green-200 px-1 py-0">BG off</Badge>
+                        <>
+                          <button
+                            onClick={() => toggleView(ref.id)}
+                            className={`p-0.5 rounded transition-colors ${
+                              (viewProcessed[ref.id] ?? true)
+                                ? 'text-green-400 hover:bg-green-500/20'
+                                : 'text-slate-500 hover:bg-white/10'
+                            }`}
+                            title={
+                              (viewProcessed[ref.id] ?? true)
+                                ? 'Showing background-removed — click to show original'
+                                : 'Showing original — click to show background-removed'
+                            }
+                          >
+                            <Wand2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => handleRestoreBg(ref.id)}
+                            disabled={bgBusy[ref.id]}
+                            className="text-[7px] rounded bg-green-700 hover:bg-red-600 text-green-200 hover:text-white px-1 py-0 transition-colors disabled:opacity-40"
+                            title="Delete background-removed image"
+                          >
+                            BG off
+                          </button>
+                        </>
                       )}
                     </div>
                     <button

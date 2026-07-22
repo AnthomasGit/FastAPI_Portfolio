@@ -133,6 +133,35 @@ async def test_delete_reference(client, scene):
     assert len(list_resp.json()) == 0
 
 
+# ── Background removal restore (DELETE) ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_restore_background_clears_processed_url(client, db_session, scene):
+    create_resp = await client.post(
+        f"/api/scenes/{scene.id}/references",
+        json={"url": "orig.png", "role": "primary"},
+    )
+    ref_id = create_resp.json()["id"]
+
+    # Simulate a prior background removal.
+    ref = await db_session.get(Reference, ref_id)
+    ref.processed_url = "cutout.png"
+    await db_session.commit()
+
+    resp = await client.delete(f"/api/references/{ref_id}/remove-background")
+    assert resp.status_code == 200
+    assert resp.json()["processed_url"] is None
+
+    refreshed = await db_session.get(Reference, ref_id)
+    assert refreshed.processed_url is None
+
+
+@pytest.mark.asyncio
+async def test_restore_background_missing_reference_returns_404(client):
+    resp = await client.delete("/api/references/nonexistent-id/remove-background")
+    assert resp.status_code == 404
+
+
 # ── Upload validation ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

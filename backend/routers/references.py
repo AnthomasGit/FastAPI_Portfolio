@@ -156,3 +156,24 @@ async def remove_background_from_reference(
     await db.commit()
     await db.refresh(ref)
     return ref
+
+
+@router.delete("/api/references/{reference_id}/remove-background", response_model=ReferenceResponse)
+async def restore_background_on_reference(
+    reference_id: str, db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(Reference).where(Reference.id == reference_id))
+    ref = result.scalars().first()
+    if not ref:
+        raise HTTPException(status_code=404, detail="Reference not found")
+
+    if ref.processed_url:
+        processed_path = os.path.join(COMFY_INPUT_DIR, ref.processed_url)
+        try:
+            os.unlink(processed_path)
+        except OSError:
+            pass  # best-effort cleanup; file may already be gone
+        ref.processed_url = None
+        await db.commit()
+        await db.refresh(ref)
+    return ref

@@ -112,9 +112,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   };
 
   const selectedRefUrl = selectedReference
-    ? (selectedReference.asset_image_id
-        ? `/api/asset-images/${selectedReference.asset_image_id}/file`
-        : `/api/uploads/file/${selectedReference.processed_url || selectedReference.url}`)
+    ? api.getReferenceFileUrl(selectedReference)
     : null;
 
   const selectedAssetUrl = selectedAssetImage
