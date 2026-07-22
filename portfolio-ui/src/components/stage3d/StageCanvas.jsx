@@ -24,12 +24,19 @@ function SceneContent({ sceneId, backdropUrl }) {
 
   useEffect(() => {
     const handler = (e) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const t = e.target;
       if (
         t instanceof HTMLElement &&
         (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
       ) return;
+      // Esc drops the current selection. In pilot mode Esc exits piloting
+      // (handled by PilotControls), so leave it alone there.
+      if (e.key === 'Escape') {
+        if (useStagingStore.getState().pilotMode) return;
+        if (selection) setSelection(null);
+        return;
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const sel = selection;
       if (!sel) return;
       if (blockout.some((b) => b.id === sel)) removeBlockout(sel);
@@ -37,7 +44,7 @@ function SceneContent({ sceneId, backdropUrl }) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selection, blockout, placements, removeBlockout, removePlacement]);
+  }, [selection, setSelection, blockout, placements, removeBlockout, removePlacement]);
 
   // Shift toggles fast mode for all keyboard movement (nav fly, pilot, asset
   // nudge). One listener for the whole editor so a single press flips it once.
