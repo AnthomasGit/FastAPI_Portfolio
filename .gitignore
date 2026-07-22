@@ -20,7 +20,6 @@ lerna-debug.log*
 
 # Frontend Dependencies & Output
 node_modules/
-node_modules_old/
 dist/
 dist-ssr/
 *.local
@@ -43,3 +42,6 @@ dist-ssr/
 AGENTS.md
 skills-lock.json
 backend/test.db
+
+# Local database backups (see scripts/db-backup.sh)
+backups/
