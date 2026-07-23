@@ -49,9 +49,11 @@ services:
     depends_on:
       - portfolio-api
 
-  # 4. The Engine (ComfyUI Headless)
+  # 4. The Engine (ComfyUI Headless + Trellis2)
   comfyui:
-    image: yanwk/comfyui-boot:cu130-slim-v2
+    # Custom image: yanwk/comfyui-boot base + ComfyUI-Trellis2 node & CUDA wheels.
+    build: ./comfyui
+    image: fastapi_portfolio-comfyui-trellis2
     container_name: comfyui-backend
     ports:
       - "8188:8188"
@@ -61,6 +63,12 @@ services:
     volumes:
       # Map your server's global hostPath to the exact mountPath from K3s
       - /opt/ComfyUI/models:/data/models
+      # ComfyUI-Trellis2 resolves HF-style model dirs (facebook/dinov3-...,
+      # microsoft/TRELLIS.2-4B, ...) via folder_paths.models_dir directly,
+      # bypassing extra_model_paths.yaml's type remapping (which only covers
+      # unet/clip/vae/checkpoints) — mount the same host folder at ComfyUI's
+      # literal models dir too so those literal paths resolve.
+      - /opt/ComfyUI/models:/root/ComfyUI/models
       - /opt/ComfyUI/output:/root/ComfyUI/output
       - /opt/ComfyUI/input:/root/ComfyUI/input
     deploy:
