@@ -51,9 +51,13 @@ services:
 
   # 4. The Engine (ComfyUI Headless + Trellis2)
   comfyui:
-    # Custom image: yanwk/comfyui-boot base + ComfyUI-Trellis2 node & CUDA wheels.
-    build: ./comfyui
-    image: fastapi_portfolio-comfyui-trellis2
+    # Stock upstream image. ComfyUI-Trellis2 + its CUDA wheels/deps are
+    # installed at boot by comfyui/pre-start.sh (sourced by the image's own
+    # entrypoint) into named volumes below -- NOT baked into a custom image.
+    # Bumping this tag is then just `docker compose pull && docker compose up -d`.
+    # megapak-pt211 (not slim) specifically: ships flash-attn prebuilt and
+    # Torch 2.11.0+cu130, an exact match for Trellis2's prebuilt wheels.
+    image: yanwk/comfyui-boot:cu130-megapak-pt211
     container_name: comfyui-backend
     ports:
       - "8188:8188"
@@ -71,6 +75,26 @@ services:
       - /opt/ComfyUI/models:/root/ComfyUI/models
       - /opt/ComfyUI/output:/root/ComfyUI/output
       - /opt/ComfyUI/input:/root/ComfyUI/input
+      # Boot-time installer, run by the base image's own entrypoint via
+      # `source /root/user-scripts/pre-start.sh`. Must NOT be :ro -- the
+      # entrypoint `chmod +x`'s this exact path before sourcing it, under its
+      # own `set -e`; a read-only mount would make that chmod fail and abort
+      # the whole container boot.
+      - ./comfyui/pre-start.sh:/root/user-scripts/pre-start.sh
+      # Torch version pins pre-start.sh passes to `pip install -c`. Never
+      # chmod'd by the entrypoint, so read-only is safe here.
+      - ./comfyui/torch-constraints.txt:/root/user-scripts/torch-constraints.txt:ro
+      # Node source + wheels persist here across container recreation,
+      # independent of /root/ComfyUI's core tree (which the base image's own
+      # entrypoint refreshes from /default-comfyui-bundle on a missing
+      # marker file -- we deliberately do NOT persist all of /root/ComfyUI,
+      # so core ComfyUI + its bundled nodes always track the image tag).
+      - comfyui_trellis2_node:/root/ComfyUI/custom_nodes/ComfyUI-Trellis2
+      # `pip install --user` target. Starts empty on every base image tag
+      # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
+      # which would freeze the base image's OWN deps -- torch et al. -- at
+      # whatever they were on first boot and silently defeat upgrades).
+      - comfyui_pip_user:/root/.local
     deploy:
       resources:
         reservations:
@@ -81,3 +105,5 @@ services:
 
 volumes:
   local_pg_data:
+  comfyui_trellis2_node:
+  comfyui_pip_user:
