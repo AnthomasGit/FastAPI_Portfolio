@@ -90,6 +90,9 @@ services:
       # marker file -- we deliberately do NOT persist all of /root/ComfyUI,
       # so core ComfyUI + its bundled nodes always track the image tag).
       - comfyui_trellis2_node:/root/ComfyUI/custom_nodes/ComfyUI-Trellis2
+      # Same rationale, for the Texture_Projection-Nodes node (multi-view
+      # texture baking/projection, used by the mesh-texturing workflows).
+      - comfyui_texture_projection_node:/root/ComfyUI/custom_nodes/Texture_Projection-Nodes
       # `pip install --user` target. Starts empty on every base image tag
       # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
       # which would freeze the base image's OWN deps -- torch et al. -- at
@@ -106,4 +109,5 @@ services:
 volumes:
   local_pg_data:
   comfyui_trellis2_node:
+  comfyui_texture_projection_node:
   comfyui_pip_user:

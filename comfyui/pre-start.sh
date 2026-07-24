@@ -1,5 +1,5 @@
 #!/bin/bash
-# ComfyUI-Trellis2 (image-to-3D) boot-time installer.
+# ComfyUI-Trellis2 + Texture_Projection-Nodes boot-time installer.
 #
 # Bind-mounted to /root/user-scripts/pre-start.sh and `source`d by the base
 # image's own entrypoint (yanwk/comfyui-boot:cu130-megapak-pt211's
@@ -18,18 +18,19 @@
 #      repeat boot) degrade to a warning instead of a boot failure. We
 #      restore `set -e` at the end for whatever the entrypoint does next.
 #
-# Installs into two named volumes that persist independently of
-# /root/ComfyUI's core tree (which the base entrypoint refreshes from
-# /default-comfyui-bundle any time the relevant marker file is missing):
-#   - /root/ComfyUI/custom_nodes/ComfyUI-Trellis2   node source + wheels
-#   - /root/.local                                  `pip install --user` target
+# Installs into named volumes that persist independently of /root/ComfyUI's
+# core tree (which the base entrypoint refreshes from /default-comfyui-bundle
+# any time the relevant marker file is missing):
+#   - /root/ComfyUI/custom_nodes/ComfyUI-Trellis2          node source + wheels
+#   - /root/ComfyUI/custom_nodes/Texture_Projection-Nodes  node source
+#   - /root/.local                                         `pip install --user` target
 #
 # flash-attn is NOT installed here: this base image ships it prebuilt
 # (system site-packages, matching Torch 2.11.0+cu130 exactly) and
 # Trellis2LoadModel's own node widgets already default to backend=flash_attn.
 #
-# Fast path (steady state, e.g. every boot after the first): a single
-# `python3.13 -c "import ..."`, no network calls, no filesystem writes.
+# Fast path (steady state, e.g. every boot after the first): two
+# `python3.13 -c "import ..."` checks, no network calls, no filesystem writes.
 
 set +e
 
@@ -126,6 +127,82 @@ else
             rm -f "${TMP_REQS}"
         else
             log "WARNING: ${REQS_SRC} not found -- skipping requirements install."
+        fi
+    fi
+fi
+
+# --- Texture_Projection-Nodes (multi-view texture baking/projection) --------
+TP_NODE_DIR=/root/ComfyUI/custom_nodes/Texture_Projection-Nodes
+TP_REPO_URL=https://github.com/Aero-Ex/Texture_Projection-Nodes.git
+TP_RASTERIZER_DIR="${TP_NODE_DIR}/Texture_Projection/Renderer/custom_rasterizer"
+
+# nvdiffrast/nvdiffrec_render are shared with the Trellis2 install above (same
+# packages, already checked/installed there); the only genuinely new compiled
+# dependency here is custom_rasterizer, vendored from Tencent Hunyuan3D under
+# the Tencent Hunyuan Non-Commercial License. The repo only ships Windows
+# wheels + a stale Linux .so built for cp311 (this container is cp313), so it
+# must be built from source -- confirmed to compile cleanly against this
+# image's nvcc/Torch 2.11.0+cu130/Python 3.13. It is not optional: MeshRender's
+# only implemented raster_mode is "cr" (anything else raises ValueError), so
+# both Texture_ProjectionRenderConditions and Texture_ProjectionBakeTextures
+# require it to function.
+if python3.13 -c "import custom_rasterizer" >/dev/null 2>&1; then
+    log "Texture_Projection-Nodes deps already present in /root/.local -- skipping install."
+else
+    log "Texture_Projection-Nodes deps missing or incomplete -- (re)installing."
+
+    if [ -d "${TP_NODE_DIR}/.git" ]; then
+        log "Node source already present at ${TP_NODE_DIR} (skipping clone)."
+    else
+        log "Cloning Texture_Projection-Nodes into ${TP_NODE_DIR}..."
+        rm -rf "${TP_NODE_DIR:?}"/* "${TP_NODE_DIR:?}"/.[!.]* 2>/dev/null
+        if git clone --depth 1 "${TP_REPO_URL}" "${TP_NODE_DIR}"; then
+            log "Clone succeeded."
+        else
+            log "WARNING: git clone failed (offline / GitHub unreachable?)." \
+                "Texture_Projection-Nodes will NOT load this boot; ComfyUI itself will still start."
+        fi
+    fi
+
+    if [ -d "${TP_NODE_DIR}/.git" ]; then
+        # requirements.txt: trimesh, opencv-python, ninja -- already satisfied
+        # via the base image / Trellis2's own deps today, but installed
+        # explicitly here too so a fresh/wiped volume is self-sufficient.
+        TP_REQS_SRC="${TP_NODE_DIR}/requirements.txt"
+        if [ -f "${TP_REQS_SRC}" ]; then
+            TP_CONSTRAINT_ARGS=()
+            if [ -f "${CONSTRAINTS}" ]; then
+                TP_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+            else
+                log "WARNING: ${CONSTRAINTS} not found -- installing WITHOUT the torch pin."
+            fi
+            if python3.13 -m pip install --user --no-cache-dir "${TP_CONSTRAINT_ARGS[@]}" \
+                -r "${TP_REQS_SRC}"; then
+                log "Texture_Projection-Nodes requirements installed."
+            else
+                log "WARNING: pip install of Texture_Projection-Nodes requirements failed" \
+                    "(offline / PyPI unreachable?)."
+            fi
+        else
+            log "WARNING: ${TP_REQS_SRC} not found -- skipping requirements install."
+        fi
+
+        # custom_rasterizer: build from source. --no-build-isolation is
+        # required -- its setup.py imports torch directly at build time, and
+        # without this flag pip's isolated build sandbox could pull a
+        # different torch build just for the build step, breaking the
+        # resulting extension's ABI against the image's actual torch (the
+        # same trap that caused repeated breaks in the original Trellis2
+        # install saga).
+        if [ -d "${TP_RASTERIZER_DIR}" ]; then
+            if python3.13 -m pip install --user --no-cache-dir --no-build-isolation "${TP_RASTERIZER_DIR}"; then
+                log "custom_rasterizer built and installed."
+            else
+                log "WARNING: custom_rasterizer build failed. Texture_Projection nodes" \
+                    "will not function this boot (their only raster_mode requires it)."
+            fi
+        else
+            log "WARNING: ${TP_RASTERIZER_DIR} not found -- unexpected for a successful clone."
         fi
     fi
 fi
