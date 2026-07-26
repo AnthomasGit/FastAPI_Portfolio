@@ -187,6 +187,9 @@ class Asset3DResponse(BaseModel):
     mesh_url: Optional[str] = None
     rigged_mesh_url: Optional[str] = None
     preview_url: Optional[str] = None
+    white_mesh_url: Optional[str] = None
+    web_mesh_url: Optional[str] = None
+    web_status: Optional[str] = None
     params: Optional[dict] = None
     error: Optional[str] = None
     created_at: datetime

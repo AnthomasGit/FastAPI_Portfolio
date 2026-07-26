@@ -92,10 +92,16 @@ def test_injection_snapshot(name, wf_path, map_path):
             inputs.get("seed") == 12345 or inputs.get("noise_seed") == 12345
         ), f"Seed not set in node {seed_node}"
 
-    # Verify filename_prefix was injected
+    # Verify filename_prefix was injected. The prefix lands in "filename_prefix"
+    # for Save* nodes, or in "value" for a PrimitiveString name node that feeds
+    # StringConcatenate-built export names (e.g. the Trellis2 mesh workflow).
     output_node = node_map.get("output_node")
     if output_node:
-        assert injected[output_node]["inputs"]["filename_prefix"] == "test-job-abc"
+        out_inputs = injected[output_node]["inputs"]
+        assert (
+            out_inputs.get("filename_prefix") == "test-job-abc"
+            or out_inputs.get("value") == "test-job-abc"
+        ), f"filename_prefix not set in node {output_node}"
 
     # Verify image was injected (if applicable)
     image_node = node_map.get("image_node")

@@ -60,6 +60,9 @@ def inject(workflow: dict, node_map: dict, overrides: dict) -> dict:
         elif key == "filename_prefix":
             if "filename_prefix" in inputs:
                 inputs["filename_prefix"] = value
+            elif "value" in inputs:
+                # PrimitiveString "name" node feeding StringConcatenate export names
+                inputs["value"] = value
 
         elif key == "image":
             if "image" in inputs:

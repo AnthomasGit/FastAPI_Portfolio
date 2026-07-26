@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -7,6 +7,7 @@ from typing import List
 from database import get_db, Asset3D, Project, Character, Prop, Reference
 from schemas.schemas import Asset3DMeshGenerateRequest, Asset3DResponse
 from services.asset3d_service import trigger_mesh, poll_asset, retry_mesh, get_mesh_file, delete_asset
+from services.mesh_optimize_service import optimize_web_mesh
 from services.reference_service import get_entity
 
 router = APIRouter()
@@ -56,10 +57,22 @@ async def generate_asset3d(
 
 
 @router.get("/api/assets3d/{asset3d_id}", response_model=Asset3DResponse)
-async def get_asset3d(asset3d_id: str, db: AsyncSession = Depends(get_db)):
+async def get_asset3d(
+    asset3d_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     asset = await poll_asset(asset3d_id, db)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset3D not found")
+
+    # Kick off web-optimization once, right after the mesh becomes ready.
+    # The "processing" guard prevents re-scheduling on subsequent 2s polls.
+    if asset.status == "mesh_ready" and asset.web_status is None and asset.mesh_url:
+        asset.web_status = "processing"
+        await db.commit()
+        background_tasks.add_task(optimize_web_mesh, asset.id)
+
     return asset
 
 
@@ -99,9 +112,11 @@ async def retry_asset3d(asset3d_id: str, db: AsyncSession = Depends(get_db)):
 async def get_asset3d_mesh(
     asset3d_id: str,
     rigged: bool = False,
+    raw: bool = False,
+    white: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    content = await get_mesh_file(asset3d_id, db, rigged=rigged)
+    content = await get_mesh_file(asset3d_id, db, rigged=rigged, raw=raw, white=white)
     if content is None:
         raise HTTPException(status_code=404, detail="Mesh file not found")
 

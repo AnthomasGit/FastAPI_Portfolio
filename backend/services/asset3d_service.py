@@ -12,10 +12,13 @@ from database import Asset3D, JobRecord, Reference, Project
 from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
 from services.preprocess_service import remove_background
 
-MESH_WORKFLOW = "mesh_hunyuan3d_21"
+MESH_WORKFLOW = "MeshWithTexturing_6steps_example"
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 MESH_TIMEOUT_MINUTES = 30
+# Trellis2SparseGenerator's seed widget is a plain ComfyUI INT input
+# (min=0, max=2147483647 — INT32), unlike Hunyuan3D's; stay within that range.
+MAX_MESH_SEED = 2_147_483_647
 
 
 def _resolve_source_for_load(ref: Reference) -> str:
@@ -133,7 +136,7 @@ async def trigger_mesh(
     asset_id = asset.id
 
     job_id = str(uuid.uuid4())
-    seed_val = params.get("seed", random.randint(1, 1000000000000000)) if params else random.randint(1, 1000000000000000)
+    seed_val = params.get("seed", random.randint(1, MAX_MESH_SEED)) if params else random.randint(1, MAX_MESH_SEED)
 
     job = JobRecord(
         job_id=job_id,
@@ -151,7 +154,7 @@ async def trigger_mesh(
     try:
         workflow = load_workflow(MESH_WORKFLOW)
         if workflow.get("_placeholder"):
-            raise RuntimeError("Mesh workflow not yet configured — replace mesh_hunyuan3d_21.json with a real ComfyUI export")
+            raise RuntimeError("Mesh workflow not yet configured — MeshWithTexturing_6steps_example.json is missing or a placeholder")
 
         node_map = load_node_map(MESH_WORKFLOW)
 
@@ -183,13 +186,25 @@ async def trigger_mesh(
     return asset_id, warning
 
 
-def _find_mesh_by_prefix(project_id: str, entity_type: str, job_id: str) -> str | None:
-    prefix = f"meshes/{project_id}/{entity_type}s/{job_id}"
-    pattern = os.path.join(COMFY_OUTPUT_DIR, f"{prefix}*.glb")
-    matches = glob.glob(pattern)
-    if matches:
-        return os.path.relpath(matches[0], COMFY_OUTPUT_DIR)
-    return None
+def _find_meshes_by_prefix(
+    project_id: str, entity_type: str, job_id: str
+) -> tuple[str | None, str | None]:
+    """Locate the (textured, white) GLBs the Trellis2 workflow exports.
+
+    The workflow names both under the injected job prefix via StringConcatenate:
+    ``{base}_Textured_*.glb`` and ``{base}_WhiteMesh_*.glb``. Returns each as a
+    path relative to COMFY_OUTPUT_DIR. ``*_web.glb`` (optimizer output) is
+    excluded so it can never be mistaken for the source textured mesh.
+    """
+    base = os.path.join(COMFY_OUTPUT_DIR, f"meshes/{project_id}/{entity_type}s/{job_id}")
+
+    def _first(suffix: str) -> str | None:
+        matches = sorted(
+            m for m in glob.glob(f"{base}_{suffix}*.glb") if not m.endswith("_web.glb")
+        )
+        return os.path.relpath(matches[0], COMFY_OUTPUT_DIR) if matches else None
+
+    return _first("Textured"), _first("WhiteMesh")
 
 
 async def poll_asset(asset3d_id: str, db: AsyncSession) -> Asset3D | None:
@@ -233,11 +248,24 @@ async def poll_asset(asset3d_id: str, db: AsyncSession) -> Asset3D | None:
                 job.finished_at = datetime.utcnow()
                 await db.commit()
             elif poll_result["status"] == "completed":
-                actual_url = _find_mesh_by_prefix(asset.project_id, asset.entity_type, asset.mesh_job_id)
-                if actual_url:
-                    asset.mesh_url = actual_url
-                asset.status = "mesh_ready"
-                job.status = "completed"
+                textured_url, white_url = _find_meshes_by_prefix(
+                    asset.project_id, asset.entity_type, asset.mesh_job_id
+                )
+                if textured_url:
+                    # ComfyUI can report "completed" even when the graph was
+                    # rejected at validation (e.g. an out-of-range node input)
+                    # and produced no output — only declare ready once an
+                    # actual textured mesh file is confirmed on disk.
+                    asset.mesh_url = textured_url
+                    if white_url:
+                        asset.white_mesh_url = white_url
+                    asset.status = "mesh_ready"
+                    job.status = "completed"
+                else:
+                    asset.status = "mesh_failed"
+                    asset.error = "ComfyUI finished but produced no mesh file (workflow may have failed validation)"
+                    job.status = "failed"
+                    job.error = "No output file found"
                 job.finished_at = datetime.utcnow()
                 await db.commit()
 
@@ -265,7 +293,7 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
     source_url = _resolve_source_for_load(ref)
 
     job_id = str(uuid.uuid4())
-    seed_val = random.randint(1, 1000000000000000)
+    seed_val = random.randint(1, MAX_MESH_SEED)
 
     job = JobRecord(
         job_id=job_id,
@@ -283,7 +311,7 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
     try:
         workflow = load_workflow(MESH_WORKFLOW)
         if workflow.get("_placeholder"):
-            raise RuntimeError("Mesh workflow not yet configured — replace mesh_hunyuan3d_21.json with a real ComfyUI export")
+            raise RuntimeError("Mesh workflow not yet configured — MeshWithTexturing_6steps_example.json is missing or a placeholder")
 
         node_map = load_node_map(MESH_WORKFLOW)
 
@@ -301,6 +329,9 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
         asset.mesh_job_id = job_id
         asset.params = {**(asset.params or {}), "seed": seed_val}
         asset.mesh_url = None
+        asset.white_mesh_url = None
+        asset.web_mesh_url = None
+        asset.web_status = None
 
         job.prompt_id = prompt_id
         job.status = "processing"
@@ -317,13 +348,22 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
     return asset.id
 
 
-async def get_mesh_file(asset3d_id: str, db: AsyncSession, rigged: bool = False) -> bytes | None:
+async def get_mesh_file(
+    asset3d_id: str, db: AsyncSession, rigged: bool = False, raw: bool = False, white: bool = False
+) -> bytes | None:
     result = await db.execute(select(Asset3D).where(Asset3D.id == asset3d_id))
     asset = result.scalars().first()
     if not asset:
         return None
 
-    url = asset.rigged_mesh_url if rigged else asset.mesh_url
+    if white:
+        url = asset.white_mesh_url  # untextured base mesh (for re-texturing)
+    elif rigged:
+        url = asset.rigged_mesh_url
+    elif not raw and asset.web_status == "ready" and asset.web_mesh_url:
+        url = asset.web_mesh_url  # transparently serve the optimized proxy
+    else:
+        url = asset.mesh_url
     if not url:
         return None
 

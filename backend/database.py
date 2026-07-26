@@ -221,9 +221,13 @@ class Asset3D(Base):
     # queued | mesh_processing | mesh_ready | rig_queued | rig_processing
     # | rigged | mesh_failed | rig_failed
 
-    mesh_url = Column(String, nullable=True)              # GLB filename in ComfyUI output
+    mesh_url = Column(String, nullable=True)              # textured GLB filename in ComfyUI output
+    white_mesh_url = Column(String, nullable=True)        # untextured base GLB (reusable for re-texturing)
     rigged_mesh_url = Column(String, nullable=True)       # rigged GLB filename
     preview_url = Column(String, nullable=True)
+
+    web_mesh_url = Column(String, nullable=True)          # optimized web GLB (meshopt+webp), served transparently
+    web_status = Column(String, nullable=True)            # None | processing | ready | failed
 
     mesh_job_id = Column(String, nullable=True)
     rig_job_id = Column(String, nullable=True)

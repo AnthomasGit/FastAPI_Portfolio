@@ -96,6 +96,7 @@ async def test_poll_returns_queued_unchanged_when_not_in_history(
 
 
 @pytest.mark.asyncio
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output")
 async def test_poll_transitions_processing_to_ready(
     client, db_session, project,
 ):
@@ -116,6 +117,15 @@ async def test_poll_transitions_processing_to_ready(
     await db_session.commit()
     await db_session.refresh(asset)
 
+    # mesh_ready now requires an actual textured GLB on disk (poll_asset no
+    # longer trusts ComfyUI's "completed" status alone — see the
+    # false-ready regression this guards against).
+    out_dir = os.path.join("/tmp/comfy_test_output", "meshes", project.id, "characters")
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.join(out_dir, job_id)
+    open(f"{base}_Textured_00001_.glb", "wb").close()
+    open(f"{base}_WhiteMesh_00001_.glb", "wb").close()
+
     with respx.mock:
         respx.get(f"{COMFY_API_URL}/history/{prompt_id}").mock(
             return_value=Response(200, json={
@@ -128,7 +138,49 @@ async def test_poll_transitions_processing_to_ready(
 
         resp = await client.get(f"/api/assets3d/{asset.id}")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "mesh_ready"
+        body = resp.json()
+        assert body["status"] == "mesh_ready"
+        assert body["mesh_url"].endswith("_Textured_00001_.glb")
+        assert body["white_mesh_url"].endswith("_WhiteMesh_00001_.glb")
+
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output_missing")
+async def test_poll_completed_with_no_file_marks_failed(
+    client, db_session, project,
+):
+    """ComfyUI can report status_str='completed' after silently rejecting an
+    invalid graph at validation (e.g. an out-of-range node input) and writing
+    no output. Confirm poll_asset treats that as a failure, not mesh_ready."""
+    prompt_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
+
+    job = JobRecord(
+        job_id=job_id, prompt_id=prompt_id, model_name="test", query="test",
+        job_type="mesh", status="processing",
+    )
+    db_session.add(job)
+
+    asset = Asset3D(
+        project_id=project.id, entity_type="character", entity_id="e1",
+        status="mesh_processing", mesh_job_id=job_id,
+    )
+    db_session.add(asset)
+    await db_session.commit()
+    await db_session.refresh(asset)
+
+    with respx.mock:
+        respx.get(f"{COMFY_API_URL}/history/{prompt_id}").mock(
+            return_value=Response(200, json={
+                prompt_id: {"status": {"status_str": "completed"}, "outputs": {}}
+            })
+        )
+
+        resp = await client.get(f"/api/assets3d/{asset.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "mesh_failed"
+        assert body["mesh_url"] is None
 
 
 @pytest.mark.asyncio
