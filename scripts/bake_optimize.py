@@ -145,6 +145,80 @@ def _principled(nt):
     return next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
 
 
+def _ensure_principled(mat):
+    """Return mat's Principled BSDF, creating one wired to the Material
+    Output if the graph doesn't have one — e.g. KHR_materials_unlit imports
+    as an Emission-only graph. Any existing (now-unused) nodes are left in
+    place; only what drives Surface actually matters."""
+    nt = mat.node_tree
+    bsdf = _principled(nt)
+    if bsdf:
+        return bsdf
+    out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+    if out is None:
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return bsdf
+
+
+def prepare_source_for_color_bake(hi):
+    """Ensure HI (the bake *source*, sampled via selected-to-active) exposes
+    an Emission shader carrying real color, so an EMIT bake has something to
+    read.
+
+    Uses EMIT rather than DIFFUSE deliberately: measured on a real asset,
+    baking a Principled BSDF's DIFFUSE "Color" pass came out systematically
+    darker than the true source color (mean ~22/255 vs. ~82/255 for EMIT on
+    the same data) — Cycles' Principled diffuse-color pass isn't a clean 1:1
+    capture of Base Color, it folds in some internal energy-conservation
+    weighting. EMIT is a direct, lighting-free capture of whatever feeds it —
+    the standard technique for baking flat/vertex colors to a texture.
+
+    The glTF importer doesn't always give HI something bakeable in the first
+    place:
+      - KHR_materials_unlit (TripoSplat's SaveGLB) imports as an Emission-only
+        graph, but not necessarily fed by this mesh's vertex colors.
+      - Vertex-colored meshes (COLOR_0, no baseColorTexture) have their color
+        on a mesh color attribute, not any material node.
+
+    Leaves an existing proper baseColorTexture chain (Principled BSDF with a
+    linked Base Color) untouched — that path isn't rebaked at all. Returns
+    which source was used: "texture" (untouched), "vertex", or "flat"
+    (neither present — a bare black emission, not expected in practice).
+    """
+    me = hi.data
+    mat = me.materials[0] if me.materials else None
+    if mat and mat.use_nodes:
+        bsdf = _principled(mat.node_tree)
+        if bsdf and bsdf.inputs["Base Color"].is_linked:
+            return "texture"
+
+    has_vcolor = bool(me.color_attributes)
+
+    if mat is None:
+        mat = bpy.data.materials.new("HI_ColorBakeSource")
+        me.materials.clear()
+        me.materials.append(mat)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+    if not has_vcolor:
+        return "flat"
+
+    active = me.color_attributes.active_color
+    layer_name = active.name if active else me.color_attributes[0].name
+    vcol = nt.nodes.new("ShaderNodeVertexColor")
+    vcol.layer_name = layer_name
+    nt.links.new(vcol.outputs["Color"], emit.inputs["Color"])
+    return "vertex"
+
+
 def prepare_lo_material(lo):
     """Give LO its own material copy so baking doesn't touch the shared HI material."""
     me = lo.data
@@ -157,6 +231,10 @@ def prepare_lo_material(lo):
         me.materials.append(mat)
     mat.name = "LO_Mat"
     mat.use_nodes = True
+    # Guarantee a link target for the baked albedo/normal below, even when
+    # the copied material has none (e.g. copied from an unlit/emission
+    # source before prepare_source_for_color_bake ever touches HI's copy).
+    _ensure_principled(mat)
     return mat
 
 
@@ -278,9 +356,11 @@ def main():
         configure_cycles_for_bake(args.normal_size)
 
         # albedo re-bake first (only when we changed UVs and thus broke the original mapping)
+        color_source = None
         if reuved:
+            color_source = prepare_source_for_color_bake(hi)
             alb_img, _ = _add_bake_image(mat, "LO_Albedo", args.texture_size, non_color=False)
-            bake_selected_to_active(hi, lo, "DIFFUSE")
+            bake_selected_to_active(hi, lo, "EMIT")
             save_image_to_tmp(alb_img, tmpdir, "albedo.png")
             nt = mat.node_tree
             bsdf = _principled(nt)
@@ -323,6 +403,7 @@ def main():
         "decimate_ratio": round(ratio, 5),
         "lo_tris": tri_count(lo),
         "reuv": reuved,
+        "color_source": color_source,
         "in_bytes": in_bytes,
         "out_bytes": out_bytes,
         "web_compressed": web,

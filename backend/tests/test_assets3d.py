@@ -62,6 +62,58 @@ async def test_generate_mesh_creates_asset_and_job_record(
         assert job.job_type == "mesh"
 
 
+# ── Generate: per-entity-type workflow routing ─────────────────────────────
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.submit", new_callable=AsyncMock)
+@patch("services.asset3d_service.load_node_map")
+@patch("services.asset3d_service.load_workflow")
+async def test_generate_routes_character_to_trellis2(
+    mock_load_workflow, mock_load_node_map, mock_submit, client, character, db_session,
+):
+    mock_load_workflow.return_value = {"1": {"inputs": {"image": ""}}}
+    mock_load_node_map.return_value = {"image_node": "1", "seed_node": "2", "output_node": "3"}
+    mock_submit.return_value = "prompt-1"
+
+    ref = Reference(
+        entity_type="character", entity_id=character.id, role="tpose", url="test.png",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/assets3d/generate",
+        json={"entity_type": "character", "entity_id": character.id},
+    )
+    assert resp.status_code == 202
+    mock_load_workflow.assert_called_with("MeshWithTexturing_6steps_example")
+    mock_load_node_map.assert_called_with("MeshWithTexturing_6steps_example")
+
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.submit", new_callable=AsyncMock)
+@patch("services.asset3d_service.load_node_map")
+@patch("services.asset3d_service.load_workflow")
+async def test_generate_routes_prop_to_triposplat(
+    mock_load_workflow, mock_load_node_map, mock_submit, client, prop, db_session,
+):
+    mock_load_workflow.return_value = {"1": {"inputs": {"image": ""}}}
+    mock_load_node_map.return_value = {"image_node": "1", "seed_node": "2", "output_node": "3"}
+    mock_submit.return_value = "prompt-2"
+
+    ref = Reference(entity_type="prop", entity_id=prop.id, role="primary", url="test.png")
+    db_session.add(ref)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/assets3d/generate",
+        json={"entity_type": "prop", "entity_id": prop.id},
+    )
+    assert resp.status_code == 202
+    mock_load_workflow.assert_called_with("3d_triposplat_image_to_gaussian_splat")
+    mock_load_node_map.assert_called_with("3d_triposplat_image_to_gaussian_splat")
+
+
 # ── Poll: state transitions ────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -96,10 +148,15 @@ async def test_poll_returns_queued_unchanged_when_not_in_history(
 
 
 @pytest.mark.asyncio
+@patch("routers.assets3d.optimize_web_mesh", new_callable=AsyncMock)
 @patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output")
 async def test_poll_transitions_processing_to_ready(
-    client, db_session, project,
+    mock_optimize, client, db_session, project,
 ):
+    # Reaching mesh_ready fires the real auto-optimize BackgroundTask, which
+    # opens its own production SessionLocal — bypassing this test's DB
+    # override entirely and touching the real database. Mock it out; the
+    # web-optimize trigger itself isn't what this test is checking.
     prompt_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
 
@@ -163,6 +220,93 @@ async def test_poll_completed_with_no_file_marks_failed(
 
     asset = Asset3D(
         project_id=project.id, entity_type="character", entity_id="e1",
+        status="mesh_processing", mesh_job_id=job_id,
+    )
+    db_session.add(asset)
+    await db_session.commit()
+    await db_session.refresh(asset)
+
+    with respx.mock:
+        respx.get(f"{COMFY_API_URL}/history/{prompt_id}").mock(
+            return_value=Response(200, json={
+                prompt_id: {"status": {"status_str": "completed"}, "outputs": {}}
+            })
+        )
+
+        resp = await client.get(f"/api/assets3d/{asset.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "mesh_failed"
+        assert body["mesh_url"] is None
+
+
+@pytest.mark.asyncio
+@patch("routers.assets3d.optimize_web_mesh", new_callable=AsyncMock)
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output_prop")
+async def test_poll_prop_single_output_reaches_ready_without_white_mesh(
+    mock_optimize, client, db_session, project,
+):
+    """TripoSplat's SaveGLB writes one file (no _Textured/_WhiteMesh split).
+    A prop asset must reach mesh_ready off that single match, with
+    white_mesh_url left None rather than failing for lack of a second file.
+
+    Mocks the auto-optimize BackgroundTask (see the same note on
+    test_poll_transitions_processing_to_ready) since reaching mesh_ready
+    fires it for real otherwise."""
+    prompt_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
+
+    job = JobRecord(
+        job_id=job_id, prompt_id=prompt_id, model_name="test", query="test",
+        job_type="mesh", status="processing",
+    )
+    db_session.add(job)
+
+    asset = Asset3D(
+        project_id=project.id, entity_type="prop", entity_id="p1",
+        status="mesh_processing", mesh_job_id=job_id,
+    )
+    db_session.add(asset)
+    await db_session.commit()
+    await db_session.refresh(asset)
+
+    out_dir = os.path.join("/tmp/comfy_test_output_prop", "meshes", project.id, "props")
+    os.makedirs(out_dir, exist_ok=True)
+    open(os.path.join(out_dir, f"{job_id}_00001_.glb"), "wb").close()
+
+    with respx.mock:
+        respx.get(f"{COMFY_API_URL}/history/{prompt_id}").mock(
+            return_value=Response(200, json={
+                prompt_id: {"status": {"status_str": "completed"}, "outputs": {}}
+            })
+        )
+
+        resp = await client.get(f"/api/assets3d/{asset.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "mesh_ready"
+        assert body["mesh_url"].endswith(f"{job_id}_00001_.glb")
+        assert body["white_mesh_url"] is None
+
+
+@pytest.mark.asyncio
+@patch("services.asset3d_service.COMFY_OUTPUT_DIR", "/tmp/comfy_test_output_prop_missing")
+async def test_poll_prop_completed_with_no_file_marks_failed(
+    client, db_session, project,
+):
+    """Same false-ready guard as characters, exercised on the single-output
+    (dual_output=False) discovery path used for props."""
+    prompt_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
+
+    job = JobRecord(
+        job_id=job_id, prompt_id=prompt_id, model_name="test", query="test",
+        job_type="mesh", status="processing",
+    )
+    db_session.add(job)
+
+    asset = Asset3D(
+        project_id=project.id, entity_type="prop", entity_id="p1",
         status="mesh_processing", mesh_job_id=job_id,
     )
     db_session.add(asset)
