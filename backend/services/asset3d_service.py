@@ -30,7 +30,7 @@ MESH_TIMEOUT_MINUTES = 30
 MAX_MESH_SEED = 2_147_483_647
 
 
-def _resolve_source_for_load(ref: Reference) -> str:
+async def _resolve_source_for_load(ref: Reference) -> str:
     """Return an INPUT-relative filename ComfyUI's LoadImage can read.
 
     Asset-image references are generated files that live in COMFY_OUTPUT_DIR
@@ -58,7 +58,7 @@ def _resolve_source_for_load(ref: Reference) -> str:
         source_url = staged
 
     try:
-        processed_filename = remove_background(
+        processed_filename = await remove_background(
             os.path.join(COMFY_INPUT_DIR, source_url), COMFY_INPUT_DIR
         )
         ref.processed_url = processed_filename
@@ -132,7 +132,7 @@ async def trigger_mesh(
     if not ref:
         raise ValueError("No reference image found for this entity. Upload a photo first.")
 
-    source_url = _resolve_source_for_load(ref)
+    source_url = await _resolve_source_for_load(ref)
 
     asset = Asset3D(
         project_id=project_id,
@@ -306,7 +306,7 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
 
     if not (ref.processed_url or ref.url):
         raise ValueError("Source reference has no image")
-    source_url = _resolve_source_for_load(ref)
+    source_url = await _resolve_source_for_load(ref)
 
     job_id = str(uuid.uuid4())
     seed_val = random.randint(1, MAX_MESH_SEED)

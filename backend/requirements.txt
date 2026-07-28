@@ -43,8 +43,7 @@ aiosqlite
 # ==========================================
 # IMAGE PREPROCESSING
 # ==========================================
-rembg
-onnxruntime
+# (background removal now runs via the bg-remover service; see bg_remover/)
 
 # ==========================================
 # 3D MESH EVALUATION

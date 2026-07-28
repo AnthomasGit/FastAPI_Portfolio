@@ -10,6 +10,7 @@ services:
       - COMFY_API_URL=http://comfyui:8188
       - DATABASE_URL=postgresql+asyncpg://portfolio_user:supersecretpassword@local-portfolio-db:5432/portfolio_db
       - OPTIMIZER_URL=http://optimizer:8300
+      - BG_REMOVER_URL=http://bg-remover:8400
     volumes:
       - ./backend:/app
       - /opt/ComfyUI/input:/opt/ComfyUI/input
@@ -19,6 +20,7 @@ services:
       - comfyui
       - portfolio-db
       - optimizer
+      - bg-remover
 
   # 2. The Database Layer (PostgreSQL)
   portfolio-db:
@@ -124,6 +126,27 @@ services:
       - /opt/ComfyUI/output:/opt/ComfyUI/output
     ports:
       - "8300:8300"
+
+  # 6. Background Removal (birefnet on CPU, no ComfyUI queue involved)
+  #    Vendored copy of ComfyUI's own birefnet model code (see
+  #    bg_remover/birefnet_model.py) running standalone -- a fast, direct
+  #    local call from the API instead of a ComfyUI submit/poll round trip.
+  #    Shares input+output volumes: reads reference images, writes the
+  #    cleaned PNG back into COMFY_INPUT_DIR where LoadImage nodes expect it.
+  bg-remover:
+    build:
+      context: .
+      dockerfile: bg_remover/Dockerfile
+    container_name: bg-remover
+    environment:
+      - COMFY_INPUT_DIR=/opt/ComfyUI/input
+      - COMFY_OUTPUT_DIR=/opt/ComfyUI/output
+    volumes:
+      - /opt/ComfyUI/input:/opt/ComfyUI/input
+      - /opt/ComfyUI/output:/opt/ComfyUI/output
+      - /opt/ComfyUI/models/background_removal:/opt/ComfyUI/models/background_removal:ro
+    ports:
+      - "8400:8400"
 
 volumes:
   local_pg_data:

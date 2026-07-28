@@ -148,7 +148,7 @@ async def remove_background_from_reference(
         raise HTTPException(status_code=422, detail="Reference image file not found on disk")
 
     try:
-        processed_filename = remove_background(input_path, COMFY_INPUT_DIR)
+        processed_filename = await remove_background(input_path, COMFY_INPUT_DIR)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Background removal failed: {str(e)}")
 
