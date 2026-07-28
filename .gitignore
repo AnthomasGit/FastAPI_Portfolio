@@ -4,6 +4,10 @@ venv/
 env/
 __pycache__/
 *.pyc
+.*
+
+# Environment
+.env
 
 # Frontend Logs
 logs
@@ -31,3 +35,13 @@ dist-ssr/
 *.sln
 *.sw?
 
+# Opencode
+/.opencode/
+3d-staging-lld-sdlc.md
+
+AGENTS.md
+skills-lock.json
+backend/test.db
+
+# Local database backups (see scripts/db-backup.sh)
+backups/

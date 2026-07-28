@@ -1,37 +1,132 @@
-version: '3.8'
-
 services:
-  # The Orchestrator (FastAPI)
+  # 1. The Orchestrator (FastAPI)
   portfolio-api:
-    build: .
+    build: ./backend
     container_name: fastapi-orchestrator
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
       - COMFY_API_URL=http://comfyui:8188
-    # Mount the current directory for live code reloading during Sprint 1
+      - DATABASE_URL=postgresql+asyncpg://portfolio_user:supersecretpassword@local-portfolio-db:5432/portfolio_db
+      - OPTIMIZER_URL=http://optimizer:8300
     volumes:
-      - .:/app
-    # Override the Dockerfile CMD to enable hot-reloading
+      - ./backend:/app
+      - /opt/ComfyUI/input:/opt/ComfyUI/input
+      - /opt/ComfyUI/output:/opt/ComfyUI/output
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - comfyui
+      - portfolio-db
+      - optimizer
 
-  # The Engine (ComfyUI Headless)
+  # 2. The Database Layer (PostgreSQL)
+  portfolio-db:
+    image: postgres:15-alpine
+    container_name: local-portfolio-db
+    environment:
+      POSTGRES_USER: portfolio_user
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: portfolio_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - local_pg_data:/var/lib/postgresql/data
+
+  # 3. The Frontend UI (Vite Dev Server)
+  portfolio-ui:
+    image: node:24-alpine
+    container_name: frontend-vite
+    working_dir: /app
+    # Maps to your sibling UI folder so hot-reloading works instantly
+    volumes:
+      - ./portfolio-ui:/app
+      # Container-private node_modules: keeps Alpine/musl binaries and root-owned
+      # files out of the host folder (host npm installs stay usable natively)
+      - /app/node_modules
+    # Installs packages (if missing) and starts Vite, exposing it to your host network
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - portfolio-api
+
+  # 4. The Engine (ComfyUI Headless + Trellis2)
   comfyui:
-    image: yanwk/comfyui-boot:latest # A popular community image, or build your own
+    # Stock upstream image. ComfyUI-Trellis2 + its CUDA wheels/deps are
+    # installed at boot by comfyui/pre-start.sh (sourced by the image's own
+    # entrypoint) into named volumes below -- NOT baked into a custom image.
+    # Bumping this tag is then just `docker compose pull && docker compose up -d`.
+    # megapak-pt211 (not slim) specifically: ships flash-attn prebuilt and
+    # Torch 2.11.0+cu130, an exact match for Trellis2's prebuilt wheels.
+    image: yanwk/comfyui-boot:cu130-megapak-pt211
     container_name: comfyui-backend
     ports:
       - "8188:8188"
+    environment:
+      # Pass the exact same CLI args you use in K3s
+      - CLI_ARGS=--extra-model-paths-config /data/models/extra_model_paths.yaml
     volumes:
-      # Map your local models, outputs, and custom nodes so they persist outside the container
-      - ./comfy_data/models:/opt/ComfyUI/models
-      - ./comfy_data/output:/opt/ComfyUI/output
+      # Map your server's global hostPath to the exact mountPath from K3s
+      - /opt/ComfyUI/models:/data/models
+      # ComfyUI-Trellis2 resolves HF-style model dirs (facebook/dinov3-...,
+      # microsoft/TRELLIS.2-4B, ...) via folder_paths.models_dir directly,
+      # bypassing extra_model_paths.yaml's type remapping (which only covers
+      # unet/clip/vae/checkpoints) — mount the same host folder at ComfyUI's
+      # literal models dir too so those literal paths resolve.
+      - /opt/ComfyUI/models:/root/ComfyUI/models
+      - /opt/ComfyUI/output:/root/ComfyUI/output
+      - /opt/ComfyUI/input:/root/ComfyUI/input
+      # Boot-time installer, run by the base image's own entrypoint via
+      # `source /root/user-scripts/pre-start.sh`. Must NOT be :ro -- the
+      # entrypoint `chmod +x`'s this exact path before sourcing it, under its
+      # own `set -e`; a read-only mount would make that chmod fail and abort
+      # the whole container boot.
+      - ./comfyui/pre-start.sh:/root/user-scripts/pre-start.sh
+      # Torch version pins pre-start.sh passes to `pip install -c`. Never
+      # chmod'd by the entrypoint, so read-only is safe here.
+      - ./comfyui/torch-constraints.txt:/root/user-scripts/torch-constraints.txt:ro
+      # Node source + wheels persist here across container recreation,
+      # independent of /root/ComfyUI's core tree (which the base image's own
+      # entrypoint refreshes from /default-comfyui-bundle on a missing
+      # marker file -- we deliberately do NOT persist all of /root/ComfyUI,
+      # so core ComfyUI + its bundled nodes always track the image tag).
+      - comfyui_trellis2_node:/root/ComfyUI/custom_nodes/ComfyUI-Trellis2
+      # Same rationale, for the Texture_Projection-Nodes node (multi-view
+      # texture baking/projection, used by the mesh-texturing workflows).
+      - comfyui_texture_projection_node:/root/ComfyUI/custom_nodes/Texture_Projection-Nodes
+      # `pip install --user` target. Starts empty on every base image tag
+      # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
+      # which would freeze the base image's OWN deps -- torch et al. -- at
+      # whatever they were on first boot and silently defeat upgrades).
+      - comfyui_pip_user:/root/.local
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # Request access to all available local GPUs
-              count: all
+              device_ids: ['1']
               capabilities: [ gpu ]
+
+  # 5. The Mesh Optimizer (headless Blender + gltf-transform, CPU-only)
+  #    Post-processes generated GLBs into lightweight web proxies:
+  #    decimate -> bake normals -> meshopt + WebP. Shares the ComfyUI output
+  #    volume so it reads the raw mesh and writes *_web.glb where the API's
+  #    mesh proxy already resolves paths. No GPU reservation needed.
+  optimizer:
+    build:
+      context: .
+      dockerfile: optimizer/Dockerfile
+    container_name: mesh-optimizer
+    environment:
+      - COMFY_OUTPUT_DIR=/opt/ComfyUI/output
+    volumes:
+      - /opt/ComfyUI/output:/opt/ComfyUI/output
+    ports:
+      - "8300:8300"
+
+volumes:
+  local_pg_data:
+  comfyui_trellis2_node:
+  comfyui_texture_projection_node:
+  comfyui_pip_user:

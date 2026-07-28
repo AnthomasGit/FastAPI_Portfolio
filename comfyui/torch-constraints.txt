@@ -1,0 +1,8 @@
+# Freeze the exact torch stack shipped in yanwk/comfyui-boot:cu130-megapak-pt211.
+# Passed as `pip install -c` while installing the Trellis2 deps (see
+# pre-start.sh) so that no transitive dependency (utils3d, rembg, ...) can
+# silently pull a different torch build and break the compiled CUDA
+# extensions' ABI -- these wheels are built for exactly this torch version.
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0
