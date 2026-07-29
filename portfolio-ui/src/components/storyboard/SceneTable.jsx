@@ -11,10 +11,10 @@ import { api } from '../../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 
 const COLUMN_DEFAULTS = {
-  scene: 140, screenplay: 200, characters: 120, locations: 120, props: 100, video: 100,
+  scene: 140, screenplay: 200, characters: 120, locations: 120, props: 100, shots: 120,
 };
 const COLUMN_MIN_WIDTHS = {
-  scene: 120, screenplay: 120, characters: 100, locations: 100, props: 80, video: 80,
+  scene: 120, screenplay: 120, characters: 100, locations: 100, props: 80, shots: 90,
 };
 const COLUMN_LABELS = {
   scene: 'Scene',
@@ -22,17 +22,20 @@ const COLUMN_LABELS = {
   characters: 'Characters',
   locations: 'Locations',
   props: 'Props',
-  video: 'Video',
+  shots: 'Shots',
 };
-const COLUMN_KEYS = ['scene', 'screenplay', 'characters', 'locations', 'props', 'video'];
+const COLUMN_KEYS = ['scene', 'screenplay', 'characters', 'locations', 'props', 'shots'];
 
 export function SceneTable({ scenes, projectId }) {
   const queryClient = useQueryClient();
+  // Local copy so drag-reorder can update optimistically; re-sync to the server
+  // list during render when it changes (React's recommended alt to an effect).
   const [items, setItems] = useState(scenes);
-
-  useEffect(() => {
+  const [lastScenes, setLastScenes] = useState(scenes);
+  if (scenes !== lastScenes) {
+    setLastScenes(scenes);
     setItems(scenes);
-  }, [scenes]);
+  }
 
   const [colWidths, setColWidths] = useState(() => {
     try {

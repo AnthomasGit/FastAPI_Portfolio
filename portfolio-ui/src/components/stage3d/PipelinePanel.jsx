@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Loader2, Trash2, RotateCcw, Sparkles, Film } from 'lucide-react';
+import { useEffect } from 'react';
+import { Loader2, Trash2, RotateCcw, Sparkles, ListPlus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -9,11 +9,6 @@ const STATUS_STYLES = {
   completed: 'bg-emerald-500/15 text-emerald-300',
   failed: 'bg-red-500/15 text-red-300',
 };
-
-// LTX gets a *motion* description; the still already carries the look. Prefilled
-// so the field demonstrates its own format and the model never receives a static
-// scene description in the motion slot.
-const DEFAULT_MOTION = 'Gentle ambient motion, the camera holds steady.';
 
 function StatusChip({ status }) {
   return (
@@ -27,29 +22,22 @@ function StatusChip({ status }) {
   );
 }
 
-// The three stages of a shot, read left to right. Each segment fills with its
-// stage accent once that stage lands — pipeline progress legible at a glance
-// down a column of capture cards.
-function StageRail({ hasStill, stillInflight, hasClip, clipInflight }) {
+// Two stages here now — Capture and Still. Clips are generated on the Scene
+// Detail page's shot list, off the shot's chosen still.
+function StageRail({ hasStill, stillInflight }) {
   const seg = (filled, inflight, color) =>
     `h-1 flex-1 rounded-full transition-colors ${
-      filled
-        ? color
-        : inflight
-          ? `${color} opacity-40 animate-pulse motion-reduce:animate-none`
-          : 'bg-white/10'
+      filled ? color : inflight ? `${color} opacity-40 animate-pulse motion-reduce:animate-none` : 'bg-white/10'
     }`;
   return (
-    <div className="flex items-center gap-1" title="Capture → Still → Clip">
+    <div className="flex items-center gap-1" title="Capture → Still">
       <div className={seg(true, false, 'bg-slate-400')} />
       <div className={seg(hasStill, stillInflight, 'bg-indigo-400')} />
-      <div className={seg(hasClip, clipInflight, 'bg-fuchsia-400')} />
     </div>
   );
 }
 
-// Drives the /generate/status poller for one non-terminal still; the DB status
-// only advances when that endpoint is polled.
+// Drives the /generate/status poller for one non-terminal still.
 function GenerationPoller({ generationId, sceneId }) {
   const queryClient = useQueryClient();
   const { data } = useQuery({
@@ -70,86 +58,49 @@ function GenerationPoller({ generationId, sceneId }) {
   return null;
 }
 
-// Same shape as GenerationPoller, slower cadence: clips take minutes, not
-// seconds, so a 2s poll would just hammer the endpoint.
-function VideoPoller({ videoId, sceneId }) {
-  const queryClient = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ['video-status', videoId],
-    queryFn: () => api.getVideoStatus(videoId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === 'completed' || status === 'failed' ? false : 5000;
-    },
-  });
-
-  useEffect(() => {
-    if (data?.status === 'completed' || data?.status === 'failed') {
-      queryClient.invalidateQueries({ queryKey: ['captures', sceneId] });
-    }
-  }, [data?.status, queryClient, sceneId]);
-
-  return null;
-}
-
-function CaptureCard({ cap, sceneId }) {
+function CaptureCard({ cap, sceneId, sceneNumber, shots }) {
   const queryClient = useQueryClient();
 
   const attempts = [...(cap.generated_images || [])].sort(
     (a, b) => new Date(b.created_at) - new Date(a.created_at)
   );
-  const inflight = attempts.some(
-    (a) => a.status === 'queued' || a.status === 'processing'
-  );
+  const inflight = attempts.some((a) => a.status === 'queued' || a.status === 'processing');
   const newestCompleted = attempts.find((a) => a.status === 'completed');
+  const selected = newestCompleted;
 
-  const [selectedId, setSelectedId] = useState(null);
-  const selected =
-    attempts.find((a) => a.id === selectedId && a.status === 'completed') ||
-    newestCompleted;
-
-  // Clips hang off the selected still.
-  const clips = [...(selected?.videos || [])].sort(
-    (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  );
-  const clipInflight = clips.some(
-    (c) => c.status === 'queued' || c.status === 'processing'
-  );
-  const newestClip = clips.find((c) => c.status === 'completed');
-
-  const [motionPrompt, setMotionPrompt] = useState(DEFAULT_MOTION);
-  const [resultView, setResultView] = useState('still'); // 'still' | 'clip'
-
-  // Snap the result view to a clip the moment a new one finishes, without an
-  // effect: adjusting state during render is React's recommended way to react
-  // to a changed value, and it still lets the Still/Clip toggle override.
-  const [lastClipId, setLastClipId] = useState(null);
-  if (newestClip && newestClip.id !== lastClipId) {
-    setLastClipId(newestClip.id);
-    setResultView('clip');
-  }
+  const invalidateShots = () => queryClient.invalidateQueries({ queryKey: ['shots', sceneId] });
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteCapture(cap.id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
   });
 
   const generateMutation = useMutation({
     mutationFn: () => api.generateControlled(cap.id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
   });
 
-  const videoMutation = useMutation({
+  // Tag an existing shot with this capture (and its still, if any).
+  const tagShotMutation = useMutation({
+    mutationFn: (shotId) =>
+      api.updateShot(shotId, {
+        capture_id: cap.id,
+        generated_image_id: selected?.id || null,
+      }),
+    onSuccess: invalidateShots,
+  });
+
+  // Add a new shot row prefilled from this capture.
+  const addShotMutation = useMutation({
     mutationFn: () =>
-      api.generateVideo(selected.id, { motionPrompt: motionPrompt.trim() }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['captures', sceneId] }),
+      api.createShot(sceneId, {
+        shot_number: `${sceneNumber}${String.fromCharCode(65 + shots.length)}`,
+        capture_id: cap.id,
+        generated_image_id: selected?.id || null,
+      }),
+    onSuccess: invalidateShots,
   });
 
-  // Stage render is what the beauty pass actually conditions on (the textured
-  // color pass), not depth. Fall back to depth only if color wasn't captured.
   const stageRenderUrl = cap.color_map_url
     ? api.getCaptureColorUrl(cap.id)
     : api.getCaptureDepthUrl(cap.id);
@@ -161,20 +112,13 @@ function CaptureCard({ cap, sceneId }) {
         .map((a) => (
           <GenerationPoller key={a.id} generationId={a.id} sceneId={sceneId} />
         ))}
-      {clips
-        .filter((c) => c.status === 'queued' || c.status === 'processing')
-        .map((c) => (
-          <VideoPoller key={c.id} videoId={c.id} sceneId={sceneId} />
-        ))}
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-slate-400">
           {new Date(cap.created_at).toLocaleString()}
         </span>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-slate-500">
-            {cap.width}x{cap.height}
-          </span>
+          <span className="text-[10px] text-slate-500">{cap.width}x{cap.height}</span>
           <button
             type="button"
             title="Delete this capture"
@@ -187,14 +131,8 @@ function CaptureCard({ cap, sceneId }) {
         </div>
       </div>
 
-      <StageRail
-        hasStill={!!newestCompleted}
-        stillInflight={inflight}
-        hasClip={!!newestClip}
-        clipInflight={clipInflight}
-      />
+      <StageRail hasStill={!!newestCompleted} stillInflight={inflight} />
 
-      {/* Lineage: the render that steered this shot next to its result */}
       <div className="grid grid-cols-2 gap-2">
         <div>
           <p className="text-[10px] text-slate-500 mb-1">Stage render</p>
@@ -205,49 +143,8 @@ function CaptureCard({ cap, sceneId }) {
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1 h-3">
-            <p className="text-[10px] text-slate-500">
-              {resultView === 'clip' ? 'Clip' : 'Still'}
-            </p>
-            {newestClip && selected && (
-              <div className="flex items-center gap-0.5" role="group" aria-label="Result view">
-                <button
-                  type="button"
-                  aria-pressed={resultView === 'still'}
-                  onClick={() => setResultView('still')}
-                  className={`px-1 rounded text-[9px] leading-none py-0.5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${
-                    resultView === 'still'
-                      ? 'bg-indigo-500/25 text-indigo-200'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  Still
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={resultView === 'clip'}
-                  onClick={() => setResultView('clip')}
-                  className={`px-1 rounded text-[9px] leading-none py-0.5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400 ${
-                    resultView === 'clip'
-                      ? 'bg-fuchsia-500/25 text-fuchsia-200'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  Clip
-                </button>
-              </div>
-            )}
-          </div>
-          {resultView === 'clip' && newestClip ? (
-            <video
-              src={api.getVideoFileUrl(newestClip.id)}
-              controls
-              loop
-              muted
-              playsInline
-              className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
-            />
-          ) : selected ? (
+          <p className="text-[10px] text-slate-500 mb-1">Still</p>
+          {selected ? (
             <img
               src={api.getGeneratedImageUrl(selected.id)}
               alt="Generated still"
@@ -272,41 +169,29 @@ function CaptureCard({ cap, sceneId }) {
             {cap.depth_map_url && (
               <div>
                 <p className="text-[10px] text-slate-500 mb-1">Depth</p>
-                <img
-                  src={api.getCaptureDepthUrl(cap.id)}
-                  alt="Depth map"
-                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
-                />
+                <img src={api.getCaptureDepthUrl(cap.id)} alt="Depth map"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover" />
               </div>
             )}
             {cap.clean_map_url && (
               <div>
                 <p className="text-[10px] text-slate-500 mb-1">Clean plate</p>
-                <img
-                  src={api.getCaptureCleanUrl(cap.id)}
-                  alt="Clean plate (backdrop only)"
-                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
-                />
+                <img src={api.getCaptureCleanUrl(cap.id)} alt="Clean plate (backdrop only)"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover" />
               </div>
             )}
             {cap.normal_map_url && (
               <div>
                 <p className="text-[10px] text-slate-500 mb-1">Normal</p>
-                <img
-                  src={api.getCaptureNormalUrl(cap.id)}
-                  alt="Normal map"
-                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
-                />
+                <img src={api.getCaptureNormalUrl(cap.id)} alt="Normal map"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover" />
               </div>
             )}
             {cap.seg_map_url && (
               <div>
                 <p className="text-[10px] text-slate-500 mb-1">Segmentation</p>
-                <img
-                  src={api.getCaptureSegUrl(cap.id)}
-                  alt="Segmentation map"
-                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover"
-                />
+                <img src={api.getCaptureSegUrl(cap.id)} alt="Segmentation map"
+                  className="w-full aspect-video rounded border border-white/10 bg-black/40 object-cover" />
               </div>
             )}
           </div>
@@ -332,49 +217,42 @@ function CaptureCard({ cap, sceneId }) {
           </button>
         </div>
         {generateMutation.isError && (
-          <p className="text-[10px] text-red-400">
-            {generateMutation.error.message}
-          </p>
+          <p className="text-[10px] text-red-400">{generateMutation.error.message}</p>
         )}
       </div>
 
-      {/* Video: animate a completed still into a clip */}
-      {selected && (
-        <div className="space-y-1.5 pt-1 border-t border-white/10">
-          <span className="text-[10px] text-slate-500">Motion</span>
-          <textarea
-            value={motionPrompt}
-            onChange={(e) => setMotionPrompt(e.target.value)}
-            rows={2}
-            placeholder={DEFAULT_MOTION}
-            disabled={clipInflight || videoMutation.isPending}
-            className="w-full text-[10px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 resize-none focus:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400 disabled:opacity-40"
-          />
+      {/* Shot list: tag this capture to a planned shot, or start a new one */}
+      <div className="space-y-1.5 pt-1 border-t border-white/10">
+        <span className="text-[10px] text-slate-500">Shot list</span>
+        <div className="flex items-center gap-1">
+          <select
+            defaultValue=""
+            onChange={(e) => e.target.value && tagShotMutation.mutate(e.target.value)}
+            disabled={tagShotMutation.isPending || shots.length === 0}
+            title="Tag this capture to an existing shot"
+            className="flex-1 min-w-0 text-[10px] bg-black/40 border border-white/10 rounded text-slate-300 py-1 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          >
+            <option value="">{shots.length ? 'Tag a shot…' : 'No shots yet'}</option>
+            {shots.map((s) => (
+              <option key={s.id} value={s.id}>{s.shot_number || 'Shot'} · {s.shot_size || '—'}</option>
+            ))}
+          </select>
           <button
             type="button"
-            disabled={clipInflight || videoMutation.isPending || !motionPrompt.trim()}
-            onClick={() => videoMutation.mutate()}
-            className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 disabled:opacity-40 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
+            onClick={() => addShotMutation.mutate()}
+            disabled={addShotMutation.isPending}
+            title="Add this capture as a new shot"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 disabled:opacity-40 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
           >
-            {clipInflight || videoMutation.isPending ? (
+            {addShotMutation.isPending ? (
               <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
             ) : (
-              <Film className="w-3 h-3" />
+              <ListPlus className="w-3 h-3" />
             )}
-            {newestClip ? 'Regenerate clip' : 'Generate clip'}
+            Add
           </button>
-          {videoMutation.isError && (
-            <p className="text-[10px] text-red-400">
-              {videoMutation.error.message}
-            </p>
-          )}
-          {clips.some((c) => c.status === 'failed' && c.error) && (
-            <p className="text-[10px] text-red-400/80 break-words">
-              {clips.find((c) => c.status === 'failed' && c.error).error}
-            </p>
-          )}
         </div>
-      )}
+      </div>
 
       {attempts.length > 0 && (
         <div className="space-y-1">
@@ -384,14 +262,12 @@ function CaptureCard({ cap, sceneId }) {
               key={a.id}
               className={`flex items-center justify-between gap-2 px-2 py-1 rounded text-[10px] ${
                 selected?.id === a.id ? 'bg-white/10' : 'bg-black/20'
-              } ${a.status === 'completed' ? 'cursor-pointer hover:bg-white/10' : ''}`}
-              onClick={() => a.status === 'completed' && setSelectedId(a.id)}
+              }`}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <StatusChip status={a.status} />
                 <span className="text-slate-500 truncate">
                   {new Date(a.created_at).toLocaleTimeString()}
-                  {a.videos?.length > 0 && ` · ${a.videos.length} clip${a.videos.length > 1 ? 's' : ''}`}
                 </span>
               </div>
               {a.status === 'failed' && (
@@ -399,10 +275,7 @@ function CaptureCard({ cap, sceneId }) {
                   type="button"
                   title={a.error || 'Retry'}
                   disabled={inflight || generateMutation.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    generateMutation.mutate();
-                  }}
+                  onClick={() => generateMutation.mutate()}
                   className="flex items-center gap-1 px-1.5 py-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-white/10 disabled:opacity-40 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -429,7 +302,13 @@ function CaptureCard({ cap, sceneId }) {
   );
 }
 
-export function PipelinePanel({ captures, isLoading, sceneId }) {
+export function PipelinePanel({ captures, isLoading, sceneId, sceneNumber }) {
+  const { data: shots = [] } = useQuery({
+    queryKey: ['shots', sceneId],
+    queryFn: () => api.listShots(sceneId),
+    enabled: !!sceneId,
+  });
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-8">
@@ -449,7 +328,13 @@ export function PipelinePanel({ captures, isLoading, sceneId }) {
   return (
     <div className="space-y-2">
       {captures.map((cap) => (
-        <CaptureCard key={cap.id} cap={cap} sceneId={sceneId} />
+        <CaptureCard
+          key={cap.id}
+          cap={cap}
+          sceneId={sceneId}
+          sceneNumber={sceneNumber}
+          shots={shots}
+        />
       ))}
     </div>
   );

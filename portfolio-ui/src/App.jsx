@@ -2,6 +2,7 @@ import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Projects } from './routes/Projects';
 import { NewProject } from './routes/NewProject';
 import { Storyboard } from './routes/Storyboard';
+import { SceneDetail } from './routes/SceneDetail';
 import { Graph } from './routes/Graph';
 import { SceneStage } from './routes/SceneStage';
 
@@ -43,6 +44,7 @@ function App() {
           <Route path="/new" element={<NewProject />} />
           <Route path="/project/:id" element={<Storyboard />} />
           <Route path="/project/:id/graph" element={<Graph />} />
+          <Route path="/project/:id/scene/:sceneId" element={<SceneDetail />} />
           <Route path="/project/:id/scene/:sceneId/stage" element={<SceneStage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

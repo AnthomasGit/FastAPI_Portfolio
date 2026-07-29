@@ -54,6 +54,18 @@ async def list_scenes(project_id: str, db: AsyncSession = Depends(get_db)):
     return [build_scene_response(s, links[s.id]) for s in scenes]
 
 
+@router.get("/api/scenes/{scene_id}", response_model=SceneResponse)
+async def get_scene(scene_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Scene).options(*SCENE_LOAD_OPTS).where(Scene.id == scene_id)
+    )
+    scene = result.scalars().first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    links = await load_scene_links(db, [scene_id])
+    return build_scene_response(scene, links[scene_id])
+
+
 @router.post("/api/projects/{project_id}/scenes", status_code=201, response_model=SceneResponse)
 async def create_scene(project_id: str, data: SceneCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.id == project_id))

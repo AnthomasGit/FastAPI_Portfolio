@@ -119,3 +119,42 @@ Generate 3-6 scenes. Pure JSON only, no markdown."""
         },
     )
     return extract_json(response.choices[0].message.content)
+
+
+async def generate_shot_list(slugline: str, screenplay: str) -> list[dict]:
+    """Draft a master shot list for one scene from its screenplay.
+
+    Fills coverage metadata only — never a still/clip, that's the user's job.
+    Fields map 1:1 onto the Shot model and later compose into the video motion
+    prompt, so the vocabulary is constrained to standard film terms.
+    """
+    system_prompt = """You are a cinematographer planning coverage for a single film scene.
+Given the scene's slugline and screenplay, produce a master shot list that fully covers the action.
+
+Return ONLY valid JSON with a single key "shots" containing an array of 4-8 objects.
+Each shot object has these keys (all strings):
+- shot_number: sequential like "1A", "1B", "1C" (letter increments per shot)
+- shot_size: one of "WS", "MS", "MCU", "CU", "ECU", "POV", "OTS", "Two-Shot"
+- angle: one of "High", "Eye-Level", "Low", "Dutch", "Overhead"
+- movement: one of "Static", "Pan", "Tilt", "Tracking", "Dolly", "Handheld", "Crane", "Zoom"
+- description: one concise sentence describing what this shot shows
+- equipment: e.g. "Tripod", "Gimbal", "Handheld", "Dolly track", "Crane"
+- audio_notes: diegetic sound/dialogue/ambience for this shot
+
+Cover the scene with a mix of wide establishing, medium, and close-up shots. Pure JSON only, no markdown."""
+
+    response = await client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Slugline: {slugline or '(none)'}\n\nScreenplay:\n{screenplay or '(none)'}"}
+        ],
+        temperature=0.7,
+        response_format={"type": "json_object"},
+        extra_headers={
+            "HTTP-Referer": "https://storyboardpro.local",
+            "X-Title": "Storyboard Pro",
+        },
+    )
+    data = extract_json(response.choices[0].message.content)
+    return data.get("shots", [])

@@ -64,6 +64,7 @@ async def load_scene_links(db: AsyncSession, scene_ids: list[str]) -> dict:
                 table.c.reference_id,
                 Reference.processed_url,
                 Reference.url,
+                Reference.asset_image_id,
             )
             .select_from(table.outerjoin(Reference, Reference.id == table.c.reference_id))
             .where(table.c.scene_id.in_(scene_ids))
@@ -74,6 +75,7 @@ async def load_scene_links(db: AsyncSession, scene_ids: list[str]) -> dict:
                     entity_id=row.entity_id,
                     reference_id=row.reference_id,
                     reference_url=row.processed_url or row.url,
+                    asset_image_id=row.asset_image_id,
                 )
             )
     return links

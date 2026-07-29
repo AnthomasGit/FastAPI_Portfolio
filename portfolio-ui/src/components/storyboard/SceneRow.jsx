@@ -5,8 +5,8 @@ import { CellScreenplay } from './CellScreenplay';
 import { CellCharacters } from './CellCharacters';
 import { CellLocations } from './CellLocations';
 import { CellProps } from './CellProps';
-import { CellGeneration } from './CellGeneration';
-import { GripVertical, Trash2, Cuboid } from 'lucide-react';
+import { CellShots } from './CellShots';
+import { GripVertical, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useProjectStore } from '../../stores/projectStore';
@@ -72,17 +72,17 @@ export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
           <div className="min-w-0 overflow-hidden">
             <div className="flex items-center gap-1.5">
               <Link
-                to={`/project/${projectId}/scene/${scene.id}/stage`}
+                to={`/project/${projectId}/scene/${scene.id}`}
                 className="text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
               >
                 SC {index + 1}
               </Link>
               <Link
-                to={`/project/${projectId}/scene/${scene.id}/stage`}
-                className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors leading-none"
-                title="Open 3D stage editor"
+                to={`/project/${projectId}/scene/${scene.id}`}
+                className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 transition-colors leading-none"
+                title="Open scene details"
               >
-                3D
+                Details
               </Link>
             </div>
             {editingSlug ? (
@@ -120,8 +120,8 @@ export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
       <td className="p-3" style={{ width: colWidths.props, minWidth: 80 }}>
         <CellProps scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3" style={{ width: colWidths.video, minWidth: 80 }}>
-        <CellGeneration scene={scene} />
+      <td className="p-3" style={{ width: colWidths.shots, minWidth: 80 }}>
+        <CellShots scene={scene} projectId={projectId} />
       </td>
       <td className="p-3 w-10">
         <button

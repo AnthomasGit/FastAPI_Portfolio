@@ -83,6 +83,8 @@ class Scene(Base):
     )
     generated_images = relationship("GeneratedImage", back_populates="scene", cascade="all, delete-orphan")
     staging = relationship("SceneStaging", back_populates="scene", uselist=False, cascade="all, delete-orphan")
+    shots = relationship("Shot", back_populates="scene", cascade="all, delete-orphan",
+                         order_by="Shot.sort_order")
 
 
 class Character(Base):
@@ -237,6 +239,39 @@ class GeneratedVideo(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     source_image = relationship("GeneratedImage", back_populates="videos")
+
+
+class Shot(Base):
+    """One planned shot in a scene's master shot list.
+
+    Metadata (shot_size/angle/movement/audio_notes) is load-bearing, not just
+    documentation — it composes into the LTX motion prompt when a clip is
+    generated. Scene # is derived from the parent scene, not stored here. The
+    clip derives from generated_image_id -> .videos (newest completed), so
+    there's no generated_video_id column.
+    """
+    __tablename__ = "shots"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    scene_id = Column(String, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
+    shot_number = Column(String, nullable=True)          # "1A", "1B", ...
+    sort_order = Column(Integer, default=0)
+    shot_size = Column(String, nullable=True)            # WS | MS | CU | ECU | POV | ...
+    angle = Column(String, nullable=True)                # High | Eye-Level | Low | ...
+    movement = Column(String, nullable=True)             # Static | Tracking | Handheld | ...
+    description = Column(Text, nullable=True)
+    equipment = Column(String, nullable=True)
+    audio_notes = Column(Text, nullable=True)
+    # The capture this shot was framed from (optional — a shot can be planned
+    # before anything is staged), and the beauty-pass still chosen for it.
+    capture_id = Column(String, ForeignKey("scene_captures.id", ondelete="SET NULL"), nullable=True)
+    generated_image_id = Column(String, ForeignKey("generated_images.id", ondelete="SET NULL"),
+                                nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    scene = relationship("Scene", back_populates="shots")
+    capture = relationship("SceneCapture")
+    generated_image = relationship("GeneratedImage")
 
 
 class Asset3D(Base):

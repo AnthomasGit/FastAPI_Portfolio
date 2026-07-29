@@ -35,6 +35,7 @@ export const api = {
   generateStoryboard: (idea, answers) => fetchJSON('/ai/generate-storyboard', { method: 'POST', body: JSON.stringify({ idea, answers }) }),
 
   createScene: (projectId, data) => fetchJSON(`/projects/${projectId}/scenes`, { method: 'POST', body: JSON.stringify(data) }),
+  getScene: (id) => fetchJSON(`/scenes/${id}`),
   updateScene: (id, data) => fetchJSON(`/scenes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteScene: (id) => fetchJSON(`/scenes/${id}`, { method: 'DELETE' }),
   reorderScenes: (sceneIds) => fetchJSON('/scenes/reorder', { method: 'PUT', body: JSON.stringify({ scene_ids: sceneIds }) }),
@@ -95,6 +96,24 @@ export const api = {
     }),
   getVideoStatus: (videoId) => fetchJSON(`/generate/video/status/${videoId}`),
   getVideoFileUrl: (videoId) => `${API_BASE}/generate/video/file/${videoId}`,
+
+  // Master shot list (per scene).
+  listShots: (sceneId) => fetchJSON(`/scenes/${sceneId}/shots`),
+  createShot: (sceneId, data) => fetchJSON(`/scenes/${sceneId}/shots`, { method: 'POST', body: JSON.stringify(data) }),
+  updateShot: (shotId, data) => fetchJSON(`/shots/${shotId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteShot: (shotId) => fetchJSON(`/shots/${shotId}`, { method: 'DELETE' }),
+  reorderShots: (sceneId, shotIds) => fetchJSON(`/scenes/${sceneId}/shots/reorder`, { method: 'PUT', body: JSON.stringify({ shot_ids: shotIds }) }),
+  generateShotList: (sceneId) => fetchJSON(`/scenes/${sceneId}/shots/generate`, { method: 'POST' }),
+
+  // A per-scene entity link's thumbnail. Asset-image-backed refs live in the
+  // output dir (served via /asset-images/{id}/file); uploaded refs resolve
+  // against the input-dir static mount. Mirrors getReferenceFileUrl's logic.
+  getLinkThumbUrl: (link) =>
+    !link?.reference_url && !link?.asset_image_id
+      ? null
+      : link.asset_image_id
+        ? `${API_BASE}/asset-images/${link.asset_image_id}/file`
+        : `${API_BASE}/uploads/file/${link.reference_url}`,
 
   getProjectGraph: (projectId) => fetchJSON(`/projects/${projectId}/graph`),
 

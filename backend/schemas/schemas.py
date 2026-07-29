@@ -331,10 +331,62 @@ class SceneEntityLink(BaseModel):
     entity_id: str
     reference_id: Optional[str] = None
     reference_url: Optional[str] = None
+    # When the chosen reference is a generated asset image, its file lives in
+    # ComfyUI's output dir (served via /api/asset-images/{id}/file), not the
+    # input-dir static mount that reference_url resolves against. The client
+    # needs this to build a working thumbnail URL.
+    asset_image_id: Optional[str] = None
 
 
 class SceneEntityLinkUpdate(BaseModel):
     reference_id: Optional[str] = None
+
+
+class ShotBase(BaseModel):
+    shot_number: Optional[str] = None
+    sort_order: Optional[int] = 0
+    shot_size: Optional[str] = None
+    angle: Optional[str] = None
+    movement: Optional[str] = None
+    description: Optional[str] = None
+    equipment: Optional[str] = None
+    audio_notes: Optional[str] = None
+    capture_id: Optional[str] = None
+    generated_image_id: Optional[str] = None
+
+
+class ShotCreate(ShotBase):
+    pass
+
+
+class ShotUpdate(BaseModel):
+    # All optional — PATCH-style partial update. sort_order/reorder handled
+    # separately so a field-edit can't accidentally reshuffle the list.
+    shot_number: Optional[str] = None
+    shot_size: Optional[str] = None
+    angle: Optional[str] = None
+    movement: Optional[str] = None
+    description: Optional[str] = None
+    equipment: Optional[str] = None
+    audio_notes: Optional[str] = None
+    capture_id: Optional[str] = None
+    generated_image_id: Optional[str] = None
+
+
+class ShotResponse(ShotBase):
+    id: str
+    scene_id: str
+    created_at: datetime
+    # The chosen still (with its clips nested via .videos) so the shot row can
+    # render the still + offer its clip without a second fetch.
+    still: Optional[GenerateImageResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ShotReorderRequest(BaseModel):
+    shot_ids: List[str]
 
 
 class SceneResponse(BaseModel):

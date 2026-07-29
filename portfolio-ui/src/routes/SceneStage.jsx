@@ -207,6 +207,7 @@ export function SceneStage() {
                 captures={captures || []}
                 isLoading={capturesLoading}
                 sceneId={sceneId}
+                sceneNumber={scene.scene_number}
               />
             </div>
 
