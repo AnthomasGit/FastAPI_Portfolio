@@ -132,10 +132,13 @@ async def test_generate_invalid_entity_type_returns_422(client, project):
     assert resp.status_code == 422
 
 
-# ── Assign-asset upserts primary Reference ─────────────────────────────────
+# ── Assign-asset creates a pool Reference (no global primary) ─────────────
 
 @pytest.mark.asyncio
-async def test_assign_asset_upserts_primary_reference(client, project, character, db_session):
+async def test_assign_asset_creates_pool_reference(client, project, character, db_session):
+    """No global primary: assign-asset adds/updates a pool reference keyed by
+    asset_image_id. Setting it as *this scene's* primary is a separate step
+    (PUT .../links/{entity_type}/{entity_id}) done by the caller."""
     asset = AssetImage(
         origin_project_id=project.id,
         entity_type="character",
@@ -155,27 +158,56 @@ async def test_assign_asset_upserts_primary_reference(client, project, character
     data = resp.json()
     assert data["entity_type"] == "character"
     assert data["entity_id"] == character.id
-    assert data["role"] == "primary"
+    assert data["role"] == "moodboard"
     assert data["url"] == asset.image_url
     assert data["asset_image_id"] == asset.id
 
-    # Second call upserts (doesn't create a second Reference)
+    # Second call on the SAME asset image upserts (doesn't duplicate)
     resp2 = await client.post(
         f"/api/characters/{character.id}/assign-asset",
         json={"asset_image_id": asset.id},
     )
     assert resp2.status_code == 200
+    assert resp2.json()["id"] == data["id"]
 
     from sqlalchemy import select
     result = await db_session.execute(
         select(Reference).where(
             Reference.entity_type == "character",
             Reference.entity_id == character.id,
-            Reference.role == "primary",
         )
     )
     refs = result.scalars().all()
     assert len(refs) == 1
+
+
+@pytest.mark.asyncio
+async def test_assign_different_asset_images_creates_separate_references(
+    client, project, character, db_session
+):
+    asset1 = AssetImage(origin_project_id=project.id, entity_type="character",
+                        kind="txt2img", status="completed", image_url="a.png")
+    asset2 = AssetImage(origin_project_id=project.id, entity_type="character",
+                        kind="txt2img", status="completed", image_url="b.png")
+    db_session.add_all([asset1, asset2])
+    await db_session.commit()
+    await db_session.refresh(asset1)
+    await db_session.refresh(asset2)
+
+    r1 = await client.post(f"/api/characters/{character.id}/assign-asset",
+                           json={"asset_image_id": asset1.id})
+    r2 = await client.post(f"/api/characters/{character.id}/assign-asset",
+                           json={"asset_image_id": asset2.id})
+    assert r1.json()["id"] != r2.json()["id"]
+
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(Reference).where(
+            Reference.entity_type == "character",
+            Reference.entity_id == character.id,
+        )
+    )
+    assert len(result.scalars().all()) == 2
 
 
 # ── Assign-asset rejects incomplete asset ─────────────────────────────────

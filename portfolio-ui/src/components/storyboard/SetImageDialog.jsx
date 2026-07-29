@@ -8,7 +8,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { api } from '../../lib/api';
 
-export function SetImageDialog({ entityType, entityId, entityName, projectId, open, onOpenChange }) {
+export function SetImageDialog({ entityType, entityId, entityName, projectId, open, onOpenChange, onAssigned }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('generate-text');
   const [prompt, setPrompt] = useState('');
@@ -52,9 +52,12 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   const assignMutation = useMutation({
     mutationFn: ({ entityType, entityId, assetImageId }) =>
       api.assignAssetImage(entityType, entityId, assetImageId),
-    onSuccess: () => {
+    onSuccess: (reference) => {
       queryClient.invalidateQueries({ queryKey: ['references', pluralType, entityId] });
       queryClient.invalidateQueries({ queryKey: ['asset-images'] });
+      // No global primary — the caller (e.g. Scene Detail) decides whether
+      // this pool reference becomes the CURRENT scene's primary.
+      onAssigned?.(reference.id);
       onOpenChange(false);
     },
   });

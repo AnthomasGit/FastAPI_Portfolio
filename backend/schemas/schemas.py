@@ -57,15 +57,21 @@ class CharacterResponse(BaseModel):
                 refs = data.references
             except Exception:
                 return data
-            primary = next((r for r in (refs or []) if getattr(r, 'role', None) == 'primary'), None)
-            if primary and getattr(primary, 'url', None):
+            # No global primary — this is just a display convenience for
+            # callers that read reference_url directly (the frontend itself
+            # uses the per-scene link's reference_url instead). Newest wins,
+            # consistent with the per-scene default (reference_service.
+            # newest_reference_id).
+            with_url = [r for r in (refs or []) if getattr(r, 'url', None)]
+            newest = max(with_url, key=lambda r: r.created_at, default=None)
+            if newest:
                 return {
                     'id': data.id,
                     'project_id': data.project_id,
                     'name': data.name,
                     'description': data.description,
                     'traits': data.traits,
-                    'reference_url': primary.url,
+                    'reference_url': newest.url,
                 }
         return data
 

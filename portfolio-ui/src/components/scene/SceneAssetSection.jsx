@@ -231,6 +231,9 @@ export function SceneAssetSection({ scene, projectId, entityType }) {
           projectId={projectId}
           open={!!imageTarget}
           onOpenChange={(v) => { if (!v) { setImageTarget(null); invalidateScene(); } }}
+          onAssigned={(referenceId) =>
+            setRefMut.mutate({ entityId: imageTarget.id, referenceId })
+          }
         />
       )}
     </section>

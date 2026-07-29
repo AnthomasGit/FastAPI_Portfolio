@@ -101,16 +101,18 @@ async def _resolve_reference(
                 warning = "Generated image — mesh quality may suffer; prefer a T-pose photo"
             return match, warning
 
-    uploaded = [r for r in refs if r.url and not r.asset_image_id and r.role != "primary"]
+    uploaded = [r for r in refs if r.url and not r.asset_image_id]
     if uploaded:
         return uploaded[0], None
 
-    primary = next((r for r in refs if r.role == "primary"), None)
-    if primary:
+    # No tpose, no uploaded photo — fall back to any reference (there is no
+    # entity-level "primary" to prefer; that concept is per-scene only).
+    fallback = next((r for r in refs if r.url), None)
+    if fallback:
         warning = None
-        if primary.asset_image_id:
+        if fallback.asset_image_id:
             warning = "Generated image — mesh quality may suffer; prefer a T-pose photo"
-        return primary, warning
+        return fallback, warning
 
     return None, None
 

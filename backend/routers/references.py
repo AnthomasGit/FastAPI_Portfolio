@@ -13,7 +13,7 @@ from typing import List
 from database import get_db, Reference, Scene, Character, Location, Prop
 from schemas.schemas import ReferenceCreate, ReferenceUpdate, ReferenceResponse
 from services.preprocess_service import remove_background
-from services.reference_service import get_entity, enforce_single_primary
+from services.reference_service import get_entity
 
 router = APIRouter()
 
@@ -88,17 +88,7 @@ async def create_reference(
     if not entity:
         raise HTTPException(status_code=404, detail=f"{singular} not found")
 
-    # id generated upfront (not left to the column default) so a would-be
-    # primary can demote every existing primary BEFORE this row is inserted —
-    # the partial unique index is checked per-statement, so inserting first
-    # and demoting after leaves a real (if brief) two-primaries state that
-    # Postgres rejects.
-    new_id = str(uuid.uuid4())
-    if data.role == "primary":
-        await enforce_single_primary(db, singular, entity_id, new_id)
-
     ref = Reference(
-        id=new_id,
         entity_type=singular,
         entity_id=entity_id,
         role=data.role,
@@ -117,13 +107,6 @@ async def update_reference(reference_id: str, data: ReferenceUpdate, db: AsyncSe
     ref = result.scalars().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")
-
-    # Demote every other primary BEFORE this row becomes primary — same
-    # ordering requirement as create_reference (see its comment): the partial
-    # unique index is checked per-statement, so setting this row primary
-    # first would momentarily leave two.
-    if data.role == "primary":
-        await enforce_single_primary(db, ref.entity_type, ref.entity_id, ref.id)
 
     if data.role is not None:
         ref.role = data.role

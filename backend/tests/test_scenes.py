@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
@@ -7,10 +8,23 @@ from database import Scene, Character, Reference, scene_characters
 
 
 @pytest_asyncio.fixture
-async def primary_ref(db_session, character):
+async def older_ref(db_session, character):
     ref = Reference(
         entity_type="character", entity_id=character.id,
-        role="primary", url="knight_primary.png",
+        role="moodboard", url="knight_older.png",
+        created_at=datetime.utcnow() - timedelta(hours=1),
+    )
+    db_session.add(ref)
+    await db_session.commit()
+    await db_session.refresh(ref)
+    return ref
+
+
+@pytest_asyncio.fixture
+async def newer_ref(db_session, character, older_ref):
+    ref = Reference(
+        entity_type="character", entity_id=character.id,
+        role="moodboard", url="knight_newer.png",
     )
     db_session.add(ref)
     await db_session.commit()
@@ -59,12 +73,14 @@ async def test_link_is_idempotent(client, scene, character, db_session):
 
 
 @pytest.mark.asyncio
-async def test_link_defaults_to_primary_reference(client, scene, character, primary_ref):
+async def test_link_defaults_to_newest_reference(client, scene, character, older_ref, newer_ref):
+    """No global primary — a newly-linked scene defaults to the asset's most
+    recently added reference (per-scene picks override this via reference_id)."""
     resp = await client.post(f"/api/scenes/{scene.id}/links/characters/{character.id}")
     assert resp.status_code == 200
     link = resp.json()["character_links"][0]
-    assert link["reference_id"] == primary_ref.id
-    assert link["reference_url"] == "knight_primary.png"
+    assert link["reference_id"] == newer_ref.id
+    assert link["reference_url"] == "knight_newer.png"
 
 
 @pytest.mark.asyncio
@@ -107,7 +123,7 @@ async def test_invalid_entity_type_422(client, scene, character):
 # ── Set per-scene reference ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_set_reference_updates_and_clears(client, scene, character, primary_ref, tpose_ref):
+async def test_set_reference_updates_and_clears(client, scene, character, older_ref, tpose_ref):
     await client.post(f"/api/scenes/{scene.id}/links/characters/{character.id}")
 
     resp = await client.put(
@@ -176,7 +192,7 @@ async def test_unlink_removes_row(client, scene, character, db_session):
 
 @pytest.mark.asyncio
 async def test_same_character_different_reference_per_scene(
-    client, project, character, primary_ref, tpose_ref, db_session,
+    client, project, character, older_ref, tpose_ref, db_session,
 ):
     scene_a = Scene(id=str(uuid.uuid4()), project_id=project.id, scene_number=1, slugline="A")
     scene_b = Scene(id=str(uuid.uuid4()), project_id=project.id, scene_number=2, slugline="B")
@@ -185,7 +201,7 @@ async def test_same_character_different_reference_per_scene(
 
     await client.post(
         f"/api/scenes/{scene_a.id}/links/characters/{character.id}",
-        json={"reference_id": primary_ref.id},
+        json={"reference_id": older_ref.id},
     )
     await client.post(
         f"/api/scenes/{scene_b.id}/links/characters/{character.id}",
@@ -194,14 +210,14 @@ async def test_same_character_different_reference_per_scene(
 
     proj = (await client.get(f"/api/projects/{project.id}")).json()
     by_scene = {s["id"]: s for s in proj["scenes"]}
-    assert by_scene[scene_a.id]["character_links"][0]["reference_id"] == primary_ref.id
+    assert by_scene[scene_a.id]["character_links"][0]["reference_id"] == older_ref.id
     assert by_scene[scene_b.id]["character_links"][0]["reference_id"] == tpose_ref.id
 
 
 @pytest.mark.asyncio
-async def test_scenes_list_exposes_links(client, project, scene, character, primary_ref):
+async def test_scenes_list_exposes_links(client, project, scene, character, older_ref):
     await client.post(f"/api/scenes/{scene.id}/links/characters/{character.id}")
     scenes = (await client.get(f"/api/projects/{project.id}/scenes")).json()
     target = next(s for s in scenes if s["id"] == scene.id)
     assert target["character_links"][0]["entity_id"] == character.id
-    assert target["character_links"][0]["reference_url"] == "knight_primary.png"
+    assert target["character_links"][0]["reference_url"] == "knight_older.png"

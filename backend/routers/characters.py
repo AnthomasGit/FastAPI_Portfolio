@@ -39,12 +39,13 @@ async def create_character(project_id: str, data: CharacterCreate, db: AsyncSess
     db.add(char)
     await db.flush()
 
-    # Shim: if reference_url provided, upsert as role='primary' Reference
+    # Shim: if reference_url provided, add it as a pool reference. No global
+    # primary — a scene picks its own source of truth per scene_X.reference_id.
     if data.reference_url:
         ref = Reference(
             entity_type="character",
             entity_id=char.id,
-            role="primary",
+            role="moodboard",
             url=data.reference_url,
         )
         db.add(ref)
@@ -71,26 +72,16 @@ async def update_character(character_id: str, data: CharacterUpdate, db: AsyncSe
     if data.traits is not None:
         char.traits = data.traits
 
-    # Shim: if reference_url provided, upsert as role='primary' Reference
+    # Shim: if reference_url provided, add a new pool reference. No global
+    # primary to upsert in place — CharacterResponse.reference_url derives
+    # from the newest reference, so this naturally becomes "the" one shown.
     if data.reference_url is not None:
-        existing = await db.execute(
-            select(Reference).where(
-                Reference.entity_type == "character",
-                Reference.entity_id == character_id,
-                Reference.role == "primary",
-            )
-        )
-        ref = existing.scalars().first()
-        if ref:
-            ref.url = data.reference_url
-        else:
-            ref = Reference(
-                entity_type="character",
-                entity_id=character_id,
-                role="primary",
-                url=data.reference_url,
-            )
-            db.add(ref)
+        db.add(Reference(
+            entity_type="character",
+            entity_id=character_id,
+            role="moodboard",
+            url=data.reference_url,
+        ))
 
     await db.commit()
 

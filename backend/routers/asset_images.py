@@ -17,7 +17,6 @@ from services.asset_image_service import (
     poll_asset_image_status,
     get_asset_image_file,
 )
-from services.reference_service import enforce_single_primary
 
 router = APIRouter()
 
@@ -151,30 +150,32 @@ async def assign_asset_image(
             detail="Asset image is not completed yet",
         )
 
+    # A pool reference, not a global primary — there is no entity-level
+    # primary. Find-or-create by asset_image_id so re-assigning the same
+    # generated image doesn't pile up duplicate pool rows. The caller (Scene
+    # Detail) is responsible for setting this as the current scene's primary
+    # via PUT .../links/{entity_type}/{entity_id}.
     existing = await db.execute(
         select(Reference).where(
             Reference.entity_type == singular,
             Reference.entity_id == entity_id,
-            Reference.role == "primary",
+            Reference.asset_image_id == asset.id,
         )
     )
     ref = existing.scalars().first()
 
     if ref:
         ref.url = asset.image_url
-        ref.asset_image_id = asset.id
     else:
         ref = Reference(
             entity_type=singular,
             entity_id=entity_id,
-            role="primary",
+            role="moodboard",
             url=asset.image_url,
             asset_image_id=asset.id,
         )
         db.add(ref)
 
-    await db.flush()
-    await enforce_single_primary(db, singular, entity_id, ref.id)
     await db.commit()
     await db.refresh(ref)
     return ref

@@ -3,8 +3,10 @@ import { Trash2, Wand2, Loader2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { api } from '../../lib/api';
 
+// No 'primary' — that's a per-scene concept (set on the Scene Detail page's
+// asset picker), not a label on the reference itself. These are pool tags.
 const ROLES = [
-  'primary', 'moodboard', 'turnaround_front', 'turnaround_side',
+  'moodboard', 'turnaround_front', 'turnaround_side',
   'turnaround_back', 'texture_ref', 'backdrop', 'tpose',
 ];
 

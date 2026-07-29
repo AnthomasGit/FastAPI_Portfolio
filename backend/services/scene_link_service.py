@@ -6,6 +6,7 @@ from database import (
     Character, Location, Prop, Reference, Scene,
 )
 from schemas.schemas import SceneEntityLink, SceneResponse
+from services.reference_service import newest_reference_id
 
 
 class LinkNotFound(Exception):
@@ -33,18 +34,6 @@ async def _validate_ref(db: AsyncSession, reference_id: str, entity_type: str, e
         raise LinkInvalid("Reference does not belong to this entity")
 
 
-async def _primary_reference_id(db: AsyncSession, entity_type: str, entity_id: str) -> str | None:
-    result = await db.execute(
-        select(Reference.id)
-        .where(
-            Reference.entity_type == entity_type,
-            Reference.entity_id == entity_id,
-            Reference.role == "primary",
-        )
-        .limit(1)
-    )
-    row = result.first()
-    return row[0] if row else None
 
 
 async def load_scene_links(db: AsyncSession, scene_ids: list[str]) -> dict:
@@ -108,7 +97,7 @@ async def link_entity(
     if reference_id is not None:
         await _validate_ref(db, reference_id, singular, entity_id)
     else:
-        reference_id = await _primary_reference_id(db, singular, entity_id)
+        reference_id = await newest_reference_id(db, singular, entity_id)
 
     existing = await db.execute(
         select(table).where(table.c.scene_id == scene_id, table.c[id_col_name] == entity_id)
