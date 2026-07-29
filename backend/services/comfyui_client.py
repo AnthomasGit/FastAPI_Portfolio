@@ -30,6 +30,10 @@ INJECTION_MAP = {
     "seed": "seed_node",
     "filename_prefix": "output_node",
     "image": "image_node",
+    # A second LoadImage slot, for workflows that take an identity/style
+    # reference alongside the main image (e.g. the Klein beauty pass feeds a
+    # character's reference photo in to restore a face the 3D proxy distorted).
+    "ref_image": "ref_image_node",
     "controlnet_strength": "controlnet_node",
 }
 
@@ -64,7 +68,7 @@ def inject(workflow: dict, node_map: dict, overrides: dict) -> dict:
                 # PrimitiveString "name" node feeding StringConcatenate export names
                 inputs["value"] = value
 
-        elif key == "image":
+        elif key in ("image", "ref_image"):
             if "image" in inputs:
                 inputs["image"] = value
 

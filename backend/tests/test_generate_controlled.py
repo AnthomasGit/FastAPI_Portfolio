@@ -33,6 +33,7 @@ FAKE_NODE_MAP = {
     "output_node": "10",
     "image_node": "4",
     "controlnet_node": "6",
+    "ref_image_node": "4",
 }
 
 
@@ -75,7 +76,7 @@ async def test_controlled_resolves_scene_prompt_and_writes_job(
 
         resp = await client.post(
             "/api/generate/controlled",
-            json={"capture_id": capture.id, "params": {"controlnet_strength": 0.65}},
+            json={"capture_id": capture.id, "params": {"seed": 4242}},
         )
         assert resp.status_code == 202
         gen_id = resp.json()["generation_id"]
@@ -85,15 +86,15 @@ async def test_controlled_resolves_scene_prompt_and_writes_job(
     )
     gen = result.scalars().first()
     assert gen is not None
-    assert gen.kind == "controlled"
+    assert gen.kind == "beauty"
     assert gen.capture_id == capture.id
     assert gen.scene_id == scene.id
     assert gen.status == "processing"
     assert gen.prompt_id == prompt_id
     # prompt was resolved capture -> staging -> scene
     assert scene.slugline in gen.prompt
-    assert gen.params["controlnet_strength"] == 0.65
-    assert gen.params["seed"] is not None
+    assert gen.params["seed"] == 4242
+    assert gen.params["workflow"] == "image_klein_beauty"
 
     job_result = await db_session.execute(
         select(JobRecord).where(JobRecord.entity_id == gen_id)
@@ -167,10 +168,17 @@ async def test_controlled_submit_failure_marks_failed_with_error(
 
 # ── Injection snapshot against the real committed workflow ─────────────────
 
-def test_controlled_injection_snapshot():
-    with open(os.path.join(WORKFLOW_DIR, "image_controlnet_ipadapter.json")) as f:
+def test_beauty_injection_snapshot():
+    """Snapshot against the real committed beauty workflow.
+
+    (This replaces an older snapshot test pointed at
+    ``image_controlnet_ipadapter``, a workflow that was never created because
+    neither ControlNet nor IP-Adapter is installed — the beauty pass uses Flux
+    Klein 9B img2img instead.)
+    """
+    with open(os.path.join(WORKFLOW_DIR, "image_klein_beauty.json")) as f:
         workflow = json.load(f)
-    with open(os.path.join(WORKFLOW_DIR, "image_controlnet_ipadapter.map.json")) as f:
+    with open(os.path.join(WORKFLOW_DIR, "image_klein_beauty.map.json")) as f:
         node_map = json.load(f)
 
     original = copy.deepcopy(workflow)
@@ -178,18 +186,19 @@ def test_controlled_injection_snapshot():
         "prompt": "SNAPSHOT_PROMPT",
         "seed": 999,
         "filename_prefix": "job-snap",
-        "image": "depth_abc.png",
-        "controlnet_strength": 0.55,
+        "image": "color_abc.png",
+        "ref_image": "character_ref.png",
     })
 
     # Exact expected result: the original graph with only the five injection
-    # points changed.
+    # points changed. Note the seed node is RandomNoise (noise_seed), not a
+    # KSampler — inject() handles both.
     expected = original
     expected[node_map["prompt_node"]]["inputs"]["text"] = "SNAPSHOT_PROMPT"
-    expected[node_map["seed_node"]]["inputs"]["seed"] = 999
+    expected[node_map["seed_node"]]["inputs"]["noise_seed"] = 999
     expected[node_map["output_node"]]["inputs"]["filename_prefix"] = "job-snap"
-    expected[node_map["image_node"]]["inputs"]["image"] = "depth_abc.png"
-    expected[node_map["controlnet_node"]]["inputs"]["strength"] = 0.55
+    expected[node_map["image_node"]]["inputs"]["image"] = "color_abc.png"
+    expected[node_map["ref_image_node"]]["inputs"]["image"] = "character_ref.png"
 
     assert injected == expected
 
@@ -301,9 +310,9 @@ async def test_captures_list_includes_generated_images(
     gen = GeneratedImage(
         scene_id=scene.id,
         capture_id=capture.id,
-        kind="controlled",
+        kind="beauty",
         status="completed",
-        params={"controlnet_strength": 0.8, "seed": 42},
+        params={"seed": 42, "workflow": "image_klein_beauty"},
     )
     db_session.add(gen)
     await db_session.commit()
@@ -314,5 +323,5 @@ async def test_captures_list_includes_generated_images(
     assert len(data) == 1
     attempts = data[0]["generated_images"]
     assert len(attempts) == 1
-    assert attempts[0]["kind"] == "controlled"
-    assert attempts[0]["params"]["controlnet_strength"] == 0.8
+    assert attempts[0]["kind"] == "beauty"
+    assert attempts[0]["params"]["seed"] == 42

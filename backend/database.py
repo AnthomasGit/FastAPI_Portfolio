@@ -205,6 +205,31 @@ class GeneratedImage(Base):
     scene = relationship("Scene", back_populates="generated_images")
     project = relationship("Project", back_populates="generated_images")
     capture = relationship("SceneCapture", back_populates="generated_images")
+    videos = relationship("GeneratedVideo", back_populates="source_image")
+
+
+class GeneratedVideo(Base):
+    """Append-only video attempt, mirroring GeneratedImage.
+
+    Input is always a completed GeneratedImage (the beauty pass output), never
+    a raw capture — see the stage dependency rule in 3d-staging-lld-sdlc.md.
+    """
+    __tablename__ = "generated_videos"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    scene_id = Column(String, ForeignKey("scenes.id", ondelete="SET NULL"), nullable=True)
+    source_image_id = Column(String, ForeignKey("generated_images.id", ondelete="SET NULL"), nullable=True)
+    prompt = Column(Text, nullable=True)                 # motion prompt
+    video_url = Column(String, nullable=True)            # MP4/WebM filename in ComfyUI output
+    status = Column(String, default="queued")            # queued|processing|completed|failed
+    job_id = Column(String, nullable=True)
+    prompt_id = Column(String, nullable=True)
+    params = Column(JSON, nullable=True)                 # {workflow, frames, fps, seed}
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    source_image = relationship("GeneratedImage", back_populates="videos")
 
 
 class Asset3D(Base):

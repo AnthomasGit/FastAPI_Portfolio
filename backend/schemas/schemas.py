@@ -177,6 +177,30 @@ class Asset3DMeshGenerateRequest(BaseModel):
     params: Optional[dict] = None
 
 
+class VideoGenerateRequest(BaseModel):
+    image_id: str
+    motion_prompt: Optional[str] = None
+    params: Optional[dict] = None
+
+
+class GeneratedVideoResponse(BaseModel):
+    id: str
+    project_id: Optional[str] = None
+    scene_id: Optional[str] = None
+    source_image_id: Optional[str] = None
+    prompt: Optional[str] = None
+    video_url: Optional[str] = None
+    status: str = "queued"
+    job_id: Optional[str] = None
+    prompt_id: Optional[str] = None
+    params: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class Asset3DResponse(BaseModel):
     id: str
     project_id: str

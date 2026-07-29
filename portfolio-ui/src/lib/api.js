@@ -83,6 +83,19 @@ export const api = {
     }),
   getGeneratedImageUrl: (genId) => `${API_BASE}/generate/image/${genId}`,
 
+  // Video: takes a *completed* GeneratedImage (the beauty-pass still), not a capture.
+  generateVideo: (imageId, { motionPrompt, params } = {}) =>
+    fetchJSON('/generate/video', {
+      method: 'POST',
+      body: JSON.stringify({
+        image_id: imageId,
+        motion_prompt: motionPrompt ?? null,
+        params: params ?? null,
+      }),
+    }),
+  getVideoStatus: (videoId) => fetchJSON(`/generate/video/status/${videoId}`),
+  getVideoFileUrl: (videoId) => `${API_BASE}/generate/video/file/${videoId}`,
+
   getProjectGraph: (projectId) => fetchJSON(`/projects/${projectId}/graph`),
 
   upload: (file) => uploadFile(file),
