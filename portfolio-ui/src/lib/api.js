@@ -105,13 +105,15 @@ export const api = {
   reorderShots: (sceneId, shotIds) => fetchJSON(`/scenes/${sceneId}/shots/reorder`, { method: 'PUT', body: JSON.stringify({ shot_ids: shotIds }) }),
   generateShotList: (sceneId) => fetchJSON(`/scenes/${sceneId}/shots/generate`, { method: 'POST' }),
 
-  // A per-scene entity link's thumbnail. Asset-image-backed refs live in the
-  // output dir (served via /asset-images/{id}/file); uploaded refs resolve
-  // against the input-dir static mount. Mirrors getReferenceFileUrl's logic.
+  // A per-scene entity link's thumbnail. Mirrors getReferenceFileUrl's
+  // precedence: check is_processed FIRST. A background-removed reference's
+  // reference_url is already the processed_url (input-dir-servable), even
+  // when asset_image_id is still set — only an unprocessed asset-image
+  // reference needs the output-dir asset-images route.
   getLinkThumbUrl: (link) =>
     !link?.reference_url && !link?.asset_image_id
       ? null
-      : link.asset_image_id
+      : link.asset_image_id && !link.is_processed
         ? `${API_BASE}/asset-images/${link.asset_image_id}/file`
         : `${API_BASE}/uploads/file/${link.reference_url}`,
 

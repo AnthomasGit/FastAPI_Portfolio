@@ -65,6 +65,7 @@ async def load_scene_links(db: AsyncSession, scene_ids: list[str]) -> dict:
                     reference_id=row.reference_id,
                     reference_url=row.processed_url or row.url,
                     asset_image_id=row.asset_image_id,
+                    is_processed=bool(row.processed_url),
                 )
             )
     return links

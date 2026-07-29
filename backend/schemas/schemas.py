@@ -342,6 +342,10 @@ class SceneEntityLink(BaseModel):
     # input-dir static mount that reference_url resolves against. The client
     # needs this to build a working thumbnail URL.
     asset_image_id: Optional[str] = None
+    # True once background removal has run — reference_url is then the
+    # processed_url (always input-dir-servable), so the client must NOT route
+    # through asset_image_id in that case even though it's still set.
+    is_processed: bool = False
 
 
 class SceneEntityLinkUpdate(BaseModel):

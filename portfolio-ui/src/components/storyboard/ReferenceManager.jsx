@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Wand2, Loader2, Plus } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Button } from '../ui/button';
 import { api } from '../../lib/api';
 
 // No 'primary' — that's a per-scene concept (set on the Scene Detail page's
@@ -237,6 +238,12 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
             ))}
           </div>
         )}
+
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)} className="bg-cyan-600 hover:bg-cyan-500 text-white">
+            Done
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

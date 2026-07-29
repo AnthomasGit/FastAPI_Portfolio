@@ -221,3 +221,35 @@ async def test_scenes_list_exposes_links(client, project, scene, character, olde
     target = next(s for s in scenes if s["id"] == scene.id)
     assert target["character_links"][0]["entity_id"] == character.id
     assert target["character_links"][0]["reference_url"] == "knight_older.png"
+    assert target["character_links"][0]["is_processed"] is False
+
+
+@pytest.mark.asyncio
+async def test_link_is_processed_reflects_background_removal(client, scene, character, db_session):
+    """A background-removed reference's is_processed must flip to True so the
+    client knows reference_url is now the (input-dir-servable) processed_url,
+    not the raw asset-image path — getLinkThumbUrl depends on this to avoid
+    showing a stale, non-cutout thumbnail."""
+    ref = Reference(
+        entity_type="character", entity_id=character.id, role="moodboard",
+        url="assets/proj/characters/x_00001_.png", asset_image_id="asset-1",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+    await db_session.refresh(ref)
+
+    resp = await client.post(
+        f"/api/scenes/{scene.id}/links/characters/{character.id}",
+        json={"reference_id": ref.id},
+    )
+    link = resp.json()["character_links"][0]
+    assert link["is_processed"] is False
+    assert link["reference_url"] == "assets/proj/characters/x_00001_.png"
+
+    ref.processed_url = "cutout.png"
+    await db_session.commit()
+
+    resp2 = await client.get(f"/api/scenes/{scene.id}")
+    link2 = resp2.json()["character_links"][0]
+    assert link2["is_processed"] is True
+    assert link2["reference_url"] == "cutout.png"
