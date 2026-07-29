@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useStagingStore } from '@/stores/stagingStore';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, ChevronRight, PanelRightClose, PanelRightOpen, Loader2 } from 'lucide-react';
 import { StageCanvas } from '@/components/stage3d/StageCanvas';
 import { StageToolbar } from '@/components/stage3d/StageToolbar';
 import { PipelinePanel } from '@/components/stage3d/PipelinePanel';
@@ -23,6 +23,7 @@ export function SceneStage() {
   const setDirty = useStagingStore((s) => s.setDirty);
   const autosaveTimer = useRef(null);
   const hydratedSceneRef = useRef(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -197,32 +198,46 @@ export function SceneStage() {
           </div>
         </div>
 
-        <aside className="w-80 border-l border-white/10 bg-black/20 overflow-y-auto shrink-0">
-          <div className="p-4 space-y-6">
-            <div>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Captures
-              </h3>
-              <PipelinePanel
-                captures={captures || []}
-                isLoading={capturesLoading}
-                sceneId={sceneId}
-                sceneNumber={scene.scene_number}
-              />
-            </div>
+        <div className="relative shrink-0 flex">
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            className="w-6 border-l border-white/10 bg-black/20 hover:bg-white/5 flex items-start justify-center pt-3 text-slate-500 hover:text-slate-300 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400 shrink-0"
+          >
+            {sidebarOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+          </button>
 
-            <div>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Assets
-              </h3>
-              <AssetDrawer
-                projectId={projectId}
-                characters={projectCharacters}
-                props={projectProps}
-              />
-            </div>
-          </div>
-        </aside>
+          {sidebarOpen && (
+            <aside className="w-80 border-l border-white/10 bg-black/20 overflow-y-auto shrink-0">
+              <div className="p-4 space-y-6">
+                <details className="group" open>
+                  <summary className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 cursor-pointer select-none hover:text-slate-300 transition-colors list-none [&::-webkit-details-marker]:hidden [&::marker]:hidden">
+                    <ChevronRight className="w-3 h-3 shrink-0 transition-transform group-open:rotate-90" />
+                    Captures
+                  </summary>
+                  <PipelinePanel
+                    captures={captures || []}
+                    isLoading={capturesLoading}
+                    sceneId={sceneId}
+                    sceneNumber={scene.scene_number}
+                  />
+                </details>
+
+                <details className="group" open>
+                  <summary className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 cursor-pointer select-none hover:text-slate-300 transition-colors list-none [&::-webkit-details-marker]:hidden [&::marker]:hidden">
+                    <ChevronRight className="w-3 h-3 shrink-0 transition-transform group-open:rotate-90" />
+                    Assets
+                  </summary>
+                  <AssetDrawer
+                    projectId={projectId}
+                    characters={projectCharacters}
+                    props={projectProps}
+                  />
+                </details>
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
     </div>
   );
