@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import { ShotRow } from './ShotRow';
 
 const COLUMNS = [
-  'Shot #', 'Scene #', 'Size', 'Angle', 'Movement',
+  'Shot #', 'Size', 'Angle', 'Movement',
   'Description', 'Equipment', 'Audio / Notes', 'Still / Clip', '',
 ];
 
@@ -85,7 +85,6 @@ export function ShotList({ scene }) {
                 <ShotRow
                   key={shot.id}
                   shot={shot}
-                  sceneNumber={scene.scene_number}
                   sceneId={sceneId}
                   availableStills={availableStills}
                 />

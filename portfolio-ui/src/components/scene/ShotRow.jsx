@@ -35,7 +35,7 @@ function EditCell({ value, field, shotId, sceneId, placeholder, wide }) {
   );
 }
 
-export function ShotRow({ shot, sceneNumber, sceneId, availableStills }) {
+export function ShotRow({ shot, sceneId, availableStills }) {
   const queryClient = useQueryClient();
   const delMut = useMutation({
     mutationFn: () => api.deleteShot(shot.id),
@@ -49,7 +49,6 @@ export function ShotRow({ shot, sceneNumber, sceneId, availableStills }) {
   return (
     <tr className="border-b border-white/5 hover:bg-white/[0.02] align-top">
       <td className="px-2 py-2 w-16">{cell('shot_number', '1A')}</td>
-      <td className="px-2 py-2 w-14 text-xs text-slate-500 text-center">{sceneNumber}</td>
       <td className="px-2 py-2 w-20">{cell('shot_size', 'WS')}</td>
       <td className="px-2 py-2 w-24">{cell('angle', 'Eye-Level')}</td>
       <td className="px-2 py-2 w-24">{cell('movement', 'Static')}</td>
