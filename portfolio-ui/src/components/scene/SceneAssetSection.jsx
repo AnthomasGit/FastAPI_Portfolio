@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { ReferenceManager } from '../storyboard/ReferenceManager';
 import { SetImageDialog } from '../storyboard/SetImageDialog';
+import { ReferencePicker } from './ReferencePicker';
 
 // entityType is plural — matches API paths, SceneResponse link keys, and the
 // scene items array key.
@@ -55,24 +56,12 @@ function AssetCard({ entity, entityType, cfg, link, onSetReference, onUnlink, on
       <div className="p-2 space-y-1.5">
         <p className={`text-xs font-medium truncate ${cfg.text}`}>{entity.name}</p>
         <div className="flex items-center gap-1">
-          <select
-            value={selected}
-            onChange={(e) => onSetReference(e.target.value || null)}
-            title="Primary for this scene — the source of truth used to generate this asset here (can differ from the entity's overall default, e.g. different clothing per scene)"
-            className="flex-1 min-w-0 text-[10px] bg-black/50 border border-white/10 rounded text-slate-300 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-          >
-            <option value="">— ref —</option>
-            {refs.map((r) => {
-              // role is now unique-per-entity for 'primary', but multiple
-              // moodboard/etc refs can share a role label — disambiguate with
-              // the description if present, else a running count.
-              const sameRole = refs.filter((o) => o.role === r.role);
-              const label = sameRole.length > 1
-                ? `${r.role} (${r.description?.slice(0, 12) || sameRole.indexOf(r) + 1})`
-                : r.role;
-              return <option key={r.id} value={r.id}>{label}</option>;
-            })}
-          </select>
+          <ReferencePicker
+            refs={refs}
+            selectedId={selected || null}
+            onSelect={onSetReference}
+            ring={cfg.ring}
+          />
           <button
             onClick={onManageRefs}
             title="Manage references"
