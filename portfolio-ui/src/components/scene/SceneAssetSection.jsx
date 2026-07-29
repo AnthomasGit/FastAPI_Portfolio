@@ -58,13 +58,20 @@ function AssetCard({ entity, entityType, cfg, link, onSetReference, onUnlink, on
           <select
             value={selected}
             onChange={(e) => onSetReference(e.target.value || null)}
-            title="Reference used in this scene"
+            title="Primary for this scene — the source of truth used to generate this asset here (can differ from the entity's overall default, e.g. different clothing per scene)"
             className="flex-1 min-w-0 text-[10px] bg-black/50 border border-white/10 rounded text-slate-300 py-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
           >
             <option value="">— ref —</option>
-            {refs.map((r) => (
-              <option key={r.id} value={r.id}>{r.role}</option>
-            ))}
+            {refs.map((r) => {
+              // role is now unique-per-entity for 'primary', but multiple
+              // moodboard/etc refs can share a role label — disambiguate with
+              // the description if present, else a running count.
+              const sameRole = refs.filter((o) => o.role === r.role);
+              const label = sameRole.length > 1
+                ? `${r.role} (${r.description?.slice(0, 12) || sameRole.indexOf(r) + 1})`
+                : r.role;
+              return <option key={r.id} value={r.id}>{label}</option>;
+            })}
           </select>
           <button
             onClick={onManageRefs}

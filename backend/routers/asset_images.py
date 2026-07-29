@@ -17,6 +17,7 @@ from services.asset_image_service import (
     poll_asset_image_status,
     get_asset_image_file,
 )
+from services.reference_service import enforce_single_primary
 
 router = APIRouter()
 
@@ -172,6 +173,8 @@ async def assign_asset_image(
         )
         db.add(ref)
 
+    await db.flush()
+    await enforce_single_primary(db, singular, entity_id, ref.id)
     await db.commit()
     await db.refresh(ref)
     return ref

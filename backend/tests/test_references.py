@@ -306,3 +306,125 @@ async def test_character_update_shim_upserts_reference(client, project):
 async def test_invalid_entity_type_returns_422(client):
     resp = await client.get("/api/invalid/some-id/references")
     assert resp.status_code == 422
+
+
+# ── Primary reference is unique per entity ───────────────────────────────
+# A character can wear different clothing per scene; the scene's source of
+# truth is scene_X.reference_id (already one-per-scene). Entity-level
+# role='primary' is the single canonical default those per-scene picks start
+# from — it must never be allowed to duplicate.
+
+async def _primaries(client, character):
+    refs = (await client.get(f"/api/characters/{character.id}/references")).json()
+    return [r for r in refs if r["role"] == "primary"]
+
+
+@pytest.mark.asyncio
+async def test_creating_second_primary_demotes_first(client, character):
+    first = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "a.png", "role": "primary"},
+    )).json()
+
+    second = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "b.png", "role": "primary"},
+    )).json()
+
+    primaries = await _primaries(client, character)
+    assert len(primaries) == 1
+    assert primaries[0]["id"] == second["id"]
+
+    refreshed_first = (await client.get(f"/api/characters/{character.id}/references")).json()
+    demoted = next(r for r in refreshed_first if r["id"] == first["id"])
+    assert demoted["role"] == "moodboard"
+
+
+@pytest.mark.asyncio
+async def test_updating_role_to_primary_demotes_existing_primary(client, character):
+    first = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "a.png", "role": "primary"},
+    )).json()
+    second = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "b.png", "role": "moodboard"},
+    )).json()
+
+    resp = await client.put(f"/api/references/{second['id']}", json={"role": "primary"})
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "primary"
+
+    primaries = await _primaries(client, character)
+    assert len(primaries) == 1
+    assert primaries[0]["id"] == second["id"]
+
+    refreshed = (await client.get(f"/api/characters/{character.id}/references")).json()
+    assert next(r for r in refreshed if r["id"] == first["id"])["role"] == "moodboard"
+
+
+@pytest.mark.asyncio
+async def test_updating_role_away_from_primary_does_not_touch_others(client, character):
+    """A no-op-adjacent update (role stays non-primary) must not trigger dedup."""
+    first = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "a.png", "role": "primary"},
+    )).json()
+    second = (await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "b.png", "role": "moodboard"},
+    )).json()
+
+    await client.put(f"/api/references/{second['id']}", json={"description": "test"})
+
+    primaries = await _primaries(client, character)
+    assert len(primaries) == 1
+    assert primaries[0]["id"] == first["id"]
+
+
+@pytest.mark.asyncio
+async def test_double_assign_asset_image_keeps_single_primary(client, character, project, db_session):
+    from database import AssetImage
+
+    async def make_completed_asset():
+        asset = AssetImage(
+            id=str(uuid.uuid4()), origin_project_id=project.id, entity_type="character",
+            kind="txt2img", image_url=f"{uuid.uuid4()}.png", status="completed",
+        )
+        db_session.add(asset)
+        await db_session.commit()
+        return asset.id
+
+    asset1_id = await make_completed_asset()
+    r1 = await client.post(f"/api/characters/{character.id}/assign-asset", json={"asset_image_id": asset1_id})
+    assert r1.status_code == 200
+
+    asset2_id = await make_completed_asset()
+    r2 = await client.post(f"/api/characters/{character.id}/assign-asset", json={"asset_image_id": asset2_id})
+    assert r2.status_code == 200
+
+    primaries = await _primaries(client, character)
+    assert len(primaries) == 1
+    assert primaries[0]["asset_image_id"] == asset2_id
+
+
+@pytest.mark.asyncio
+async def test_enforce_single_primary_helper_directly(db_session, character):
+    from services.reference_service import enforce_single_primary
+
+    r1 = Reference(id=str(uuid.uuid4()), entity_type="character", entity_id=character.id,
+                   role="primary", url="a.png")
+    r2 = Reference(id=str(uuid.uuid4()), entity_type="character", entity_id=character.id,
+                   role="primary", url="b.png")
+    db_session.add_all([r1, r2])
+    await db_session.commit()
+
+    await enforce_single_primary(db_session, "character", character.id, r2.id)
+    await db_session.commit()
+
+    result = await db_session.execute(
+        select(Reference).where(Reference.entity_id == character.id, Reference.role == "primary")
+    )
+    remaining = result.scalars().all()
+    assert len(remaining) == 1
+    assert remaining[0].id == r2.id

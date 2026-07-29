@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Reference
@@ -10,6 +10,27 @@ async def delete_entity_references(db: AsyncSession, entity_type: str, entity_id
             Reference.entity_type == entity_type,
             Reference.entity_id == entity_id,
         )
+    )
+
+
+async def enforce_single_primary(
+    db: AsyncSession, entity_type: str, entity_id: str, keep_ref_id: str
+) -> None:
+    """Demote every other role='primary' reference for this entity to 'moodboard'.
+
+    Primary is the entity's single canonical/default reference (the per-scene
+    source of truth is scene_X.reference_id, a separate one-per-scene concept).
+    Callers must commit; this only stages the update.
+    """
+    await db.execute(
+        update(Reference)
+        .where(
+            Reference.entity_type == entity_type,
+            Reference.entity_id == entity_id,
+            Reference.role == "primary",
+            Reference.id != keep_ref_id,
+        )
+        .values(role="moodboard")
     )
 
 

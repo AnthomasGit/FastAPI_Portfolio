@@ -54,9 +54,10 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
   const handleRoleChange = async (refId, role) => {
     try {
       await api.updateReference(refId, { role });
-      setReferences((prev) =>
-        prev.map((r) => (r.id === refId ? { ...r, role } : r))
-      );
+      // Setting 'primary' demotes any other primary server-side (exactly one
+      // primary per entity is enforced) — refetch rather than optimistically
+      // patch just this card, or the demoted one would show stale.
+      await fetchRefs();
     } catch (e) {
       console.error('Role update failed', e);
     }
