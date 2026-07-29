@@ -95,8 +95,14 @@ export function SceneAssetSection({ scene, projectId, entityType }) {
   const linkByEntity = Object.fromEntries(links.map((l) => [l.entity_id, l]));
   const linkedIds = new Set(linked.map((e) => e.id));
 
-  const invalidateScene = () =>
+  const invalidateScene = () => {
     queryClient.invalidateQueries({ queryKey: ['scene', scene.id] });
+    // ReferenceManager and SetImageDialog mutate references outside React
+    // Query (they own their own local list), so we also drop the per-entity
+    // references cache — otherwise a freshly-uploaded/generated reference
+    // won't show up in the ReferencePicker for any linked asset until reload.
+    queryClient.invalidateQueries({ queryKey: ['references', entityType] });
+  };
 
   const { data: allEntities = [] } = useQuery({
     queryKey: [entityType, projectId],
