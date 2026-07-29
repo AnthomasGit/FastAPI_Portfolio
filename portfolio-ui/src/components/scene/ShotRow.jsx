@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ShotStillCell } from './ShotStillCell';
+import { BadgeSelectCell } from './BadgeSelectCell';
+import { SHOT_SIZE, ANGLE, MOVEMENT, EQUIPMENT } from './shotOptions';
 
 // One editable cell that commits on blur. Kept uncontrolled-ish via local state
 // so typing doesn't round-trip per keystroke. Re-syncs to a changed server
@@ -49,11 +51,19 @@ export function ShotRow({ shot, sceneId, availableStills }) {
   return (
     <tr className="border-b border-white/5 hover:bg-white/[0.02] align-top">
       <td className="px-2 py-2 w-16">{cell('shot_number', '1A')}</td>
-      <td className="px-2 py-2 w-20">{cell('shot_size', 'WS')}</td>
-      <td className="px-2 py-2 w-24">{cell('angle', 'Eye-Level')}</td>
-      <td className="px-2 py-2 w-24">{cell('movement', 'Static')}</td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <BadgeSelectCell value={shot.shot_size} field="shot_size" fieldConfig={SHOT_SIZE} shotId={shot.id} sceneId={sceneId} />
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <BadgeSelectCell value={shot.angle} field="angle" fieldConfig={ANGLE} shotId={shot.id} sceneId={sceneId} />
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <BadgeSelectCell value={shot.movement} field="movement" fieldConfig={MOVEMENT} shotId={shot.id} sceneId={sceneId} />
+      </td>
       <td className="px-2 py-2 min-w-[200px]">{cell('description', 'What the shot shows…', true)}</td>
-      <td className="px-2 py-2 w-28">{cell('equipment', 'Tripod')}</td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <BadgeSelectCell value={shot.equipment} field="equipment" fieldConfig={EQUIPMENT} shotId={shot.id} sceneId={sceneId} />
+      </td>
       <td className="px-2 py-2 min-w-[160px]">{cell('audio_notes', 'Audio / notes…', true)}</td>
       <td className="px-2 py-2 w-44">
         <ShotStillCell shot={shot} sceneId={sceneId} availableStills={availableStills} />
