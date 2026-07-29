@@ -302,6 +302,9 @@ class GenerateImageResponse(BaseModel):
     params: Optional[dict] = None
     error: Optional[str] = None
     created_at: datetime
+    # Clips generated from this still; lets the capture panel show the full
+    # stage → still → clip lineage and survive a reload.
+    videos: List[GeneratedVideoResponse] = []
 
     class Config:
         from_attributes = True

@@ -205,7 +205,14 @@ class GeneratedImage(Base):
     scene = relationship("Scene", back_populates="generated_images")
     project = relationship("Project", back_populates="generated_images")
     capture = relationship("SceneCapture", back_populates="generated_images")
-    videos = relationship("GeneratedVideo", back_populates="source_image")
+    # selectin (not the default lazy load) so `.videos` is always safe to read
+    # during async serialization — GenerateImageResponse exposes it on every
+    # endpoint that returns a still, and a plain lazy load there raises
+    # MissingGreenlet. Clips are few and append-only, so the extra batched
+    # SELECT is cheap.
+    videos = relationship(
+        "GeneratedVideo", back_populates="source_image", lazy="selectin"
+    )
 
 
 class GeneratedVideo(Base):
