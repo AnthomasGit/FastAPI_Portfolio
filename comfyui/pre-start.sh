@@ -207,5 +207,147 @@ else
     fi
 fi
 
+# --- ComfyUI-LTXVideo (LTX-2.3 audio/video nodes: NAG, AV latent, encoders) --
+# Provides the LTX-2.3 nodes the i2v and MSR workflows depend on (LTX2_NAG,
+# LTXVConcatAVLatent, LTXAVTextEncoderLoader, LTXVAudioVAELoader, ...). Clone
+# only: its other requirements (diffusers, einops, transformers[timm],
+# huggingface_hub, ninja) are already provided by the megapak base image and the
+# node imports cleanly against them. We deliberately do NOT run its
+# requirements.txt -- forcing transformers[timm]/diffusers --user could shadow
+# the versions Trellis2 and other nodes here rely on. Its one genuine
+# incompatibility (kornia 0.8.3 dropping pyramid.pad) is handled by the pin
+# block immediately below.
+LTXV_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-LTXVideo
+LTXV_REPO_URL=https://github.com/Lightricks/ComfyUI-LTXVideo.git
+
+if [ -d "${LTXV_NODE_DIR}/.git" ]; then
+    log "ComfyUI-LTXVideo already present at ${LTXV_NODE_DIR} (skipping clone)."
+else
+    log "Cloning ComfyUI-LTXVideo into ${LTXV_NODE_DIR}..."
+    rm -rf "${LTXV_NODE_DIR:?}"/* "${LTXV_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    if git clone --depth 1 "${LTXV_REPO_URL}" "${LTXV_NODE_DIR}"; then
+        log "Clone succeeded."
+    else
+        log "WARNING: git clone failed (offline / GitHub unreachable?)." \
+            "ComfyUI-LTXVideo will NOT load this boot; ComfyUI itself will still start."
+    fi
+fi
+
+# --- kornia pin for ComfyUI-LTXVideo -----------------------------------------
+# ComfyUI-LTXVideo (cloned above; provides the LTX-2.3 audio/video nodes the
+# MSR + i2v workflows need) does
+# `from kornia.geometry.transform.pyramid import pad`. kornia 0.8.3 dropped that
+# re-export (pad now comes from torch F.pad internally), so the whole node pack
+# fails to import against the base image's shipped 0.8.3. 0.8.2 is the highest
+# release that still exports it. Install --user (shadows the system kornia for
+# root, like every other dep here), pinned against torch-constraints so it can't
+# drag torch/numpy along. Guarded on the exact failing import so steady-state
+# boots skip it.
+if [ -d /root/ComfyUI/custom_nodes/ComfyUI-LTXVideo ] && \
+   ! python3.13 -c "from kornia.geometry.transform.pyramid import pad" >/dev/null 2>&1; then
+    log "ComfyUI-LTXVideo needs kornia<=0.8.2 (system kornia dropped pyramid.pad) -- pinning 0.8.2."
+    KORNIA_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && KORNIA_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    if python3.13 -m pip install --user --no-cache-dir "${KORNIA_CONSTRAINT_ARGS[@]}" "kornia==0.8.2"; then
+        log "kornia 0.8.2 installed for ComfyUI-LTXVideo."
+    else
+        log "WARNING: kornia 0.8.2 install failed; ComfyUI-LTXVideo will not load this boot."
+    fi
+fi
+
+# --- ComfyUI-Licon-MSR (LTX-2.3 Multiple-Subject-Reference conditioning) -----
+# Pure-Python node (module `licon_msr`); only dep is opencv-python, already in
+# the base image. Backs the "Licon MSR" node that composes multiple subject
+# reference images + a background into the fixed-frame reference video LTX-2.3
+# MSR workflows consume. No models of its own.
+# Pinned to a verified-working commit for reproducibility: clone if missing,
+# then enforce the SHA even on a persisted volume (a future SHA bump takes
+# effect on next boot; steady state is a single rev-parse, no network).
+MSR_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-Licon-MSR
+MSR_REPO_URL=https://github.com/liconstudio/ComfyUI-Licon-MSR.git
+MSR_SHA=94a52bfec735ff6f802c480f7fe8fdac1d279a7f
+
+if [ ! -d "${MSR_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-Licon-MSR into ${MSR_NODE_DIR}..."
+    rm -rf "${MSR_NODE_DIR:?}"/* "${MSR_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone "${MSR_REPO_URL}" "${MSR_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-Licon-MSR will not load this boot."
+fi
+if [ -d "${MSR_NODE_DIR}/.git" ] && \
+   [ "$(git -C "${MSR_NODE_DIR}" rev-parse HEAD 2>/dev/null)" != "${MSR_SHA}" ]; then
+    log "Pinning ComfyUI-Licon-MSR to ${MSR_SHA}..."
+    git -C "${MSR_NODE_DIR}" fetch --depth 1 origin "${MSR_SHA}" 2>/dev/null \
+        && git -C "${MSR_NODE_DIR}" checkout -q "${MSR_SHA}" \
+        || log "WARNING: could not check out pinned Licon-MSR SHA (offline / SHA unreachable?)."
+fi
+
+# opencv-python is already provided by the base image; install (guarded) only
+# if cv2 is somehow missing, pinned against torch-constraints so it can't drag
+# in a conflicting torch/numpy.
+if [ -d "${MSR_NODE_DIR}/.git" ] && ! python3.13 -c "import cv2" >/dev/null 2>&1; then
+    MSR_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && MSR_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    if python3.13 -m pip install --user --no-cache-dir "${MSR_CONSTRAINT_ARGS[@]}" opencv-python; then
+        log "opencv-python installed for ComfyUI-Licon-MSR."
+    else
+        log "WARNING: opencv-python install failed; Licon MSR node may not load."
+    fi
+fi
+
+# --- ComfyUI_Comfyroll_CustomNodes (provides "CR Float To Integer" etc.) ------
+# Pure-Python utility pack; the MSR workflow uses its CR Float To Integer node.
+# Ships no requirements.txt -- its deps (numpy, Pillow, matplotlib, torch) are
+# all in the base image -- so clone only. A fresh clone also supersedes any
+# stale copy ComfyUI-Manager flagged as outdated.
+CR_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes
+CR_REPO_URL=https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes.git
+CR_SHA=d78b780ae43fcf8c6b7c6505e6ffb4584281ceca
+
+if [ ! -d "${CR_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI_Comfyroll_CustomNodes into ${CR_NODE_DIR}..."
+    rm -rf "${CR_NODE_DIR:?}"/* "${CR_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone "${CR_REPO_URL}" "${CR_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); Comfyroll will not load this boot."
+fi
+if [ -d "${CR_NODE_DIR}/.git" ] && \
+   [ "$(git -C "${CR_NODE_DIR}" rev-parse HEAD 2>/dev/null)" != "${CR_SHA}" ]; then
+    log "Pinning ComfyUI_Comfyroll_CustomNodes to ${CR_SHA}..."
+    git -C "${CR_NODE_DIR}" fetch --depth 1 origin "${CR_SHA}" 2>/dev/null \
+        && git -C "${CR_NODE_DIR}" checkout -q "${CR_SHA}" \
+        || log "WARNING: could not check out pinned Comfyroll SHA (offline / SHA unreachable?)."
+fi
+
+# --- ComfyUI-PromptRelay (provides PromptRelayEncode) -------------------------
+# kijai's prompt-relay nodes; the MSR workflow uses PromptRelayEncode. Only
+# non-base dep is word2number (declared in its requirements.txt). Install
+# --user, guarded on the import, pinned against torch-constraints.
+PR_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-PromptRelay
+PR_REPO_URL=https://github.com/kijai/ComfyUI-PromptRelay.git
+PR_SHA=ca5d4e3edb6abd9c2a4c68a3a6798eec1980f450
+
+if [ ! -d "${PR_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-PromptRelay into ${PR_NODE_DIR}..."
+    rm -rf "${PR_NODE_DIR:?}"/* "${PR_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone "${PR_REPO_URL}" "${PR_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-PromptRelay will not load this boot."
+fi
+if [ -d "${PR_NODE_DIR}/.git" ] && \
+   [ "$(git -C "${PR_NODE_DIR}" rev-parse HEAD 2>/dev/null)" != "${PR_SHA}" ]; then
+    log "Pinning ComfyUI-PromptRelay to ${PR_SHA}..."
+    git -C "${PR_NODE_DIR}" fetch --depth 1 origin "${PR_SHA}" 2>/dev/null \
+        && git -C "${PR_NODE_DIR}" checkout -q "${PR_SHA}" \
+        || log "WARNING: could not check out pinned PromptRelay SHA (offline / SHA unreachable?)."
+fi
+
+if [ -d "${PR_NODE_DIR}/.git" ] && ! python3.13 -c "import word2number" >/dev/null 2>&1; then
+    PR_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && PR_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    if python3.13 -m pip install --user --no-cache-dir "${PR_CONSTRAINT_ARGS[@]}" "word2number==1.1"; then
+        log "word2number installed for ComfyUI-PromptRelay."
+    else
+        log "WARNING: word2number install failed; PromptRelayEncode may not load."
+    fi
+fi
+
 log "pre-start finished."
 set -e

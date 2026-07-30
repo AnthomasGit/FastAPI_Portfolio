@@ -69,7 +69,13 @@ services:
       # Pass the exact same CLI args you use in K3s
       - CLI_ARGS=--extra-model-paths-config /data/models/extra_model_paths.yaml
     volumes:
-      # Map your server's global hostPath to the exact mountPath from K3s
+      # Map your server's global hostPath to the exact mountPath from K3s.
+      # ORCHESTRATION NOTE: model weights are NOT bootstrapped by pre-start.sh --
+      # this host path must be pre-seeded / backed by shared storage (NFS, etc.)
+      # on every node a replica can schedule onto. The LTX-2.3 MSR clip workflow
+      # specifically requires:
+      #   checkpoints/ltx-2.3-22b-distilled-1.1.safetensors  (LTX-2.3 22B distilled)
+      #   text_encoders/gemma_3_12B_it.safetensors           (Gemma-3 12B text encoder)
       - /opt/ComfyUI/models:/data/models
       # ComfyUI-Trellis2 resolves HF-style model dirs (facebook/dinov3-...,
       # microsoft/TRELLIS.2-4B, ...) via folder_paths.models_dir directly,
@@ -97,6 +103,17 @@ services:
       # Same rationale, for the Texture_Projection-Nodes node (multi-view
       # texture baking/projection, used by the mesh-texturing workflows).
       - comfyui_texture_projection_node:/root/ComfyUI/custom_nodes/Texture_Projection-Nodes
+      # LTX-2.3 MSR clip-workflow node packs. Same clone-once rationale: each is
+      # cloned by pre-start.sh at a PINNED commit SHA into its own volume, so a
+      # fresh replica reproduces the exact working version (not a moving main),
+      # and recreates don't re-clone. LTXVideo is NOT here -- it's bundled in the
+      # image tag, so the tag pins it (only its kornia dep is pinned in
+      # pre-start). To move a pack to a new SHA on an existing deployment,
+      # pre-start's fetch+checkout enforces it on next boot automatically; no
+      # volume wipe needed.
+      - comfyui_licon_msr_node:/root/ComfyUI/custom_nodes/ComfyUI-Licon-MSR
+      - comfyui_comfyroll_node:/root/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes
+      - comfyui_promptrelay_node:/root/ComfyUI/custom_nodes/ComfyUI-PromptRelay
       # `pip install --user` target. Starts empty on every base image tag
       # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
       # which would freeze the base image's OWN deps -- torch et al. -- at
@@ -152,4 +169,7 @@ volumes:
   local_pg_data:
   comfyui_trellis2_node:
   comfyui_texture_projection_node:
+  comfyui_licon_msr_node:
+  comfyui_comfyroll_node:
+  comfyui_promptrelay_node:
   comfyui_pip_user:
