@@ -66,8 +66,16 @@ services:
     ports:
       - "8188:8188"
     environment:
-      # Pass the exact same CLI args you use in K3s
+      # Pass the exact same CLI args you use in K3s.
+      # LTX-2.3 MSR now uses the GGUF Q5 transformer (~15.9GB) via GGUFLoaderKJ,
+      # which stays fully resident on the 3090 with ~8GB left for activations --
+      # so NO --lowvram (no per-step weight streaming = ~40x faster sampling)
+      # and all other workflows keep full speed. For 1080x1920, render ~540x960
+      # and use the LTX x2 spatial upscaler. See 3d-staging-lld-sdlc.md §11a.
       - CLI_ARGS=--extra-model-paths-config /data/models/extra_model_paths.yaml
+      # expandable_segments reclaims fragmented CUDA segments -- harmless win,
+      # keep it regardless (no speed cost, helps marginal loads).
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     volumes:
       # Map your server's global hostPath to the exact mountPath from K3s.
       # ORCHESTRATION NOTE: model weights are NOT bootstrapped by pre-start.sh --
@@ -114,6 +122,13 @@ services:
       - comfyui_licon_msr_node:/root/ComfyUI/custom_nodes/ComfyUI-Licon-MSR
       - comfyui_comfyroll_node:/root/ComfyUI/custom_nodes/ComfyUI_Comfyroll_CustomNodes
       - comfyui_promptrelay_node:/root/ComfyUI/custom_nodes/ComfyUI-PromptRelay
+      # SCAIL-2 single/multi-reference character-animation node packs (same
+      # pinned-SHA-on-named-volume rationale). Core Wan/SCAIL-2/WanAnimate nodes
+      # are already native in the image's ComfyUI; these add the two packs'
+      # multi-ref workflows. Missing deps (protobuf, pyloudnorm, mediapipe) go
+      # into comfyui_pip_user via pre-start.
+      - comfyui_wananimateplus_node:/root/ComfyUI/custom_nodes/ComfyUI-WanAnimatePlus
+      - comfyui_customnodekit_node:/root/ComfyUI/custom_nodes/ComfyUI-CustomNodeKit
       # `pip install --user` target. Starts empty on every base image tag
       # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
       # which would freeze the base image's OWN deps -- torch et al. -- at
@@ -172,4 +187,6 @@ volumes:
   comfyui_licon_msr_node:
   comfyui_comfyroll_node:
   comfyui_promptrelay_node:
+  comfyui_wananimateplus_node:
+  comfyui_customnodekit_node:
   comfyui_pip_user:

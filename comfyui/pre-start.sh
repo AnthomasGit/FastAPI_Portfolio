@@ -349,5 +349,75 @@ if [ -d "${PR_NODE_DIR}/.git" ] && ! python3.13 -c "import word2number" >/dev/nu
     fi
 fi
 
+# --- ComfyUI-WanAnimatePlus (SCAIL-2 / WanAnimate character animation) --------
+# WanVideoWrapper-style fork providing WanAnimatePlus* nodes incl. the SCAIL_2
+# Flow Sampler / SCAIL_2 Embeds for single- & multi-reference character
+# animation. Most deps (diffusers, accelerate, peft, sentencepiece, ftfy,
+# einops, scipy, gguf, opencv) are already in the base image; only protobuf +
+# pyloudnorm are missing. Pinned to a verified commit on its own named volume.
+WAP_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-WanAnimatePlus
+WAP_REPO_URL=https://github.com/wuwukaka/ComfyUI-WanAnimatePlus.git
+WAP_SHA=4327a9fceda22dae545969603e91bc7d7adb0bdc
+
+if [ ! -d "${WAP_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-WanAnimatePlus into ${WAP_NODE_DIR}..."
+    rm -rf "${WAP_NODE_DIR:?}"/* "${WAP_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone "${WAP_REPO_URL}" "${WAP_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-WanAnimatePlus will not load this boot."
+fi
+if [ -d "${WAP_NODE_DIR}/.git" ] && \
+   [ "$(git -C "${WAP_NODE_DIR}" rev-parse HEAD 2>/dev/null)" != "${WAP_SHA}" ]; then
+    log "Pinning ComfyUI-WanAnimatePlus to ${WAP_SHA}..."
+    git -C "${WAP_NODE_DIR}" fetch --depth 1 origin "${WAP_SHA}" 2>/dev/null \
+        && git -C "${WAP_NODE_DIR}" checkout -q "${WAP_SHA}" \
+        || log "WARNING: could not check out pinned WanAnimatePlus SHA (offline / SHA unreachable?)."
+fi
+
+if [ -d "${WAP_NODE_DIR}/.git" ] && \
+   ! python3.13 -c "import google.protobuf, pyloudnorm" >/dev/null 2>&1; then
+    WAP_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && WAP_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    if python3.13 -m pip install --user --no-cache-dir "${WAP_CONSTRAINT_ARGS[@]}" protobuf pyloudnorm; then
+        log "protobuf + pyloudnorm installed for ComfyUI-WanAnimatePlus."
+    else
+        log "WARNING: protobuf/pyloudnorm install failed; WanAnimatePlus may not load."
+    fi
+fi
+
+# --- ComfyUI-CustomNodeKit (SCAIL-2 multi-reference workflow + pose/masking) ---
+# Exposes the native Wan/SCAIL-2 nodes as a multi-ref workflow (Wan SCAIL To
+# Video (Multi Ref), clip_vision_multiref, context mgmt) plus SDPose/GroundingDINO
+# auto-masking helpers. Base image already has opencv, imageio-ffmpeg,
+# transformers, groundingdino-py, tqdm; only mediapipe is missing. Pinned to
+# mediapipe 0.10.35 (newest 0.10.x) rather than 1.0.0 -- the SDPose nodes target
+# the 0.10 API. Pinned SHA on its own named volume.
+CNK_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-CustomNodeKit
+CNK_REPO_URL=https://github.com/user2318/ComfyUI-CustomNodeKit.git
+CNK_SHA=78c85ad3a352d5b864b3351846bcf88d2325c5ff
+
+if [ ! -d "${CNK_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-CustomNodeKit into ${CNK_NODE_DIR}..."
+    rm -rf "${CNK_NODE_DIR:?}"/* "${CNK_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone "${CNK_REPO_URL}" "${CNK_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-CustomNodeKit will not load this boot."
+fi
+if [ -d "${CNK_NODE_DIR}/.git" ] && \
+   [ "$(git -C "${CNK_NODE_DIR}" rev-parse HEAD 2>/dev/null)" != "${CNK_SHA}" ]; then
+    log "Pinning ComfyUI-CustomNodeKit to ${CNK_SHA}..."
+    git -C "${CNK_NODE_DIR}" fetch --depth 1 origin "${CNK_SHA}" 2>/dev/null \
+        && git -C "${CNK_NODE_DIR}" checkout -q "${CNK_SHA}" \
+        || log "WARNING: could not check out pinned CustomNodeKit SHA (offline / SHA unreachable?)."
+fi
+
+if [ -d "${CNK_NODE_DIR}/.git" ] && ! python3.13 -c "import mediapipe" >/dev/null 2>&1; then
+    CNK_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && CNK_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    if python3.13 -m pip install --user --no-cache-dir "${CNK_CONSTRAINT_ARGS[@]}" "mediapipe==0.10.35"; then
+        log "mediapipe 0.10.35 installed for ComfyUI-CustomNodeKit."
+    else
+        log "WARNING: mediapipe install failed; CustomNodeKit pose/masking nodes may not load."
+    fi
+fi
+
 log "pre-start finished."
 set -e
