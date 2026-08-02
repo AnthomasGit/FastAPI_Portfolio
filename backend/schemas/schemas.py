@@ -195,10 +195,26 @@ class VideoGenerateRequest(BaseModel):
     shot_id: Optional[str] = None
     reference_ids: List[str] = []
     background_reference_id: Optional[str] = None
+    driving_video_id: Optional[str] = None
     motion_prompt: Optional[str] = None
     global_prompt: Optional[str] = None
     local_prompts: Optional[str] = None
     params: Optional[dict] = None
+
+
+class VideoWorkflowSetting(BaseModel):
+    """One tunable knob a workflow exposes. Renders generically in the UI:
+    a <select> when `options` is set, else a number input/slider bounded by
+    `min`/`max`/`step`. See video_service.VIDEO_WORKFLOWS for the full spec
+    (backend-only keys like `inject`/`str_value` are stripped before this)."""
+    id: str
+    label: str
+    default: float | int | str
+    help: Optional[str] = None
+    options: Optional[List[int]] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
 
 
 class VideoWorkflowResponse(BaseModel):
@@ -210,10 +226,22 @@ class VideoWorkflowResponse(BaseModel):
     background: bool
     driving_video: bool
     dual_prompt: bool
-    reference_frame_count: bool = False
-    reference_frame_count_options: List[int] = []
+    settings: List[VideoWorkflowSetting] = []
     est_seconds: int
     recommended: bool = False
+
+
+class DrivingVideoResponse(BaseModel):
+    id: str
+    origin_project_id: Optional[str] = None
+    label: Optional[str] = None
+    video_url: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class GeneratedVideoResponse(BaseModel):

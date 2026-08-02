@@ -10,8 +10,9 @@ import os
 import uuid
 
 import pytest
+from sqlalchemy import select
 
-from database import GeneratedVideo, Reference, Scene, Shot
+from database import DrivingVideo, GeneratedVideo, Reference, Scene, Shot
 from services.comfyui_client import inject, load_node_map, load_workflow
 from services.video_service import (
     DEFAULT_WORKFLOW,
@@ -32,19 +33,30 @@ def test_default_workflow_is_registered():
 
 def test_list_workflows_exposes_id_and_capabilities():
     entries = {e["id"]: e for e in list_workflows()}
-    assert "ltx_msr" in entries and "ltx_i2v" in entries
+    assert "ltx_msr" in entries and "ltx_i2v" in entries and "scail2_anim" in entries
+
     msr = entries["ltx_msr"]
     assert msr["max_refs"] == 4
     assert msr["needs_still"] is False
     assert msr["dual_prompt"] is True
-    assert msr["reference_frame_count"] is True
+    msr_settings = {s["id"]: s for s in msr["settings"]}
     # Matches LiconMSR's actual COMBO (confirmed via ComfyUI /object_info),
     # not a free-form int -- an out-of-list value fails ComfyUI validation.
-    assert msr["reference_frame_count_options"] == [17, 25, 33, 41, 49, 57, 65]
-    # i2v is the still-driven one and takes no references.
+    assert msr_settings["reference_frame_count"]["options"] == [17, 25, 33, 41, 49, 57, 65]
+    # Backend-only injection wiring must not leak to the client.
+    assert "inject" not in msr_settings["reference_frame_count"]
+    assert "str_value" not in msr_settings["reference_frame_count"]
+
+    # i2v is the still-driven one, takes no references, and has no settings.
     assert entries["ltx_i2v"]["needs_still"] is True
     assert entries["ltx_i2v"]["max_refs"] == 0
-    assert entries["ltx_i2v"]["reference_frame_count"] is False
+    assert entries["ltx_i2v"]["settings"] == []
+
+    scail2 = entries["scail2_anim"]
+    assert scail2["driving_video"] is True
+    assert scail2["max_refs"] == 1
+    scail2_settings = {s["id"]: s for s in scail2["settings"]}
+    assert set(scail2_settings) == {"frames", "pose_strength"}
 
 
 def test_every_registered_workflow_has_a_committed_pair():
@@ -114,6 +126,42 @@ def test_inject_ignores_keys_the_workflow_does_not_map():
     assert json.dumps(workflow, sort_keys=True) == before
 
 
+# ── SCAIL-2 injection: one setting fans out to two nodes ────────────────
+
+
+def test_scail2_frames_fans_out_to_length_and_driving_frames():
+    """`frames` must set BOTH nodes or driving motion and output length desync."""
+    name = VIDEO_WORKFLOWS["scail2_anim"]["workflow"]
+    workflow = load_workflow(name)
+    node_map = load_node_map(name)
+
+    injected = inject(workflow, node_map, {
+        "image": "ref.png",
+        "driving_video": "drive.mp4",
+        "length": 49,
+        "driving_frames": 49,
+        "pose_strength": 0.75,
+        "prompt": "POS",
+        "negative_prompt": "NEG",
+        "seed": 999,
+        "filename_prefix": "job-2",
+    })
+
+    assert injected[node_map["image_node"]]["inputs"]["image"] == "ref.png"
+    assert injected[node_map["video_node"]]["inputs"]["video"] == "drive.mp4"
+    # length_node and pose_strength_node are the SAME node (101) -- must not
+    # clobber each other.
+    node_101 = injected[node_map["length_node"]]["inputs"]
+    assert node_101["length"] == 49
+    assert node_101["pose_strength"] == 0.75
+    # driving_frames_node is a different node (113) sharing the video load.
+    assert injected[node_map["driving_frames_node"]]["inputs"]["frame_load_cap"] == 49
+    assert injected[node_map["prompt_node"]]["inputs"]["text"] == "POS"
+    assert injected[node_map["negative_node"]]["inputs"]["text"] == "NEG"
+    assert injected[node_map["seed_node"]]["inputs"]["seed"] == 999
+    assert injected[node_map["output_node"]]["inputs"]["filename_prefix"] == "job-2"
+
+
 # ── Validation happens before a row is created ──────────────────────────
 
 
@@ -166,7 +214,7 @@ async def test_missing_reference_file_raises_before_any_row_is_created(db_sessio
             db_session, workflow_key="ltx_msr", reference_ids=[ref.id]
         )
 
-    rows = (await db_session.execute(__import__("sqlalchemy").select(GeneratedVideo))).scalars().all()
+    rows = (await db_session.execute(select(GeneratedVideo))).scalars().all()
     assert rows == []
 
 
@@ -298,3 +346,123 @@ async def test_i2v_ignores_reference_frame_count(db_session, scene, monkeypatch)
     )
     video = await db_session.get(GeneratedVideo, video_id)
     assert "reference_frame_count" not in video.params
+
+
+# ── SCAIL-2: driving-video validation and happy path ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scail2_requires_driving_video(db_session, scene):
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url="x.png",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="requires a driving video"):
+        await generate_video(
+            db_session, workflow_key="scail2_anim", reference_ids=[ref.id]
+        )
+
+
+@pytest.mark.asyncio
+async def test_scail2_rejects_frames_outside_range(db_session, scene):
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url="x.png",
+    )
+    dv = DrivingVideo(id=str(uuid.uuid4()), video_url="drive.mp4")
+    db_session.add_all([ref, dv])
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="must be ≤ 161"):
+        await generate_video(
+            db_session, workflow_key="scail2_anim", reference_ids=[ref.id],
+            driving_video_id=dv.id, params={"frames": 999},
+        )
+
+
+@pytest.mark.asyncio
+async def test_missing_driving_video_file_raises_before_any_row_is_created(db_session, scene):
+    """A dangling VHS_LoadVideo would make ComfyUI reject the whole graph silently."""
+    ref_filename = f"{uuid.uuid4()}.png"
+    with open(os.path.join(COMFY_INPUT_DIR, ref_filename), "wb") as f:
+        f.write(b"fake")
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url=ref_filename,
+    )
+    dv = DrivingVideo(id=str(uuid.uuid4()), video_url="definitely_not_on_disk.mp4")
+    db_session.add_all([ref, dv])
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="missing from the input directory"):
+        await generate_video(
+            db_session, workflow_key="scail2_anim", reference_ids=[ref.id],
+            driving_video_id=dv.id,
+        )
+
+    rows = (await db_session.execute(select(GeneratedVideo))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_driving_video_id_raises(db_session, scene):
+    ref_filename = f"{uuid.uuid4()}.png"
+    with open(os.path.join(COMFY_INPUT_DIR, ref_filename), "wb") as f:
+        f.write(b"fake")
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url=ref_filename,
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="not found"):
+        await generate_video(
+            db_session, workflow_key="scail2_anim", reference_ids=[ref.id],
+            driving_video_id=str(uuid.uuid4()),
+        )
+
+
+@pytest.mark.asyncio
+async def test_scail2_happy_path_records_frames_and_pose_strength(db_session, scene, monkeypatch):
+    ref_filename = f"{uuid.uuid4()}.png"
+    with open(os.path.join(COMFY_INPUT_DIR, ref_filename), "wb") as f:
+        f.write(b"fake")
+    video_filename = f"{uuid.uuid4()}.mp4"
+    with open(os.path.join(COMFY_INPUT_DIR, video_filename), "wb") as f:
+        f.write(b"fake")
+
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url=ref_filename,
+    )
+    dv = DrivingVideo(id=str(uuid.uuid4()), video_url=video_filename)
+    shot = Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number="2A")
+    db_session.add_all([ref, dv, shot])
+    await db_session.commit()
+
+    async def fake_submit(_workflow):
+        return "prompt-456"
+
+    monkeypatch.setattr("services.video_service.submit", fake_submit)
+
+    video_id = await generate_video(
+        db_session,
+        workflow_key="scail2_anim",
+        shot=shot,
+        reference_ids=[ref.id],
+        driving_video_id=dv.id,
+        motion_prompt="A knight waves.",
+        params={"frames": 49, "pose_strength": 0.5},
+    )
+
+    video = await db_session.get(GeneratedVideo, video_id)
+    assert video.status == "processing"
+    assert video.shot_id == shot.id
+    assert video.params["workflow"] == "scail2_anim"
+    assert video.params["frames"] == 49
+    assert video.params["pose_strength"] == 0.5
+    assert video.prompt == "A knight waves."

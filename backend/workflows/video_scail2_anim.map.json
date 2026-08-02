@@ -1,0 +1,11 @@
+{
+  "image_node": "58",
+  "video_node": "113",
+  "driving_frames_node": "113",
+  "prompt_node": "6",
+  "negative_node": "7",
+  "seed_node": "3",
+  "length_node": "101",
+  "pose_strength_node": "101",
+  "output_node": "49"
+}

@@ -11,6 +11,8 @@ import { buildPipelineSteps } from '../components/clip/pipelineSteps';
 import { WorkflowCards } from '../components/clip/WorkflowCards';
 import { ReferenceSlots } from '../components/clip/ReferenceSlots';
 import { sceneCandidates } from '../components/clip/referenceCandidates';
+import { DrivingVideoPicker } from '../components/clip/DrivingVideoPicker';
+import { WorkflowSettings } from '../components/clip/WorkflowSettings';
 import { ReadinessChecklist } from '../components/clip/ReadinessChecklist';
 import { ClipResults } from '../components/clip/ClipResults';
 import { MilestoneToast } from '../components/clip/MilestoneToast';
@@ -49,10 +51,12 @@ export function ClipStudio() {
   const [workflowId, setWorkflowId] = useState(null);
   const [subjectKeys, setSubjectKeys] = useState([]);
   const [backgroundKey, setBackgroundKey] = useState(null);
+  const [drivingVideoId, setDrivingVideoId] = useState(null);
   const [prompts, setPrompts] = useState({ global: null, local: null });
-  const [settings, setSettings] = useState({
-    width: 544, height: 960, fps: 25, duration: 5, reference_frame_count: 17,
-  });
+  // Keyed by setting id, sparse — only entries the user has touched. Effective
+  // values (settingsValues below) fall back to each spec's own default, so
+  // switching workflows never shows a stale value from a different graph.
+  const [settings, setSettings] = useState({});
   const [milestone, setMilestone] = useState(null);
 
   // Default to the backend's recommended workflow once the registry lands.
@@ -60,6 +64,12 @@ export function ClipStudio() {
     workflows.find((w) => w.id === workflowId) ||
     workflows.find((w) => w.recommended) ||
     workflows[0];
+
+  const settingSpecs = useMemo(() => selectedWorkflow?.settings || [], [selectedWorkflow]);
+  const settingsValues = useMemo(
+    () => Object.fromEntries(settingSpecs.map((s) => [s.id, settings[s.id] ?? s.default])),
+    [settingSpecs, settings]
+  );
 
   const { subjects, locations } = useMemo(() => sceneCandidates(scene), [scene]);
 
@@ -86,18 +96,24 @@ export function ClipStudio() {
       extra.push({ key: 'still', label: 'Beauty-pass still attached', met: Boolean(shot?.still), required: true });
     }
     if (selectedWorkflow.max_refs) {
-      extra.push({
-        key: 'refs',
-        label: `At least one reference (${subjectKeys.length}/${selectedWorkflow.max_refs} chosen)`,
-        met: subjectKeys.length > 0,
-        required: true,
-      });
+      const label = selectedWorkflow.max_refs === 1
+        ? `A reference image (${subjectKeys.length}/1 chosen)`
+        : `At least one reference (${subjectKeys.length}/${selectedWorkflow.max_refs} chosen)`;
+      extra.push({ key: 'refs', label, met: subjectKeys.length > 0, required: true });
     }
     if (selectedWorkflow.background) {
       extra.push({ key: 'bg', label: 'Background plate', met: Boolean(backgroundKey), required: false });
     }
+    if (selectedWorkflow.driving_video) {
+      extra.push({
+        key: 'driving_video',
+        label: 'Driving video selected',
+        met: Boolean(drivingVideoId),
+        required: true,
+      });
+    }
     return [...base, ...extra];
-  }, [shot, selectedWorkflow, subjectKeys, backgroundKey]);
+  }, [shot, selectedWorkflow, subjectKeys, backgroundKey, drivingVideoId]);
 
   const blocking = requirements.filter((r) => r.required && !r.met);
   const canGenerate = selectedWorkflow && blocking.length === 0 && !inflight;
@@ -114,10 +130,11 @@ export function ClipStudio() {
         imageId: selectedWorkflow.needs_still ? shot?.still?.id : null,
         referenceIds: refIds,
         backgroundReferenceId: bg?.referenceId || null,
+        drivingVideoId: selectedWorkflow.driving_video ? drivingVideoId : null,
         motionPrompt: localPrompt,
         globalPrompt: selectedWorkflow.dual_prompt ? globalPrompt : null,
         localPrompts: selectedWorkflow.dual_prompt ? localPrompt : null,
-        params: { ...settings },
+        params: settingsValues,
       });
     },
     onSuccess: () => {
@@ -163,6 +180,14 @@ export function ClipStudio() {
           : keys
     );
 
+  // Section numbers are derived, not hardcoded, so a workflow that skips
+  // references (i2v) or adds a driving video (SCAIL-2) still reads 1, 2, 3...
+  let sectionNum = 1;
+  const workflowSectionNum = sectionNum++;
+  const refsSectionNum = selectedWorkflow?.max_refs > 0 ? sectionNum++ : null;
+  const drivingVideoSectionNum = selectedWorkflow?.driving_video ? sectionNum++ : null;
+  const promptSectionNum = sectionNum;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       <MilestoneToast milestone={milestone} onDismiss={() => setMilestone(null)} />
@@ -197,7 +222,7 @@ export function ClipStudio() {
         <div className="space-y-5 min-w-0">
           <section>
             <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              1 · Workflow
+              {workflowSectionNum} · Workflow
             </h2>
             <WorkflowCards
               workflows={workflows}
@@ -209,10 +234,10 @@ export function ClipStudio() {
             />
           </section>
 
-          {selectedWorkflow?.max_refs > 0 && (
+          {refsSectionNum && (
             <section>
               <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                2 · References
+                {refsSectionNum} · References
               </h2>
               <ReferenceSlots
                 scene={scene}
@@ -226,9 +251,26 @@ export function ClipStudio() {
             </section>
           )}
 
+          {drivingVideoSectionNum && (
+            <section>
+              <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                {drivingVideoSectionNum} · Motion source
+              </h2>
+              <DrivingVideoPicker
+                projectId={projectId}
+                selectedId={drivingVideoId}
+                onSelect={setDrivingVideoId}
+              />
+              <p className="text-[9px] text-amber-400/70 mt-2">
+                Needs a clearly visible person in both the reference image and this video — SAM3
+                tracks both, and an untrackable one yields empty masks and a failed generation.
+              </p>
+            </section>
+          )}
+
           <section className="space-y-3">
             <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-              {selectedWorkflow?.max_refs > 0 ? '3' : '2'} · Prompt
+              {promptSectionNum} · Prompt
             </h2>
             {selectedWorkflow?.dual_prompt && (
               <div>
@@ -258,58 +300,20 @@ export function ClipStudio() {
             </div>
           </section>
 
-          <details className="rounded-lg border border-white/10 bg-black/30">
-            <summary className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
-              Settings
-            </summary>
-            <div className="grid grid-cols-4 gap-2 px-3 pb-3">
-              {['width', 'height', 'fps', 'duration'].map((k) => (
-                <label key={k} className="block">
-                  <span className="block text-[9px] text-slate-500 capitalize mb-0.5">
-                    {k === 'duration' ? 'seconds' : k}
-                  </span>
-                  <input
-                    type="number"
-                    value={settings[k]}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, [k]: Number(e.target.value) || s[k] }))
-                    }
-                    className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
-                  />
-                </label>
-              ))}
-            </div>
-            <p className="text-[9px] text-slate-600 px-3 pb-3">
-              Width rounds to a multiple of 32 in latent space; the x2 upscaler doubles the output.
-              Clip length is fps × seconds, and drives generation time more than resolution does.
-            </p>
-
-            {selectedWorkflow?.reference_frame_count && (
-              <div className="px-3 pb-3 border-t border-white/5 pt-3">
-                <label className="block w-28">
-                  <span className="block text-[9px] text-slate-500 mb-0.5">Reference frames</span>
-                  {/* A fixed set on the node itself (LiconMSR's COMBO), not a
-                      free-form number — any other value fails ComfyUI validation. */}
-                  <select
-                    value={settings.reference_frame_count}
-                    onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s, reference_frame_count: Number(e.target.value),
-                      }))
-                    }
-                    className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
-                  >
-                    {(selectedWorkflow.reference_frame_count_options || []).map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </label>
-                <p className="text-[9px] text-slate-600 mt-1.5">
-                  Higher improves identity/detail retention, but needs more GPU memory.
-                </p>
-              </div>
-            )}
-          </details>
+          {settingSpecs.length > 0 && (
+            <details className="rounded-lg border border-white/10 bg-black/30">
+              <summary className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                Settings
+              </summary>
+              {/* Rendered entirely from the registry's per-workflow spec — a new
+                  workflow's knobs need no frontend change, just a backend spec. */}
+              <WorkflowSettings
+                specs={settingSpecs}
+                values={settingsValues}
+                onChange={(id, val) => setSettings((s) => ({ ...s, [id]: val }))}
+              />
+            </details>
+          )}
 
           <div className="space-y-2">
             <ReadinessChecklist items={requirements} />

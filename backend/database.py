@@ -187,6 +187,27 @@ class AssetImage(Base):
     references = relationship("Reference", foreign_keys="Reference.asset_image_id", back_populates="asset_image")
 
 
+class DrivingVideo(Base):
+    """An uploaded motion-source clip for pose-transfer workflows (SCAIL-2).
+
+    A reusable library artifact, like AssetImage: origin_project_id is nullable
+    so a clip of someone walking can be picked across projects. The file lives
+    flat in COMFY_INPUT_DIR (video_url is the bare filename) and is served via
+    the /api/uploads/file static mount — no per-row file endpoint. Duration /
+    frame count are deliberately not probed here: the backend has no guaranteed
+    ffmpeg binding, and frame count is a per-generation clip setting anyway.
+    """
+    __tablename__ = "driving_videos"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    origin_project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    label = Column(String, nullable=True)
+    video_url = Column(String, nullable=False)       # bare filename in COMFY_INPUT_DIR
+    content_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class GeneratedImage(Base):
     __tablename__ = "generated_images"
 

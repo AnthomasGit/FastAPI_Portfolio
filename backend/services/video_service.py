@@ -27,7 +27,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import GeneratedImage, GeneratedVideo, JobRecord, Reference, Scene, Shot
+from database import (
+    DrivingVideo, GeneratedImage, GeneratedVideo, JobRecord, Reference, Scene, Shot,
+)
 from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
@@ -40,10 +42,24 @@ VIDEO_EXTENSIONS = (".mp4", ".webm", ".gif")
 
 # Per-workflow capabilities. Mirrors asset3d_service.MESH_WORKFLOWS, but the
 # metadata is also served to the UI (GET /api/video-workflows) so the workflow
-# picker renders from backend truth instead of a duplicated frontend list.
+# picker + settings panel render from backend truth rather than a duplicated
+# frontend list.
 #
-# est_seconds are measured on the RTX 3090 at the defaults below (5s @ 25fps,
-# 544x960 base upscaled x2) — see 3d-staging-lld-sdlc.md §11a.
+# Each workflow declares its own `settings` — the tunable knobs it actually
+# has, since these differ structurally (MSR has width/height, SCAIL-2 derives
+# dimensions from the reference image and instead has a frame count that must
+# drive two nodes at once). A setting spec:
+#   id        param key the caller/UI uses
+#   default   value when unset
+#   label/help  UI copy
+#   options   fixed COMBO -> validated membership, rendered as a <select>
+#   min/max/step  numeric range -> validated, rendered as a slider/number
+#   inject    injection keys it feeds (default [id]); >1 = one knob, many nodes
+#   str_value cast to str before injecting (for COMBO string widgets)
+# inject/str_value are backend-only; list_workflows() strips them before the UI
+# sees the specs.
+#
+# est_seconds are measured on the RTX 3090 — see 3d-staging-lld-sdlc.md §11a.
 VIDEO_WORKFLOWS = {
     "ltx_i2v": {
         "workflow": "video_ltx_i2v",
@@ -54,10 +70,9 @@ VIDEO_WORKFLOWS = {
         "background": False,
         "driving_video": False,
         "dual_prompt": False,
-        "reference_frame_count": False,
-        "reference_frame_count_options": [],
         "est_seconds": 120,
         "recommended": False,
+        "settings": [],
     },
     "ltx_msr": {
         "workflow": "video_ltx23_msr",
@@ -68,28 +83,128 @@ VIDEO_WORKFLOWS = {
         "background": True,
         "driving_video": False,
         "dual_prompt": True,
-        # LiconMSR's own identity/detail guide length — separate from the
-        # output clip's duration, see comfyui_client.INJECTION_MAP. It's a
-        # fixed COMBO on the node (confirmed against ComfyUI's /object_info,
-        # not a free-form int), so the options list is authoritative, not a
-        # display convenience — an out-of-list value fails ComfyUI validation.
-        "reference_frame_count": True,
-        "reference_frame_count_options": [17, 25, 33, 41, 49, 57, 65],
         "est_seconds": 90,
         "recommended": True,
+        "settings": [
+            {"id": "width", "default": 544, "min": 256, "max": 1280, "label": "Width",
+             "help": "Rounds to a multiple of 32 in latent space; the x2 upscaler doubles the output."},
+            {"id": "height", "default": 960, "min": 256, "max": 1280, "label": "Height"},
+            {"id": "fps", "default": 25, "min": 8, "max": 30, "label": "FPS"},
+            {"id": "duration", "default": 5, "min": 1, "max": 20, "label": "Seconds",
+             "help": "Clip length = fps × seconds. Drives generation time more than resolution does."},
+            {
+                "id": "reference_frame_count",
+                "default": 17,
+                # A fixed COMBO on LiconMSR (confirmed via ComfyUI /object_info,
+                # not a free-form int) — an out-of-list value fails validation.
+                "options": [17, 25, 33, 41, 49, 57, 65],
+                "str_value": True,
+                "label": "Reference frames",
+                "help": "Higher improves identity/detail retention, but needs more GPU memory.",
+            },
+        ],
+    },
+    "scail2_anim": {
+        "workflow": "video_scail2_anim",
+        "label": "SCAIL-2 Pose Transfer",
+        "blurb": "Drive a character from a reference image with the motion of an uploaded video.",
+        "needs_still": False,
+        "max_refs": 1,
+        "background": False,
+        "driving_video": True,
+        "dual_prompt": False,
+        "est_seconds": 360,
+        "recommended": False,
+        "settings": [
+            {
+                # One knob feeds both the sampler's length and how many driving
+                # frames get loaded — if they diverged, motion and output desync.
+                "id": "frames",
+                "default": 81,
+                "min": 17,
+                "max": 161,
+                "inject": ["length", "driving_frames"],
+                "label": "Frames",
+                "help": "At 16fps, 81 ≈ 5s. Drives generation time more than anything else.",
+            },
+            {
+                "id": "pose_strength",
+                "default": 1.0,
+                "min": 0,
+                "max": 1,
+                "step": 0.05,
+                "label": "Pose strength",
+                "help": "How strictly the character follows the driving motion.",
+            },
+        ],
     },
 }
 DEFAULT_WORKFLOW = "ltx_msr"
 
-# Defaults for the MSR graph's constants, matching the verified-working export.
-DEFAULT_VIDEO_SETTINGS = {"width": 544, "height": 960, "fps": 25, "duration": 5}
-# The node's own default is 41; 17 is what this app defaults to instead.
-DEFAULT_REFERENCE_FRAME_COUNT = 17
+# Keys of a setting spec that are backend-only and must not reach the client.
+_INTERNAL_SETTING_KEYS = ("inject", "str_value")
+
+
+def _public_settings(specs: list[dict]) -> list[dict]:
+    """Strip backend-only keys (inject/str_value) from setting specs."""
+    return [
+        {k: v for k, v in spec.items() if k not in _INTERNAL_SETTING_KEYS}
+        for spec in specs
+    ]
 
 
 def list_workflows() -> list[dict]:
     """The registry as a JSON-serialisable list for the workflow picker."""
-    return [{"id": key, **cfg} for key, cfg in VIDEO_WORKFLOWS.items()]
+    return [
+        {**cfg, "id": key, "settings": _public_settings(cfg.get("settings", []))}
+        for key, cfg in VIDEO_WORKFLOWS.items()
+    ]
+
+
+def _resolve_settings(cfg: dict, params: dict) -> dict:
+    """Validate each declared setting against its spec and return {id: value}.
+
+    Raises ValueError (surfaced as a 400) for a value outside its options or
+    numeric range, before any DB row is created.
+    """
+    resolved = {}
+    for spec in cfg.get("settings", []):
+        sid = spec["id"]
+        val = params.get(sid)
+        if val is None:
+            val = spec["default"]
+        if "options" in spec and val not in spec["options"]:
+            raise ValueError(
+                f"{cfg['label']} '{spec.get('label', sid)}' must be one of "
+                f"{spec['options']} ({val} given)"
+            )
+        if "min" in spec and val < spec["min"]:
+            raise ValueError(
+                f"{cfg['label']} '{spec.get('label', sid)}' must be ≥ {spec['min']} ({val} given)"
+            )
+        if "max" in spec and val > spec["max"]:
+            raise ValueError(
+                f"{cfg['label']} '{spec.get('label', sid)}' must be ≤ {spec['max']} ({val} given)"
+            )
+        resolved[sid] = val
+    return resolved
+
+
+def _settings_overrides(cfg: dict, resolved: dict) -> dict:
+    """Map resolved setting values onto ComfyUI injection keys.
+
+    A setting feeds the injection key(s) named in its ``inject`` list (default
+    just its own id), so one knob (SCAIL-2 ``frames``) can drive several nodes.
+    ``str_value`` casts to str for COMBO string widgets (MSR frame_count).
+    """
+    overrides = {}
+    for spec in cfg.get("settings", []):
+        val = resolved[spec["id"]]
+        if spec.get("str_value"):
+            val = str(val)
+        for key in spec.get("inject", [spec["id"]]):
+            overrides[key] = val
+    return overrides
 
 
 async def get_video(video_id: str, db: AsyncSession) -> GeneratedVideo | None:
@@ -203,6 +318,25 @@ async def _resolve_reference_files(reference_ids: list[str], db: AsyncSession) -
     return files
 
 
+async def _resolve_driving_video(driving_video_id: str, db: AsyncSession) -> str:
+    """Return the INPUT-relative filename for a DrivingVideo, verifying it exists.
+
+    Uploaded driving videos already live flat in COMFY_INPUT_DIR (that is what
+    the upload endpoint writes), so no staging copy is needed — but the file
+    must actually be there or VHS_LoadVideo silently fails the whole graph,
+    exactly like a dangling LoadImage.
+    """
+    result = await db.execute(
+        select(DrivingVideo).where(DrivingVideo.id == driving_video_id)
+    )
+    dv = result.scalars().first()
+    if not dv:
+        raise ValueError(f"Driving video {driving_video_id} not found")
+    if not dv.video_url or not os.path.exists(os.path.join(COMFY_INPUT_DIR, dv.video_url)):
+        raise ValueError(f"Driving video file '{dv.video_url}' is missing from the input directory")
+    return dv.video_url
+
+
 async def generate_video(
     db: AsyncSession,
     workflow_key: str = DEFAULT_WORKFLOW,
@@ -210,6 +344,7 @@ async def generate_video(
     shot: Shot | None = None,
     reference_ids: list[str] | None = None,
     background_reference_id: str | None = None,
+    driving_video_id: str | None = None,
     motion_prompt: str | None = None,
     global_prompt: str | None = None,
     local_prompts: str | None = None,
@@ -218,10 +353,11 @@ async def generate_video(
     """Queue a clip. ``workflow_key`` selects which graph out of VIDEO_WORKFLOWS.
 
     Raises ValueError for anything the caller could have gotten right (unknown
-    workflow, missing still, no references, unstageable image) so the router can
-    surface a 400 *before* a row is created. Anything that fails after the row
-    exists is recorded on the row as ``failed`` instead, matching the existing
-    contract that a queued clip always has a status the UI can poll.
+    workflow, missing still, no references, out-of-range setting, missing
+    driving video) so the router can surface a 400 *before* a row is created.
+    Anything that fails after the row exists is recorded on the row as
+    ``failed`` instead, matching the existing contract that a queued clip
+    always has a status the UI can poll.
     """
     cfg = VIDEO_WORKFLOWS.get(workflow_key)
     if cfg is None:
@@ -232,19 +368,7 @@ async def generate_video(
 
     params = params or {}
     reference_ids = reference_ids or []
-    settings = {**DEFAULT_VIDEO_SETTINGS, **{
-        k: params[k] for k in DEFAULT_VIDEO_SETTINGS if params.get(k) is not None
-    }}
-    if cfg.get("reference_frame_count"):
-        settings["reference_frame_count"] = (
-            params.get("reference_frame_count") or DEFAULT_REFERENCE_FRAME_COUNT
-        )
-        options = cfg["reference_frame_count_options"]
-        if settings["reference_frame_count"] not in options:
-            raise ValueError(
-                f"{cfg['label']} reference frame count must be one of "
-                f"{options} ({settings['reference_frame_count']} given)"
-            )
+    settings = _resolve_settings(cfg, params)
     seed_val = params.get("seed") or random.randint(1, 1000000000000000)
     workflow_name = cfg["workflow"]
 
@@ -257,6 +381,8 @@ async def generate_video(
             f"{cfg['label']} accepts at most {cfg['max_refs']} references "
             f"({len(reference_ids)} given)"
         )
+    if cfg["driving_video"] and not driving_video_id:
+        raise ValueError(f"{cfg['label']} requires a driving video")
 
     # Stage every file BEFORE creating the row: a missing image is a caller
     # error, not a failed generation, and ComfyUI would swallow it silently.
@@ -265,6 +391,9 @@ async def generate_video(
     background_file = None
     if background_reference_id:
         background_file = (await _resolve_reference_files([background_reference_id], db))[0]
+    driving_video_file = None
+    if driving_video_id:
+        driving_video_file = await _resolve_driving_video(driving_video_id, db)
 
     # The still already carries the look; the prompt here describes motion.
     prompt_text = motion_prompt or (image.prompt if image is not None else "") or ""
@@ -307,13 +436,12 @@ async def generate_video(
             )
         node_map = load_node_map(workflow_name)
 
+        # Per-workflow settings fan out onto their injection keys (one knob may
+        # feed several nodes; COMBO widgets get str-cast) — see the registry.
         overrides = {
             "seed": seed_val,
             "filename_prefix": job_id,
-            "width": settings["width"],
-            "height": settings["height"],
-            "fps": settings["fps"],
-            "duration": settings["duration"],
+            **_settings_overrides(cfg, settings),
         }
         if cfg["dual_prompt"]:
             # PromptRelayEncode: identities up top, the beat-by-beat script below.
@@ -321,12 +449,6 @@ async def generate_video(
             overrides["local_prompts"] = local_prompts or prompt_text
         else:
             overrides["prompt"] = prompt_text
-
-        if cfg.get("reference_frame_count"):
-            # LiconMSR's frame_count widget is a STRING input in the exported
-            # graph ("17", not 17) — cast explicitly rather than rely on the
-            # caller's type.
-            overrides["reference_frame_count"] = str(settings["reference_frame_count"])
 
         if source_image:
             overrides["image"] = source_image
@@ -336,6 +458,8 @@ async def generate_video(
             overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
         if background_file:
             overrides["background_image"] = background_file
+        if driving_video_file:
+            overrides["driving_video"] = driving_video_file
 
         workflow = inject(workflow, node_map, overrides)
         prompt_id = await submit(workflow)

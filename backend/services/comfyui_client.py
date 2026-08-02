@@ -68,10 +68,13 @@ INJECTION_MAP = {
     # conflate the two, they drive completely different parts of the graph.
     "reference_frame_count": ("reference_frame_count_node", ("frame_count", "value")),
     "controlnet_strength": ("controlnet_node", ("strength",)),
-    # Driving-video pose transfer (SCAIL-2): a VHS_LoadVideo source plus the
-    # frame count the sampler generates.
+    # Driving-video pose transfer (SCAIL-2): a VHS_LoadVideo source, how many of
+    # its frames to load (must match "length"), the sampler's output length, and
+    # how strictly the character follows the driving motion.
     "driving_video": ("video_node", ("video",)),
+    "driving_frames": ("driving_frames_node", ("frame_load_cap", "value")),
     "length": ("length_node", ("length", "value")),
+    "pose_strength": ("pose_strength_node", ("pose_strength", "value")),
 }
 
 

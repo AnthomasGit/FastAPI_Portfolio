@@ -77,6 +77,7 @@ async def trigger_video_generation(
             shot=shot,
             reference_ids=data.reference_ids,
             background_reference_id=data.background_reference_id,
+            driving_video_id=data.driving_video_id,
             motion_prompt=data.motion_prompt,
             global_prompt=data.global_prompt,
             local_prompts=data.local_prompts,
