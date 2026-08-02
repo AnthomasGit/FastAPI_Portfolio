@@ -54,6 +54,7 @@ VIDEO_WORKFLOWS = {
         "background": False,
         "driving_video": False,
         "dual_prompt": False,
+        "reference_frame_count": False,
         "est_seconds": 120,
         "recommended": False,
     },
@@ -66,6 +67,9 @@ VIDEO_WORKFLOWS = {
         "background": True,
         "driving_video": False,
         "dual_prompt": True,
+        # LiconMSR's own identity/detail guide length — separate from the
+        # output clip's duration, see comfyui_client.INJECTION_MAP.
+        "reference_frame_count": True,
         "est_seconds": 90,
         "recommended": True,
     },
@@ -74,6 +78,7 @@ DEFAULT_WORKFLOW = "ltx_msr"
 
 # Defaults for the MSR graph's constants, matching the verified-working export.
 DEFAULT_VIDEO_SETTINGS = {"width": 544, "height": 960, "fps": 25, "duration": 5}
+DEFAULT_REFERENCE_FRAME_COUNT = 17
 
 
 def list_workflows() -> list[dict]:
@@ -224,6 +229,10 @@ async def generate_video(
     settings = {**DEFAULT_VIDEO_SETTINGS, **{
         k: params[k] for k in DEFAULT_VIDEO_SETTINGS if params.get(k) is not None
     }}
+    if cfg.get("reference_frame_count"):
+        settings["reference_frame_count"] = (
+            params.get("reference_frame_count") or DEFAULT_REFERENCE_FRAME_COUNT
+        )
     seed_val = params.get("seed") or random.randint(1, 1000000000000000)
     workflow_name = cfg["workflow"]
 
@@ -300,6 +309,12 @@ async def generate_video(
             overrides["local_prompts"] = local_prompts or prompt_text
         else:
             overrides["prompt"] = prompt_text
+
+        if cfg.get("reference_frame_count"):
+            # LiconMSR's frame_count widget is a STRING input in the exported
+            # graph ("17", not 17) — cast explicitly rather than rely on the
+            # caller's type.
+            overrides["reference_frame_count"] = str(settings["reference_frame_count"])
 
         if source_image:
             overrides["image"] = source_image

@@ -63,6 +63,10 @@ INJECTION_MAP = {
     "height": ("height_node", ("value", "height")),
     "fps": ("fps_node", ("value", "frame_rate")),
     "duration": ("duration_node", ("value",)),
+    # LiconMSR's OWN frame_count: how many frames its reference/identity guide
+    # spans. Unrelated to "duration" above (the output clip's length) — do not
+    # conflate the two, they drive completely different parts of the graph.
+    "reference_frame_count": ("reference_frame_count_node", ("frame_count", "value")),
     "controlnet_strength": ("controlnet_node", ("strength",)),
     # Driving-video pose transfer (SCAIL-2): a VHS_LoadVideo source plus the
     # frame count the sampler generates.

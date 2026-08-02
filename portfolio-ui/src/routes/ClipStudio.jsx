@@ -50,7 +50,9 @@ export function ClipStudio() {
   const [subjectKeys, setSubjectKeys] = useState([]);
   const [backgroundKey, setBackgroundKey] = useState(null);
   const [prompts, setPrompts] = useState({ global: null, local: null });
-  const [settings, setSettings] = useState({ width: 544, height: 960, fps: 25, duration: 5 });
+  const [settings, setSettings] = useState({
+    width: 544, height: 960, fps: 25, duration: 5, reference_frame_count: 17,
+  });
   const [milestone, setMilestone] = useState(null);
 
   // Default to the backend's recommended workflow once the registry lands.
@@ -279,8 +281,31 @@ export function ClipStudio() {
             </div>
             <p className="text-[9px] text-slate-600 px-3 pb-3">
               Width rounds to a multiple of 32 in latent space; the x2 upscaler doubles the output.
-              Frame count is fps × seconds, and drives generation time more than resolution does.
+              Clip length is fps × seconds, and drives generation time more than resolution does.
             </p>
+
+            {selectedWorkflow?.reference_frame_count && (
+              <div className="px-3 pb-3 border-t border-white/5 pt-3">
+                <label className="block w-28">
+                  <span className="block text-[9px] text-slate-500 mb-0.5">Reference frames</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={settings.reference_frame_count}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        reference_frame_count: Number(e.target.value) || s.reference_frame_count,
+                      }))
+                    }
+                    className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
+                  />
+                </label>
+                <p className="text-[9px] text-slate-600 mt-1.5">
+                  Higher improves identity/detail retention, but needs more GPU memory.
+                </p>
+              </div>
+            )}
           </details>
 
           <div className="space-y-2">
