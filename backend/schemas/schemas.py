@@ -211,6 +211,7 @@ class VideoWorkflowResponse(BaseModel):
     driving_video: bool
     dual_prompt: bool
     reference_frame_count: bool = False
+    reference_frame_count_options: List[int] = []
     est_seconds: int
     recommended: bool = False
 

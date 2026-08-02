@@ -55,6 +55,7 @@ VIDEO_WORKFLOWS = {
         "driving_video": False,
         "dual_prompt": False,
         "reference_frame_count": False,
+        "reference_frame_count_options": [],
         "est_seconds": 120,
         "recommended": False,
     },
@@ -68,8 +69,12 @@ VIDEO_WORKFLOWS = {
         "driving_video": False,
         "dual_prompt": True,
         # LiconMSR's own identity/detail guide length — separate from the
-        # output clip's duration, see comfyui_client.INJECTION_MAP.
+        # output clip's duration, see comfyui_client.INJECTION_MAP. It's a
+        # fixed COMBO on the node (confirmed against ComfyUI's /object_info,
+        # not a free-form int), so the options list is authoritative, not a
+        # display convenience — an out-of-list value fails ComfyUI validation.
         "reference_frame_count": True,
+        "reference_frame_count_options": [17, 25, 33, 41, 49, 57, 65],
         "est_seconds": 90,
         "recommended": True,
     },
@@ -78,6 +83,7 @@ DEFAULT_WORKFLOW = "ltx_msr"
 
 # Defaults for the MSR graph's constants, matching the verified-working export.
 DEFAULT_VIDEO_SETTINGS = {"width": 544, "height": 960, "fps": 25, "duration": 5}
+# The node's own default is 41; 17 is what this app defaults to instead.
 DEFAULT_REFERENCE_FRAME_COUNT = 17
 
 
@@ -233,6 +239,12 @@ async def generate_video(
         settings["reference_frame_count"] = (
             params.get("reference_frame_count") or DEFAULT_REFERENCE_FRAME_COUNT
         )
+        options = cfg["reference_frame_count_options"]
+        if settings["reference_frame_count"] not in options:
+            raise ValueError(
+                f"{cfg['label']} reference frame count must be one of "
+                f"{options} ({settings['reference_frame_count']} given)"
+            )
     seed_val = params.get("seed") or random.randint(1, 1000000000000000)
     workflow_name = cfg["workflow"]
 

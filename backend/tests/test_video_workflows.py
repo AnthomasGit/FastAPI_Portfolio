@@ -38,6 +38,9 @@ def test_list_workflows_exposes_id_and_capabilities():
     assert msr["needs_still"] is False
     assert msr["dual_prompt"] is True
     assert msr["reference_frame_count"] is True
+    # Matches LiconMSR's actual COMBO (confirmed via ComfyUI /object_info),
+    # not a free-form int -- an out-of-list value fails ComfyUI validation.
+    assert msr["reference_frame_count_options"] == [17, 25, 33, 41, 49, 57, 65]
     # i2v is the still-driven one and takes no references.
     assert entries["ltx_i2v"]["needs_still"] is True
     assert entries["ltx_i2v"]["max_refs"] == 0
@@ -243,11 +246,28 @@ async def test_msr_reference_frame_count_is_overridable(db_session, scene, monke
         workflow_key="ltx_msr",
         shot=shot,
         reference_ids=[ref.id],
-        params={"reference_frame_count": 32},
+        params={"reference_frame_count": 33},
     )
 
     video = await db_session.get(GeneratedVideo, video_id)
-    assert video.params["reference_frame_count"] == 32
+    assert video.params["reference_frame_count"] == 33
+
+
+@pytest.mark.asyncio
+async def test_msr_rejects_reference_frame_count_outside_the_combo(db_session, scene):
+    """32 isn't one of LiconMSR's actual COMBO values -- ComfyUI would reject it."""
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url="x.png",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match=r"must be one of \[17, 25, 33, 41, 49, 57, 65\]"):
+        await generate_video(
+            db_session, workflow_key="ltx_msr", reference_ids=[ref.id],
+            params={"reference_frame_count": 32},
+        )
 
 
 @pytest.mark.asyncio
