@@ -184,9 +184,34 @@ class Asset3DMeshGenerateRequest(BaseModel):
 
 
 class VideoGenerateRequest(BaseModel):
-    image_id: str
+    """One clip request, shaped by whichever workflow is selected.
+
+    image_id is optional because reference-driven workflows (LTX-2.3 MSR) need
+    no beauty-pass still; the service validates the combination against the
+    chosen workflow's declared capabilities rather than trusting the caller.
+    """
+    workflow: Optional[str] = None
+    image_id: Optional[str] = None
+    shot_id: Optional[str] = None
+    reference_ids: List[str] = []
+    background_reference_id: Optional[str] = None
     motion_prompt: Optional[str] = None
+    global_prompt: Optional[str] = None
+    local_prompts: Optional[str] = None
     params: Optional[dict] = None
+
+
+class VideoWorkflowResponse(BaseModel):
+    id: str
+    label: str
+    blurb: str
+    needs_still: bool
+    max_refs: int
+    background: bool
+    driving_video: bool
+    dual_prompt: bool
+    est_seconds: int
+    recommended: bool = False
 
 
 class GeneratedVideoResponse(BaseModel):
@@ -194,6 +219,7 @@ class GeneratedVideoResponse(BaseModel):
     project_id: Optional[str] = None
     scene_id: Optional[str] = None
     source_image_id: Optional[str] = None
+    shot_id: Optional[str] = None
     prompt: Optional[str] = None
     video_url: Optional[str] = None
     status: str = "queued"
@@ -390,6 +416,9 @@ class ShotResponse(ShotBase):
     # The chosen still (with its clips nested via .videos) so the shot row can
     # render the still + offer its clip without a second fetch.
     still: Optional[GenerateImageResponse] = None
+    # Clips generated for the shot directly (reference-driven workflows, which
+    # have no source still). The still-derived ones stay under `still.videos`.
+    videos: List[GeneratedVideoResponse] = []
 
     class Config:
         from_attributes = True

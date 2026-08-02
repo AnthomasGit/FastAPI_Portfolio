@@ -5,6 +5,7 @@ import { Storyboard } from './routes/Storyboard';
 import { SceneDetail } from './routes/SceneDetail';
 import { Graph } from './routes/Graph';
 import { SceneStage } from './routes/SceneStage';
+import { ClipStudio } from './routes/ClipStudio';
 
 function App() {
   const location = useLocation();
@@ -46,6 +47,7 @@ function App() {
           <Route path="/project/:id/graph" element={<Graph />} />
           <Route path="/project/:id/scene/:sceneId" element={<SceneDetail />} />
           <Route path="/project/:id/scene/:sceneId/stage" element={<SceneStage />} />
+          <Route path="/project/:id/scene/:sceneId/shot/:shotId/clip" element={<ClipStudio />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

@@ -220,8 +220,12 @@ class GeneratedImage(Base):
 class GeneratedVideo(Base):
     """Append-only video attempt, mirroring GeneratedImage.
 
-    Input is always a completed GeneratedImage (the beauty pass output), never
-    a raw capture — see the stage dependency rule in 3d-staging-lld-sdlc.md.
+    Two provenances, depending on the workflow (see video_service.VIDEO_WORKFLOWS):
+    image-to-video consumes a completed GeneratedImage (the beauty pass output),
+    never a raw capture — the stage dependency rule in 3d-staging-lld-sdlc.md.
+    Multi-subject-reference workflows need no still at all and instead compose
+    reference images directly, so their clip hangs off ``shot_id``. Exactly one
+    of the two is set in practice, and both are nullable.
     """
     __tablename__ = "generated_videos"
 
@@ -229,6 +233,7 @@ class GeneratedVideo(Base):
     project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     scene_id = Column(String, ForeignKey("scenes.id", ondelete="SET NULL"), nullable=True)
     source_image_id = Column(String, ForeignKey("generated_images.id", ondelete="SET NULL"), nullable=True)
+    shot_id = Column(String, ForeignKey("shots.id", ondelete="SET NULL"), nullable=True, index=True)
     prompt = Column(Text, nullable=True)                 # motion prompt
     video_url = Column(String, nullable=True)            # MP4/WebM filename in ComfyUI output
     status = Column(String, default="queued")            # queued|processing|completed|failed
@@ -246,9 +251,13 @@ class Shot(Base):
 
     Metadata (shot_size/angle/movement/audio_notes) is load-bearing, not just
     documentation — it composes into the LTX motion prompt when a clip is
-    generated. Scene # is derived from the parent scene, not stored here. The
-    clip derives from generated_image_id -> .videos (newest completed), so
-    there's no generated_video_id column.
+    generated. Scene # is derived from the parent scene, not stored here.
+
+    Clips reach a shot two ways and there is deliberately no
+    generated_video_id column for either: image-to-video clips derive from
+    generated_image_id -> .videos (newest completed), while reference-driven
+    workflows that need no still attach straight to this row via
+    GeneratedVideo.shot_id -> .videos. Both are append-only attempt lists.
     """
     __tablename__ = "shots"
 
@@ -272,6 +281,13 @@ class Shot(Base):
     scene = relationship("Scene", back_populates="shots")
     capture = relationship("SceneCapture")
     generated_image = relationship("GeneratedImage")
+    # selectin, not lazy: these are serialized inside an async response and a
+    # lazy load there raises MissingGreenlet (same reason as GeneratedImage.videos).
+    videos = relationship(
+        "GeneratedVideo",
+        lazy="selectin",
+        order_by="GeneratedVideo.created_at.desc()",
+    )
 
 
 class Asset3D(Base):

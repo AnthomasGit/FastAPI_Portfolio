@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Sparkles, Loader2, ListVideo } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ShotRow } from './ShotRow';
+import { sceneClipProgress } from './shotReadiness';
 
 const COLUMNS = [
-  'Shot #', 'Size', 'Angle', 'Movement',
+  'Shot #', 'Status', 'Size', 'Angle', 'Movement',
   'Description', 'Equipment', 'Audio / Notes', 'Still / Clip', '',
 ];
 
@@ -37,11 +38,26 @@ export function ShotList({ scene }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['shots', sceneId] }),
   });
 
+  const progress = sceneClipProgress(shots);
+
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-3">
         <ListVideo className="w-5 h-5 text-cyan-400" />
         <h2 className="text-lg font-semibold text-slate-100">Master shot list</h2>
+        {shots.length > 0 && (
+          <span className="flex items-center gap-2" title={`${progress.done} of ${progress.total} shots have a completed clip`}>
+            <span className="w-20 h-1 rounded-full bg-white/10 overflow-hidden">
+              <span
+                className="block h-full bg-fuchsia-500/60 transition-all"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </span>
+            <span className="text-[10px] text-slate-500">
+              {progress.done}/{progress.total} clips
+            </span>
+          </span>
+        )}
         <div className="flex-1" />
         <button
           onClick={() => genMut.mutate()}

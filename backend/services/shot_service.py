@@ -18,7 +18,12 @@ from services import ai_service
 
 # generated_image (and its .videos) eager-loaded so ShotResponse.still can carry
 # the clip without a second round-trip; .videos is already lazy="selectin".
-_SHOT_OPTS = [selectinload(Shot.generated_image).selectinload(GeneratedImage.videos)]
+# Shot.videos (reference-driven clips, which have no source still) is listed
+# explicitly as well so populate_existing refreshes it on a mutation response.
+_SHOT_OPTS = [
+    selectinload(Shot.generated_image).selectinload(GeneratedImage.videos),
+    selectinload(Shot.videos),
+]
 
 
 def _to_response(shot: Shot) -> ShotResponse:

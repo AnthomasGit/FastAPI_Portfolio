@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { ShotStillCell } from './ShotStillCell';
 import { BadgeSelectCell } from './BadgeSelectCell';
 import { SHOT_SIZE, ANGLE, MOVEMENT, EQUIPMENT } from './shotOptions';
+import { shotReadiness } from './shotReadiness';
 
 // One editable cell that commits on blur. Kept uncontrolled-ish via local state
 // so typing doesn't round-trip per keystroke. Re-syncs to a changed server
@@ -51,6 +52,23 @@ export function ShotRow({ shot, sceneId, availableStills }) {
   return (
     <tr className="border-b border-white/5 hover:bg-white/[0.02] align-top">
       <td className="px-2 py-2 w-16">{cell('shot_number', '1A')}</td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        {(() => {
+          const r = shotReadiness(shot);
+          return (
+            <span
+              className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${r.cls}`}
+              title={
+                r.blocking.length
+                  ? `Missing: ${r.blocking.map((b) => b.label).join(', ')}`
+                  : `${r.met} of ${r.total} details filled in`
+              }
+            >
+              {r.label}
+            </span>
+          );
+        })()}
+      </td>
       <td className="px-2 py-2 whitespace-nowrap">
         <BadgeSelectCell value={shot.shot_size} field="shot_size" fieldConfig={SHOT_SIZE} shotId={shot.id} sceneId={sceneId} />
       </td>

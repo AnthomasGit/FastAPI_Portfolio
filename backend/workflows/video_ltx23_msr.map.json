@@ -1,0 +1,16 @@
+{
+  "image_node": "29",
+  "image2_node": "33",
+  "image3_node": "40",
+  "image4_node": "95",
+  "background_node": "30",
+  "global_prompt_node": "180",
+  "local_prompts_node": "180",
+  "negative_node": "185",
+  "seed_node": "15",
+  "width_node": "43",
+  "height_node": "44",
+  "fps_node": "129",
+  "duration_node": "178",
+  "output_node": "173"
+}

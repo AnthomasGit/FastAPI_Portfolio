@@ -94,6 +94,30 @@ export const api = {
         params: params ?? null,
       }),
     }),
+
+  // The clip-workflow registry (capabilities drive the Clip Studio picker).
+  listVideoWorkflows: () => fetchJSON('/video-workflows'),
+
+  // Clip generation with an explicit workflow. Reference-driven workflows need
+  // no still, so image_id is optional and the clip hangs off the shot instead.
+  generateClip: ({
+    workflow, shotId, imageId, referenceIds, backgroundReferenceId,
+    motionPrompt, globalPrompt, localPrompts, params,
+  } = {}) =>
+    fetchJSON('/generate/video', {
+      method: 'POST',
+      body: JSON.stringify({
+        workflow: workflow ?? null,
+        shot_id: shotId ?? null,
+        image_id: imageId ?? null,
+        reference_ids: referenceIds ?? [],
+        background_reference_id: backgroundReferenceId ?? null,
+        motion_prompt: motionPrompt ?? null,
+        global_prompt: globalPrompt ?? null,
+        local_prompts: localPrompts ?? null,
+        params: params ?? null,
+      }),
+    }),
   getVideoStatus: (videoId) => fetchJSON(`/generate/video/status/${videoId}`),
   getVideoFileUrl: (videoId) => `${API_BASE}/generate/video/file/${videoId}`,
 

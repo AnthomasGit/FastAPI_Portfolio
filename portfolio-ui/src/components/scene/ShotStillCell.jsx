@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Film, Loader2, ImageIcon } from 'lucide-react';
 import { api } from '../../lib/api';
-import { shotToMotionPrompt } from './shotPrompt';
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
+import { allClips } from './shotReadiness';
 
 // Polls one in-flight clip and refreshes the shot list when it settles.
+// The invalidate is in an effect: calling it during render schedules a store
+// update mid-commit, which React warns about and can loop.
 function ClipPoller({ videoId, sceneId }) {
   const queryClient = useQueryClient();
   const { data } = useQuery({
@@ -16,40 +18,35 @@ function ClipPoller({ videoId, sceneId }) {
       return s === 'completed' || s === 'failed' ? false : 5000;
     },
   });
-  if (data?.status === 'completed' || data?.status === 'failed') {
-    queryClient.invalidateQueries({ queryKey: ['shots', sceneId] });
-  }
+  useEffect(() => {
+    if (data?.status === 'completed' || data?.status === 'failed') {
+      queryClient.invalidateQueries({ queryKey: ['shots', sceneId] });
+    }
+  }, [data?.status, queryClient, sceneId]);
   return null;
 }
 
 export function ShotStillCell({ shot, sceneId, availableStills }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { id: projectId } = useParams();
   const still = shot.still;
-  const clips = [...(still?.videos || [])].sort(
-    (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  );
+  // Clips reach a shot two ways depending on the workflow that made them, so
+  // read both: reference-driven ones attach to the shot, still-driven ones
+  // hang off the still.
+  const clips = allClips(shot);
   const clipInflight = clips.some((c) => c.status === 'queued' || c.status === 'processing');
   const newestClip = clips.find((c) => c.status === 'completed');
   const clipError = clips.find((c) => c.status === 'failed' && c.error);
 
   const [picking, setPicking] = useState(false);
   const [view, setView] = useState('still'); // 'still' | 'clip'
-  const [promptOpen, setPromptOpen] = useState(false);
-  const [motionPrompt, setMotionPrompt] = useState('');
 
   const attachMut = useMutation({
     mutationFn: (imageId) => api.updateShot(shot.id, { generated_image_id: imageId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shots', sceneId] });
       setPicking(false);
-    },
-  });
-
-  const clipMut = useMutation({
-    mutationFn: (prompt) => api.generateVideo(still.id, { motionPrompt: prompt }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shots', sceneId] });
-      setPromptOpen(false);
     },
   });
 
@@ -122,68 +119,23 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
         </button>
       )}
 
-      {still && (
-        <Popover
-          open={promptOpen}
-          onOpenChange={(v) => {
-            // Reset to the fresh auto-composed prompt each time it opens, so
-            // edits to the shot's size/angle/movement/description since the
-            // last open are reflected rather than showing stale text.
-            if (v) setMotionPrompt(shotToMotionPrompt(shot));
-            setPromptOpen(v);
-          }}
-        >
-          <PopoverTrigger asChild>
-            <button
-              disabled={clipInflight || clipMut.isPending}
-              className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 disabled:opacity-40 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
-            >
-              {clipInflight || clipMut.isPending ? (
-                <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
-              ) : (
-                <Film className="w-3 h-3" />
-              )}
-              {newestClip ? 'Regenerate clip' : 'Generate clip'}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72 p-3 bg-slate-900 border-white/10" align="start">
-            <p className="text-[10px] text-slate-500 mb-1.5">
-              Motion prompt — prefilled from this shot's size/angle/movement/description/audio, editable before generating.
-            </p>
-            <textarea
-              autoFocus
-              value={motionPrompt}
-              onChange={(e) => setMotionPrompt(e.target.value)}
-              rows={5}
-              className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1.5 text-slate-200 resize-none focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
-            />
-            <div className="flex justify-end gap-2 mt-2">
-              <button
-                onClick={() => setPromptOpen(false)}
-                className="text-[10px] text-slate-400 hover:text-slate-200 px-2 py-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => clipMut.mutate(motionPrompt)}
-                disabled={clipMut.isPending || !motionPrompt.trim()}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 disabled:opacity-40 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
-              >
-                {clipMut.isPending ? (
-                  <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
-                ) : (
-                  <Film className="w-3 h-3" />
-                )}
-                {newestClip ? 'Regenerate' : 'Generate'}
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
-      {(clipMut.isError || clipError) && (
-        <p className="text-[9px] text-red-400/80 break-words">
-          {clipMut.error?.message || clipError?.error}
-        </p>
+      {/* Always available: reference-driven workflows need no still, so the
+          Clip Studio is reachable even before a beauty pass exists. */}
+      <button
+        onClick={() =>
+          navigate(`/project/${projectId}/scene/${sceneId}/shot/${shot.id}/clip`)
+        }
+        className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
+      >
+        {clipInflight ? (
+          <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
+        ) : (
+          <Film className="w-3 h-3" />
+        )}
+        {clipInflight ? 'Generating…' : newestClip ? 'Regenerate clip' : 'Generate clip'}
+      </button>
+      {clipError && (
+        <p className="text-[9px] text-red-400/80 break-words">{clipError.error}</p>
       )}
     </div>
   );
