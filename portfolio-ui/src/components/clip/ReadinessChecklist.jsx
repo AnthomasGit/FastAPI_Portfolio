@@ -10,33 +10,33 @@ export function ReadinessChecklist({ items }) {
   const ready = blocking.length === 0;
 
   return (
-    <details className="group rounded-lg border border-white/10 bg-black/30">
+    <details className="group rounded-frame border border-line bg-bay-900">
       <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
         <span
           className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-            ready ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+            ready ? 'bg-ok/15 text-cast' : 'bg-lead-500/15 text-set'
           }`}
         >
           {met} of {items.length} ready
         </span>
-        <span className="text-[11px] text-slate-400 flex-1 truncate">
+        <span className="text-[11px] text-fg-muted flex-1 truncate">
           {ready ? 'All requirements met' : `Missing: ${blocking.map((b) => b.label).join(', ')}`}
         </span>
-        <span className="text-[10px] text-slate-600 group-open:hidden">details</span>
+        <span className="text-[10px] text-fg-faint group-open:hidden">details</span>
       </summary>
       <ul className="px-3 pb-2 space-y-1">
         {items.map((item) => (
           <li key={item.key} className="flex items-center gap-2 text-[11px]">
             {item.met ? (
-              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+              <Check className="w-3 h-3 text-cast shrink-0" />
             ) : item.required ? (
-              <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+              <AlertCircle className="w-3 h-3 text-set shrink-0" />
             ) : (
-              <Circle className="w-3 h-3 text-slate-600 shrink-0" />
+              <Circle className="w-3 h-3 text-fg-faint shrink-0" />
             )}
-            <span className={item.met ? 'text-slate-300' : 'text-slate-500'}>{item.label}</span>
+            <span className={item.met ? 'text-fg' : 'text-fg-muted'}>{item.label}</span>
             {!item.required && !item.met && (
-              <span className="text-[9px] text-slate-600">optional</span>
+              <span className="text-[9px] text-fg-faint">optional</span>
             )}
           </li>
         ))}

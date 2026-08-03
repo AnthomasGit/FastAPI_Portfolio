@@ -20,7 +20,7 @@ function ShotThumb({ shot }) {
       type="button"
       onClick={() => clip && setShowClip((v) => !v)}
       title={clip ? 'Toggle clip' : shot.shot_number || 'Shot'}
-      className={`relative w-12 h-8 rounded overflow-hidden border border-white/10 bg-black/40 ${clip ? 'cursor-pointer' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400`}
+      className={`relative w-12 h-8 rounded overflow-hidden border border-line bg-bay-900 ${clip ? 'cursor-pointer' : 'cursor-default'} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-clip`}
     >
       {showClip && clip ? (
         <video src={api.getVideoFileUrl(clip.id)} loop muted autoPlay playsInline className="w-full h-full object-cover" />
@@ -28,8 +28,8 @@ function ShotThumb({ shot }) {
         <img src={api.getGeneratedImageUrl(still.id)} alt="" className="w-full h-full object-cover" />
       )}
       {clip && !showClip && (
-        <span className="absolute bottom-0 right-0 bg-black/70 rounded-tl p-0.5">
-          <Film className="w-2.5 h-2.5 text-fuchsia-300" />
+        <span className="absolute bottom-0 right-0 bg-bay-950/80 rounded-tl p-0.5">
+          <Film className="w-2.5 h-2.5 text-clip" />
         </span>
       )}
     </button>
@@ -47,7 +47,7 @@ export function CellShots({ scene, projectId }) {
     return (
       <Link
         to={`/project/${projectId}/scene/${scene.id}`}
-        className="text-[10px] text-slate-600 hover:text-cyan-400 transition-colors"
+        className="text-[10px] text-fg-faint hover:text-lead-500 transition-colors"
       >
         No shots yet
       </Link>

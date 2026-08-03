@@ -29,7 +29,7 @@ export function CellScreenplay({ scene }) {
     return (
       <textarea
         ref={textareaRef}
-        className="w-full bg-black/60 border border-cyan-500/50 rounded-lg p-2 text-white text-xs focus:outline-none resize-none min-h-[60px]"
+        className="w-full rounded-frame border border-lead-500 bg-bay-900 p-2 font-mono text-[12px] leading-relaxed text-fg focus:outline-none resize-y min-h-[80px]"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={handleSave}
@@ -40,11 +40,13 @@ export function CellScreenplay({ scene }) {
   }
 
   return (
-    <div
-      className="min-h-[40px] cursor-text text-xs text-slate-300 leading-relaxed"
+    <button
+      type="button"
+      className="block w-full min-h-[40px] text-left font-mono text-[12px] leading-relaxed text-fg-muted hover:text-fg transition-colors line-clamp-6"
       onClick={() => setEditing(true)}
+      title="Edit screenplay"
     >
-      {scene.screenplay || <span className="text-slate-600 italic">Click to add screenplay...</span>}
-    </div>
+      {scene.screenplay || <span className="text-fg-faint">Add screenplay</span>}
+    </button>
   );
 }

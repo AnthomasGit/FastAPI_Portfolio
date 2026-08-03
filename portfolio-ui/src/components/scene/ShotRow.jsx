@@ -10,7 +10,7 @@ import { shotReadiness } from './shotReadiness';
 // One editable cell that commits on blur. Kept uncontrolled-ish via local state
 // so typing doesn't round-trip per keystroke. Re-syncs to a changed server
 // value during render (React's recommended alternative to a setState effect).
-function EditCell({ value, field, shotId, sceneId, placeholder, wide }) {
+function EditCell({ value, field, shotId, sceneId, placeholder, wide, mono }) {
   const queryClient = useQueryClient();
   const [val, setVal] = useState(value ?? '');
   const [lastValue, setLastValue] = useState(value);
@@ -33,7 +33,9 @@ function EditCell({ value, field, shotId, sceneId, placeholder, wide }) {
       onChange={(e) => setVal(e.target.value)}
       onBlur={save}
       onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-      className={`bg-transparent text-xs text-slate-200 px-1 py-1 rounded focus:outline-none focus:bg-black/40 focus:ring-1 focus:ring-cyan-500/40 placeholder:text-slate-700 ${wide ? 'w-full min-w-[180px]' : 'w-full'}`}
+      className={`bg-transparent text-xs text-fg px-1 py-1 rounded-frame focus:outline-none focus:bg-bay-900 placeholder:text-fg-faint ${
+        mono ? 'font-mono font-bold uppercase' : ''
+      } ${wide ? 'w-full min-w-[180px]' : 'w-full'}`}
     />
   );
 }
@@ -45,13 +47,15 @@ export function ShotRow({ shot, sceneId, availableStills }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['shots', sceneId] }),
   });
 
-  const cell = (field, placeholder, wide) => (
-    <EditCell value={shot[field]} field={field} shotId={shot.id} sceneId={sceneId} placeholder={placeholder} wide={wide} />
+  const cell = (field, placeholder, wide, mono) => (
+    <EditCell value={shot[field]} field={field} shotId={shot.id} sceneId={sceneId} placeholder={placeholder} wide={wide} mono={mono} />
   );
 
   return (
-    <tr className="border-b border-white/5 hover:bg-white/[0.02] align-top">
-      <td className="px-2 py-2 w-16">{cell('shot_number', '1A')}</td>
+    <tr className="group border-b border-line hover:bg-bay-800 align-top transition-colors">
+      {/* Shot codes (1A, 1B…) are the one identifier the crew calls out loud —
+          set in the data face so they hold the eye down the column. */}
+      <td className="px-2 py-2 w-16">{cell('shot_number', '1A', false, true)}</td>
       <td className="px-2 py-2 whitespace-nowrap">
         {(() => {
           const r = shotReadiness(shot);
@@ -91,7 +95,7 @@ export function ShotRow({ shot, sceneId, availableStills }) {
           onClick={() => delMut.mutate()}
           disabled={delMut.isPending}
           title="Delete shot"
-          className="p-1 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
+          className="p-1 rounded text-fg-faint hover:text-stop hover:bg-stop/15 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stop"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>

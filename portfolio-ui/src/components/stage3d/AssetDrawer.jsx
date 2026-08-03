@@ -89,7 +89,7 @@ export function AssetDrawer({ projectId, characters, props }) {
   if (isLoading) {
     return (
       <div className="flex justify-center p-8">
-        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+        <Loader2 className="w-5 h-5 animate-spin text-fg-muted" />
       </div>
     );
   }
@@ -110,7 +110,7 @@ export function AssetDrawer({ projectId, characters, props }) {
   return (
     <div className="space-y-4">
       {entities.length === 0 && (
-        <p className="text-slate-500 text-sm">No characters or props yet. Create some first.</p>
+        <p className="text-fg-muted text-sm">No characters or props yet. Create some first.</p>
       )}
 
       {entities.map((entity) => {
@@ -119,13 +119,13 @@ export function AssetDrawer({ projectId, characters, props }) {
         const isProcessing = latest && ['queued', 'mesh_processing', 'rig_queued', 'rig_processing'].includes(latest.status);
 
         return (
-          <div key={entity.id} className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
+          <div key={entity.id} className="bg-bay-800 border border-line rounded-frame p-4">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <span className={`font-medium ${entity.entity_type === 'character' ? 'text-emerald-300' : 'text-purple-300'}`}>
+                <span className={`font-medium ${entity.entity_type === 'character' ? 'text-cast' : 'text-prop'}`}>
                   {entity.name}
                 </span>
-                <span className="text-xs text-slate-500 ml-2 capitalize">({entity.entity_type})</span>
+                <span className="text-xs text-fg-muted ml-2 capitalize">({entity.entity_type})</span>
               </div>
               <div className="flex items-center gap-2">
                 {latest && <StatusChip status={latest.status} />}
@@ -147,7 +147,7 @@ export function AssetDrawer({ projectId, characters, props }) {
             </div>
 
             {latest?.error && (
-              <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2 mb-2">
+              <div className="flex items-center gap-2 text-xs text-stop bg-stop/15 rounded-frame px-3 py-2 mb-2">
                 <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span>{latest.error}</span>
               </div>
@@ -160,7 +160,7 @@ export function AssetDrawer({ projectId, characters, props }) {
                   variant="outline"
                   onClick={() => retryMutation.mutate(latest.id)}
                   disabled={retryMutation.isPending}
-                  className="border-amber-500/30 text-amber-400"
+                  className="border-lead-500/30 text-set"
                 >
                   {retryMutation.isPending ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -183,7 +183,7 @@ export function AssetDrawer({ projectId, characters, props }) {
                 </a>
                 <button
                   onClick={() => addPlacement(latest.id)}
-                  className="flex items-center gap-0.5 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                  className="flex items-center gap-0.5 text-[10px] text-cast hover:text-cast transition-colors"
                 >
                   <Plus className="w-3 h-3" />
                   Add to Scene
@@ -193,12 +193,12 @@ export function AssetDrawer({ projectId, characters, props }) {
 
             {entityAssets.length > 1 && (
               <details className="mt-2">
-                <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
+                <summary className="text-xs text-fg-muted cursor-pointer hover:text-fg">
                   History ({entityAssets.length} attempts)
                 </summary>
                 <div className="mt-2 space-y-1">
                   {entityAssets.map((a) => (
-                    <div key={a.id} className="flex items-center justify-between text-xs text-slate-400 bg-black/20 rounded-lg px-3 py-1.5">
+                    <div key={a.id} className="flex items-center justify-between text-xs text-fg-muted bg-bay-900 rounded-frame px-3 py-1.5">
                       <span>{new Date(a.created_at).toLocaleString()}</span>
                       <StatusChip status={a.status} />
                       {(a.status === 'mesh_ready' || a.status === 'rigged') && (
@@ -212,7 +212,7 @@ export function AssetDrawer({ projectId, characters, props }) {
                           </a>
                           <button
                             onClick={() => addPlacement(a.id)}
-                            className="flex items-center gap-0.5 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                            className="flex items-center gap-0.5 text-[10px] text-cast hover:text-cast transition-colors"
                           >
                             <Plus className="w-3 h-3" />
                             Add to Scene
@@ -229,17 +229,17 @@ export function AssetDrawer({ projectId, characters, props }) {
       })}
 
       {showRefPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowRefPicker(null)}>
-          <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bay-900" onClick={() => setShowRefPicker(null)}>
+          <div className="bg-bay-850 border border-line rounded-frame p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">Select Reference Image</h3>
-            <p className="text-sm text-slate-400 mb-4">
+            <p className="text-sm text-fg-muted mb-4">
               Choose a reference photo for mesh generation. For best results, use a front-facing T-pose photo with an uncluttered background.
             </p>
 
             <div className="mb-4">
-              <label className="text-xs text-slate-500 mb-1 block">Entity</label>
+              <label className="text-xs text-fg-muted mb-1 block">Entity</label>
               <select
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200"
+                className="w-full bg-bay-900 border border-line rounded-frame px-3 py-2 text-sm text-fg"
                 value={selectedEntity?.id || ''}
                 onChange={(e) => {
                   const ent = entities.find(x => x.id === e.target.value);
@@ -255,9 +255,9 @@ export function AssetDrawer({ projectId, characters, props }) {
 
             {references && references.length > 0 && (
               <div className="mb-4">
-                <label className="text-xs text-slate-500 mb-1 block">Reference Image</label>
+                <label className="text-xs text-fg-muted mb-1 block">Reference Image</label>
                 <select
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200"
+                  className="w-full bg-bay-900 border border-line rounded-frame px-3 py-2 text-sm text-fg"
                   value={selectedRef || ''}
                   onChange={(e) => {
                     setUserRefOverride(e.target.value);
@@ -273,18 +273,18 @@ export function AssetDrawer({ projectId, characters, props }) {
             )}
 
             {!references || references.length === 0 ? (
-              <p className="text-xs text-amber-400 mb-4">No references found. Upload one first in the References tab.</p>
+              <p className="text-xs text-set mb-4">No references found. Upload one first in the References tab.</p>
             ) : null}
 
             {refWarning && (
-              <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2 mb-4">
+              <div className="flex items-center gap-2 text-xs text-set bg-lead-500/15 rounded-frame px-3 py-2 mb-4">
                 <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span>{refWarning}</span>
               </div>
             )}
 
             {generateMutation.isError && (
-              <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2 mb-4">
+              <div className="flex items-center gap-2 text-xs text-stop bg-stop/15 rounded-frame px-3 py-2 mb-4">
                 <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span>{generateMutation.error?.message || 'Generation failed. Check console for details.'}</span>
               </div>
@@ -306,7 +306,7 @@ export function AssetDrawer({ projectId, characters, props }) {
                     reference_id: selectedRef,
                   });
                 }}
-                className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white"
+                className="bg-lead-500 text-bay-950"
               >
                 {generateMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

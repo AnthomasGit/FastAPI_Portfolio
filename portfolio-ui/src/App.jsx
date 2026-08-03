@@ -12,28 +12,30 @@ function App() {
   const isHome = location.pathname === '/';
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black text-slate-200 font-sans selection:bg-cyan-500/30">
-      <header className="border-b border-white/10 backdrop-blur-md bg-black/30 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-white group-hover:scale-105 transition-transform">
-              SP
-            </div>
-            <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">
-              Storyboard Pro
+    <div className="min-h-screen bg-bay-950 text-fg font-sans">
+      <header className="sticky top-0 z-50 border-b border-line bg-bay-950">
+        {/* Clapper cap: the app's one signature, at its smallest size. */}
+        <div className="clapper h-[3px] w-full" aria-hidden="true" />
+        <div className="max-w-[1600px] mx-auto px-5 h-12 flex items-center justify-between">
+          <Link to="/" className="flex items-baseline gap-2.5">
+            <span className="font-mono text-sm font-bold tracking-tight text-fg">
+              STORYBOARD<span className="text-lead-500">/</span>PRO
             </span>
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
+          <nav className="flex items-center gap-1">
             {!isHome && (
-              <Link to="/" className="text-slate-400 hover:text-white transition-colors">
+              <Link
+                to="/"
+                className="px-3 py-1.5 rounded-frame text-xs text-fg-muted hover:text-fg hover:bg-bay-800 transition-colors"
+              >
                 Projects
               </Link>
             )}
             <Link
               to="/new"
-              className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-medium hover:from-blue-500 hover:to-cyan-400 transition-all"
+              className="px-3 py-1.5 rounded-frame bg-lead-500 text-bay-950 text-xs font-semibold hover:bg-lead-400 transition-colors"
             >
-              + New Project
+              New project
             </Link>
           </nav>
         </div>

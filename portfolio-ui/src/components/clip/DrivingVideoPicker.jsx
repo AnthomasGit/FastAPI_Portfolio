@@ -42,14 +42,14 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+        <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
           Driving video
         </h3>
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMut.isPending}
-          className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 disabled:opacity-40 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded px-1"
+          className="flex items-center gap-1 text-[10px] text-fg-muted hover:text-fg disabled:opacity-40 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 rounded px-1"
         >
           {uploadMut.isPending ? (
             <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
@@ -68,13 +68,13 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
       </div>
 
       {uploadMut.isError && (
-        <p className="text-[10px] text-red-400/80 break-words">{uploadMut.error.message}</p>
+        <p className="text-[10px] text-stop/80 break-words">{uploadMut.error.message}</p>
       )}
 
       {isLoading ? (
-        <p className="text-[11px] text-slate-500">Loading…</p>
+        <p className="text-[11px] text-fg-muted">Loading…</p>
       ) : videos.length === 0 ? (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-fg-muted">
           No driving videos yet — upload a clip of the motion you want to transfer.
         </p>
       ) : (
@@ -87,13 +87,13 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
                   type="button"
                   onClick={() => onSelect(v.id)}
                   title={v.label || v.video_url}
-                  className={`w-full flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
+                  className={`w-full flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 ${
                     isSelected
-                      ? 'border-transparent ring-2 ring-fuchsia-500/50'
-                      : 'border-white/10 hover:border-white/30'
+                      ? 'border-transparent ring-2 ring-clip/50'
+                      : 'border-line hover:border-bay-600'
                   }`}
                 >
-                  <div className="aspect-square bg-black/50">
+                  <div className="aspect-square bg-bay-900">
                     <video
                       src={api.getDrivingVideoUrl(v)}
                       muted
@@ -101,7 +101,7 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <span className="text-[9px] text-slate-400 truncate px-0.5 py-0.5 bg-black/60 group-hover/tile:text-slate-200">
+                  <span className="text-[9px] text-fg-muted truncate px-0.5 py-0.5 bg-bay-900 group-hover/tile:text-fg">
                     {v.label || v.video_url}
                   </span>
                 </button>
@@ -109,7 +109,7 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
                   type="button"
                   onClick={() => deleteMut.mutate(v.id)}
                   title="Delete"
-                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded bg-black/70 text-slate-400 hover:text-red-300 opacity-0 group-hover/tile:opacity-100 transition-opacity flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
+                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded bg-bay-950/80 text-fg-muted hover:text-stop opacity-0 group-hover/tile:opacity-100 transition-opacity flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600"
                 >
                   <Trash2 className="w-2.5 h-2.5" />
                 </button>

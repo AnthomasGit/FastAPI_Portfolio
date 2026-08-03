@@ -58,7 +58,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
           <ClipPoller key={c.id} videoId={c.id} sceneId={sceneId} />
         ))}
 
-      <div className="aspect-video rounded border border-white/10 bg-black/50 overflow-hidden flex items-center justify-center">
+      <div className="aspect-video rounded border border-line bg-bay-900 overflow-hidden flex items-center justify-center">
         {view === 'clip' && newestClip ? (
           <video
             src={api.getVideoFileUrl(newestClip.id)}
@@ -72,7 +72,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
             className="w-full h-full object-cover"
           />
         ) : (
-          <ImageIcon className="w-5 h-5 text-slate-700" />
+          <ImageIcon className="w-5 h-5 text-fg-faint" />
         )}
       </div>
 
@@ -87,9 +87,9 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
               className={`px-1.5 rounded text-[9px] py-0.5 capitalize transition-colors focus-visible:outline-none focus-visible:ring-1 ${
                 view === v
                   ? v === 'clip'
-                    ? 'bg-fuchsia-500/25 text-fuchsia-200 focus-visible:ring-fuchsia-400'
-                    : 'bg-indigo-500/25 text-indigo-200 focus-visible:ring-indigo-400'
-                  : 'text-slate-500 hover:text-slate-300 focus-visible:ring-white/30'
+                    ? 'bg-clip/60 text-clip focus-visible:ring-clip'
+                    : 'bg-clip/20 text-clip focus-visible:ring-clip'
+                  : 'text-fg-muted hover:text-fg focus-visible:ring-bay-600'
               }`}
             >
               {v}
@@ -103,7 +103,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
           autoFocus
           onChange={(e) => e.target.value && attachMut.mutate(e.target.value)}
           onBlur={() => setPicking(false)}
-          className="w-full text-[10px] bg-black/60 border border-white/10 rounded text-slate-200 py-1 focus:outline-none"
+          className="w-full text-[10px] bg-bay-900 border border-line rounded text-fg py-1 focus:outline-none"
         >
           <option value="">Pick a still…</option>
           {availableStills.map((s) => (
@@ -113,7 +113,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
       ) : (
         <button
           onClick={() => setPicking(true)}
-          className="w-full text-[10px] text-slate-400 hover:text-slate-200 border border-white/10 rounded py-1 hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          className="w-full text-[10px] text-fg-muted hover:text-fg border border-line rounded py-1 hover:bg-bay-800 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600"
         >
           {still ? 'Change still' : 'Attach still'}
         </button>
@@ -125,7 +125,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
         onClick={() =>
           navigate(`/project/${projectId}/scene/${sceneId}/shot/${shot.id}/clip`)
         }
-        className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
+        className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-clip/60 text-clip hover:bg-clip/60 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-clip"
       >
         {clipInflight ? (
           <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
@@ -135,7 +135,7 @@ export function ShotStillCell({ shot, sceneId, availableStills }) {
         {clipInflight ? 'Generating…' : newestClip ? 'Regenerate clip' : 'Generate clip'}
       </button>
       {clipError && (
-        <p className="text-[9px] text-red-400/80 break-words">{clipError.error}</p>
+        <p className="text-[9px] text-stop/80 break-words">{clipError.error}</p>
       )}
     </div>
   );

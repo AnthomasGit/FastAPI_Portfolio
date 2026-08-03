@@ -13,12 +13,12 @@ export function WorkflowSettings({ specs, values, onChange }) {
       {specs.map((spec) => (
         <div key={spec.id} className={spec.step != null ? 'col-span-2' : undefined}>
           <label className="block">
-            <span className="block text-[9px] text-slate-500 mb-0.5">{spec.label}</span>
+            <span className="block text-[9px] text-fg-muted mb-0.5">{spec.label}</span>
             {spec.options ? (
               <select
                 value={values[spec.id]}
                 onChange={(e) => onChange(spec.id, Number(e.target.value))}
-                className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
+                className="w-full text-[11px] bg-bay-900 border border-line rounded px-2 py-1 text-fg focus:outline-none focus:ring-1 focus:ring-clip"
               >
                 {spec.options.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -33,9 +33,9 @@ export function WorkflowSettings({ specs, values, onChange }) {
                   step={spec.step}
                   value={values[spec.id]}
                   onChange={(e) => onChange(spec.id, Number(e.target.value))}
-                  className="flex-1 accent-fuchsia-500"
+                  className="flex-1 accent-lead-500"
                 />
-                <span className="text-[10px] text-slate-400 w-9 text-right shrink-0">
+                <span className="text-[10px] text-fg-muted w-9 text-right shrink-0">
                   {values[spec.id]}
                 </span>
               </div>
@@ -46,11 +46,11 @@ export function WorkflowSettings({ specs, values, onChange }) {
                 max={spec.max}
                 value={values[spec.id]}
                 onChange={(e) => onChange(spec.id, Number(e.target.value))}
-                className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
+                className="w-full text-[11px] bg-bay-900 border border-line rounded px-2 py-1 text-fg focus:outline-none focus:ring-1 focus:ring-clip"
               />
             )}
           </label>
-          {spec.help && <p className="text-[9px] text-slate-600 mt-1 leading-snug">{spec.help}</p>}
+          {spec.help && <p className="text-[9px] text-fg-faint mt-1 leading-snug">{spec.help}</p>}
         </div>
       ))}
     </div>

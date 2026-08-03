@@ -6,9 +6,22 @@ import { useProjectStore } from '../stores/projectStore';
 import { StorySummary } from '../components/storyboard/StorySummary';
 import { SceneTable } from '../components/storyboard/SceneTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import { Button } from '../components/ui/button';
 import { Play, GitBranch, Loader2 } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
+
+function DeptPanel({ title, count, accent, empty, children }) {
+  return (
+    <section className="rounded-frame border border-line bg-bay-850">
+      <header className="flex items-center gap-2 px-4 py-3 border-b border-line">
+        <h2 className={`text-sm font-semibold ${accent}`}>{title}</h2>
+        <span className="font-mono text-[11px] text-fg-faint">{count}</span>
+      </header>
+      <div className="p-4">
+        {count === 0 ? <p className="text-xs text-fg-faint">{empty}</p> : children}
+      </div>
+    </section>
+  );
+}
 
 export function Storyboard() {
   const { id } = useParams();
@@ -38,122 +51,122 @@ export function Storyboard() {
     return () => setCurrentProject(null);
   }, [project, setCurrentProject]);
 
-  if (isLoading) return <div className="flex justify-center p-12"><div className="animate-spin h-8 w-8 border-2 border-cyan-400 border-t-transparent rounded-full" /></div>;
-  if (error) return <div className="text-center p-12 text-red-400">Failed to load project: {error.message}</div>;
+  if (isLoading) {
+    return (
+      <div className="flex justify-center p-16">
+        <Loader2 className="w-5 h-5 animate-spin text-lead-500" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p role="alert" className="max-w-2xl mx-auto mt-10 rounded-frame border border-stop/40 bg-stop/10 px-3 py-2 text-xs text-stop">
+        Couldn't load this project: {error.message}
+      </p>
+    );
+  }
   if (!project) return null;
 
+  const scenes = project.scenes || [];
+  const characters = project.characters || [];
+  const locations = project.locations || [];
+  const props = project.props || [];
+
+  const tab = 'text-[11px] px-3 py-1.5 font-medium text-fg-muted hover:text-fg transition-colors';
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Project Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{project.title || 'Untitled Project'}</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Created {new Date(project.created_at).toLocaleDateString()}
+    <div className="max-w-[1600px] mx-auto px-5 py-8">
+      <div className="flex items-end justify-between gap-4 mb-5 pb-4 border-b border-line">
+        <div className="min-w-0">
+          <p className="label-slug mb-1.5">
+            Production · {scenes.length} scene{scenes.length === 1 ? '' : 's'}
           </p>
+          <h1 className="font-mono text-2xl font-bold text-fg truncate">
+            {project.title || 'Untitled project'}
+          </h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
+        <div className="flex items-center gap-2 shrink-0">
+          <button
             onClick={() => navigate(`/project/${id}/graph`)}
-            className="border-white/10 text-slate-300 hover:text-white"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-frame border border-line text-xs text-fg-muted hover:text-fg hover:bg-bay-800 transition-colors"
           >
-            <GitBranch className="w-4 h-4 mr-1" />
-            Graph
-          </Button>
-          <Button
-            size="sm"
+            <GitBranch className="w-3.5 h-3.5" /> Graph
+          </button>
+          <button
             onClick={handleRunAll}
             disabled={runningAll}
-            className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-frame bg-lead-500 text-bay-950 text-xs font-semibold hover:bg-lead-400 transition-colors disabled:bg-bay-700 disabled:text-fg-faint"
+            title="Queue an image for every scene in this project"
           >
-            {runningAll ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Play className="w-4 h-4 mr-1" />}
-            {runningAll ? 'Submitting...' : 'Run All Scenes'}
-          </Button>
+            {runningAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+            {runningAll ? 'Queueing…' : 'Render all scenes'}
+          </button>
         </div>
       </div>
 
-      {/* Story Summary */}
       <StorySummary summary={project.story_summary} />
 
-      {/* Centered tab bar */}
       <Tabs defaultValue="storyboard" className="block">
-        <TabsList variant="line" className="justify-center w-full border-b border-white/10 h-9 rounded-none bg-transparent">
-          <TabsTrigger value="storyboard" className="text-xs px-3 py-1 text-slate-400 data-active:text-cyan-300">Storyboard</TabsTrigger>
-          <TabsTrigger value="characters" className="text-xs px-3 py-1 text-slate-400 data-active:text-emerald-300">Characters</TabsTrigger>
-          <TabsTrigger value="locations" className="text-xs px-3 py-1 text-slate-400 data-active:text-amber-300">Locations</TabsTrigger>
-          <TabsTrigger value="props" className="text-xs px-3 py-1 text-slate-400 data-active:text-purple-300">Props</TabsTrigger>
-          <TabsTrigger value="assets3d" className="text-xs px-3 py-1 text-slate-400 data-active:text-blue-300">3D Assets</TabsTrigger>
+        <TabsList variant="line" className="w-full justify-start gap-1 border-b border-line h-9 rounded-none bg-transparent p-0">
+          <TabsTrigger value="storyboard" className={`${tab} data-active:text-fg`}>Storyboard</TabsTrigger>
+          <TabsTrigger value="characters" className={`${tab} data-active:text-cast`}>Characters</TabsTrigger>
+          <TabsTrigger value="locations" className={`${tab} data-active:text-set`}>Locations</TabsTrigger>
+          <TabsTrigger value="props" className={`${tab} data-active:text-prop`}>Props</TabsTrigger>
+          <TabsTrigger value="assets3d" className={`${tab} data-active:text-fg`}>3D assets</TabsTrigger>
         </TabsList>
 
-        <div className="pt-6">
+        <div className="pt-5">
           <TabsContent value="storyboard">
-            <SceneTable scenes={project.scenes || []} projectId={id} />
+            <SceneTable scenes={scenes} projectId={id} />
           </TabsContent>
 
           <TabsContent value="characters">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Characters</h3>
-              {project.characters && project.characters.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {project.characters.map((ch) => (
-                    <div key={ch.id} className="bg-black/40 rounded-xl p-4 border border-white/5">
-                      <h4 className="font-medium text-emerald-300">{ch.name}</h4>
-                      {ch.description && <p className="text-xs text-slate-400 mt-1">{ch.description}</p>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm">No characters yet.</p>
-              )}
-            </div>
+            <DeptPanel title="Characters" count={characters.length} accent="text-cast" empty="No characters yet. Add them from a scene.">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {characters.map((ch) => (
+                  <div key={ch.id} className="rounded-frame border border-line bg-bay-900 p-3">
+                    <h3 className="font-mono text-sm font-bold text-cast">{ch.name}</h3>
+                    {ch.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{ch.description}</p>}
+                  </div>
+                ))}
+              </div>
+            </DeptPanel>
           </TabsContent>
 
           <TabsContent value="locations">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Locations</h3>
-              {project.locations && project.locations.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {project.locations.map((loc) => (
-                    <div key={loc.id} className="bg-black/40 rounded-xl p-4 border border-white/5">
-                      <h4 className="font-medium text-amber-300">{loc.name}</h4>
-                      {loc.description && <p className="text-xs text-slate-400 mt-1">{loc.description}</p>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm">No locations yet.</p>
-              )}
-            </div>
+            <DeptPanel title="Locations" count={locations.length} accent="text-set" empty="No locations yet. Add them from a scene.">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {locations.map((loc) => (
+                  <div key={loc.id} className="rounded-frame border border-line bg-bay-900 p-3">
+                    <h3 className="font-mono text-sm font-bold text-set">{loc.name}</h3>
+                    {loc.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{loc.description}</p>}
+                  </div>
+                ))}
+              </div>
+            </DeptPanel>
           </TabsContent>
 
           <TabsContent value="props">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Props</h3>
-              {project.props && project.props.length > 0 ? (
-                <div className="flex flex-wrap gap-3">
-                  {project.props.map((p) => (
-                    <div key={p.id} className="bg-black/40 rounded-xl px-4 py-2 border border-white/5">
-                      <span className="text-sm text-purple-300">{p.name}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm">No props yet.</p>
-              )}
-            </div>
+            <DeptPanel title="Props" count={props.length} accent="text-prop" empty="No props yet. Add them from a scene.">
+              <div className="flex flex-wrap gap-1.5">
+                {props.map((p) => (
+                  <span key={p.id} className="rounded-frame border border-line bg-bay-900 px-2.5 py-1 font-mono text-xs text-prop">
+                    {p.name}
+                  </span>
+                ))}
+              </div>
+            </DeptPanel>
           </TabsContent>
 
           <TabsContent value="assets3d">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-4">3D Assets</h3>
-              <AssetDrawer
-                projectId={id}
-                characters={project.characters || []}
-                props={project.props || []}
-              />
-            </div>
+            <section className="rounded-frame border border-line bg-bay-850">
+              <header className="flex items-center gap-2 px-4 py-3 border-b border-line">
+                <h2 className="text-sm font-semibold text-fg">3D assets</h2>
+              </header>
+              <div className="p-4">
+                <AssetDrawer projectId={id} characters={characters} props={props} />
+              </div>
+            </section>
           </TabsContent>
         </div>
       </Tabs>

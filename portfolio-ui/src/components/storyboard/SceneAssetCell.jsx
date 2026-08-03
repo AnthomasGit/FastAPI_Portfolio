@@ -10,34 +10,34 @@ const CONFIG = {
   characters: {
     singular: 'character', label: 'Character', itemsKey: 'characters', linksKey: 'character_links',
     list: api.listCharacters, create: api.createCharacter,
-    ring: 'ring-emerald-500/40', text: 'text-emerald-300', addBtn: 'bg-emerald-600 hover:bg-emerald-500',
+    ring: 'ring-cast/50', text: 'text-cast', addBtn: 'bg-cast text-bay-950 hover:bg-cast/80',
   },
   locations: {
     singular: 'location', label: 'Location', itemsKey: 'locations', linksKey: 'location_links',
     list: api.listLocations, create: api.createLocation,
-    ring: 'ring-amber-500/40', text: 'text-amber-300', addBtn: 'bg-amber-600 hover:bg-amber-500',
+    ring: 'ring-set/50', text: 'text-set', addBtn: 'bg-set text-bay-950 hover:bg-set/80',
   },
   props: {
     singular: 'prop', label: 'Prop', itemsKey: 'props', linksKey: 'prop_links',
     list: api.listProps, create: api.createProp,
-    ring: 'ring-purple-500/40', text: 'text-purple-300', addBtn: 'bg-purple-600 hover:bg-purple-500',
+    ring: 'ring-prop/50', text: 'text-prop', addBtn: 'bg-prop text-bay-950 hover:bg-prop/80',
   },
 };
 
 function AssetChip({ entity, cfg, link, onUnlink }) {
   const thumb = api.getLinkThumbUrl(link);
   return (
-    <div className="group/chip flex items-center gap-1 pl-0.5 pr-1 py-0.5 rounded-full bg-white/5 border border-white/10">
+    <div className="group/chip flex items-center gap-1 pl-0.5 pr-1 py-0.5 rounded-full bg-bay-800 border border-line">
       {thumb ? (
         <img src={thumb} alt="" className={`w-5 h-5 rounded-full object-cover ring-1 ${cfg.ring}`} />
       ) : (
-        <span className="w-5 h-5 rounded-full bg-black/40 border border-white/10" />
+        <span className="w-5 h-5 rounded-full bg-bay-900 border border-line" />
       )}
       <span className={`text-[10px] truncate max-w-[70px] ${cfg.text}`}>{entity.name}</span>
       <button
         onClick={onUnlink}
         title="Remove from scene"
-        className="opacity-0 group-hover/chip:opacity-100 p-0.5 rounded text-slate-500 hover:text-red-400 transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400 focus-visible:opacity-100"
+        className="opacity-0 group-hover/chip:opacity-100 p-0.5 rounded text-fg-muted hover:text-stop transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stop focus-visible:opacity-100"
       >
         <X className="w-2.5 h-2.5" />
       </button>
@@ -99,32 +99,32 @@ export function SceneAssetCell({ scene, projectId, entityType }) {
       <div className="relative">
         <button
           onClick={() => setPickerOpen((v) => !v)}
-          className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
+          className="w-5 h-5 rounded-full bg-bay-700 flex items-center justify-center hover:bg-bay-600 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600"
           title={`Add ${cfg.label.toLowerCase()}`}
         >
-          <Plus className="w-3 h-3 text-slate-400" />
+          <Plus className="w-3 h-3 text-fg-muted" />
         </button>
 
         {pickerOpen && (
-          <div className="absolute z-20 top-6 left-0 w-52 rounded-lg border border-white/10 bg-slate-900 p-2 space-y-2 shadow-xl">
+          <div className="absolute z-20 top-6 left-0 w-52 rounded-frame border border-line bg-bay-850 p-2 space-y-2 shadow-xl">
             <div className="flex flex-wrap gap-1">
               {available.length === 0 && (
-                <p className="text-[10px] text-slate-500">None available — create below.</p>
+                <p className="text-[10px] text-fg-muted">None available — create below.</p>
               )}
               {available.map((e) => (
                 <button
                   key={e.id}
                   onClick={() => linkMut.mutate(e.id)}
                   disabled={linkMut.isPending}
-                  className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-slate-300 hover:bg-white/10 transition-colors disabled:opacity-40"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-line text-fg hover:bg-bay-700 transition-colors disabled:opacity-40"
                 >
                   + {e.name}
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 pt-2 border-t border-white/10">
+            <div className="flex gap-1 pt-2 border-t border-line">
               <input
-                className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[11px] text-white focus:outline-none focus:border-white/30"
+                className="flex-1 min-w-0 bg-bay-900 border border-line rounded px-1.5 py-0.5 text-[11px] text-fg focus:outline-none focus:border-bay-600"
                 placeholder={`New ${cfg.label.toLowerCase()}...`}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -133,7 +133,7 @@ export function SceneAssetCell({ scene, projectId, entityType }) {
               <button
                 onClick={() => newName.trim() && createMut.mutate(newName.trim())}
                 disabled={createMut.isPending || !newName.trim()}
-                className={`px-2 py-0.5 rounded text-[11px] text-white disabled:opacity-40 ${cfg.addBtn}`}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold disabled:opacity-40 ${cfg.addBtn}`}
               >
                 Add
               </button>

@@ -8,9 +8,9 @@ import { sceneCandidates } from './referenceCandidates';
 // an ordered list, not a set, and tiles show their slot number.
 
 const TYPE_STYLE = {
-  character: { ring: 'ring-emerald-500/50', text: 'text-emerald-300', label: 'Character' },
-  prop: { ring: 'ring-violet-500/50', text: 'text-violet-300', label: 'Prop' },
-  location: { ring: 'ring-amber-500/50', text: 'text-amber-300', label: 'Location' },
+  character: { ring: 'ring-cast/50', text: 'text-cast', label: 'Character' },
+  prop: { ring: 'ring-prop/50', text: 'text-prop', label: 'Prop' },
+  location: { ring: 'ring-set/50', text: 'text-set', label: 'Location' },
 };
 
 function Tile({ candidate, slot, onClick, disabled }) {
@@ -22,25 +22,25 @@ function Tile({ candidate, slot, onClick, disabled }) {
       disabled={disabled}
       aria-pressed={Boolean(slot)}
       title={`${style.label}: ${candidate.name}`}
-      className={`relative group/tile flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 disabled:opacity-30 disabled:cursor-not-allowed ${
-        slot ? `border-transparent ring-2 ${style.ring}` : 'border-white/10 hover:border-white/30'
+      className={`relative group/tile flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 disabled:opacity-30 disabled:cursor-not-allowed ${
+        slot ? `border-transparent ring-2 ${style.ring}` : 'border-line hover:border-bay-600'
       }`}
     >
-      <div className="aspect-square bg-black/50">
+      <div className="aspect-square bg-bay-900">
         {candidate.thumb ? (
           <img src={candidate.thumb} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <ImageIcon className="w-4 h-4 text-slate-700" />
+            <ImageIcon className="w-4 h-4 text-fg-faint" />
           </div>
         )}
       </div>
       {slot && (
-        <span className="absolute top-1 left-1 w-4 h-4 rounded-full bg-black/80 text-[9px] font-semibold text-white flex items-center justify-center">
+        <span className="absolute top-1 left-1 w-4 h-4 rounded-full bg-bay-950/85 text-[9px] font-semibold text-fg flex items-center justify-center">
           {slot}
         </span>
       )}
-      <span className={`text-[9px] truncate px-1 py-0.5 bg-black/70 ${style.text}`}>
+      <span className={`text-[9px] truncate px-1 py-0.5 bg-bay-950/80 ${style.text}`}>
         {candidate.name}
       </span>
     </button>
@@ -59,15 +59,15 @@ export function ReferenceSlots({
     <div className="space-y-4">
       <div>
         <div className="flex items-baseline justify-between mb-1.5">
-          <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+          <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
             Subjects
           </h3>
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[10px] text-fg-muted">
             {selectedKeys.length} / {maxRefs} slots
           </span>
         </div>
         {subjects.length === 0 ? (
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-fg-muted">
             No characters or props with a chosen reference are linked to this scene. Pick their
             per-scene reference on the Scene Detail page first.
           </p>
@@ -91,11 +91,11 @@ export function ReferenceSlots({
 
       {allowBackground && (
         <div>
-          <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+          <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-1.5">
             Background plate
           </h3>
           {locations.length === 0 ? (
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-fg-muted">
               No location with a chosen reference is linked to this scene.
             </p>
           ) : (
@@ -105,13 +105,13 @@ export function ReferenceSlots({
                 onClick={() => onSelectBackground(null)}
                 aria-pressed={!backgroundKey}
                 title="No background"
-                className={`aspect-square rounded border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
+                className={`aspect-square rounded border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 ${
                   !backgroundKey
-                    ? 'border-transparent ring-2 ring-white/30 bg-black/60'
-                    : 'border-white/10 bg-black/40 hover:bg-black/60'
+                    ? 'border-transparent ring-2 ring-bay-600 bg-bay-900'
+                    : 'border-line bg-bay-900 hover:bg-bay-900'
                 }`}
               >
-                <X className="w-4 h-4 text-slate-500" />
+                <X className="w-4 h-4 text-fg-muted" />
               </button>
               {locations.map((c) => (
                 <Tile

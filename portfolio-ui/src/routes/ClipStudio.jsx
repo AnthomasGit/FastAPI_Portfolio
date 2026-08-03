@@ -158,7 +158,7 @@ export function ClipStudio() {
   if (!shot) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <p className="text-sm text-slate-500">Loading shot…</p>
+        <p className="text-sm text-fg-muted">Loading shot…</p>
       </div>
     );
   }
@@ -195,16 +195,16 @@ export function ClipStudio() {
       <div className="flex items-center gap-3">
         <Link
           to={`/project/${projectId}/scene/${sceneId}`}
-          className="text-slate-500 hover:text-slate-200 transition-colors"
+          className="text-fg-muted hover:text-fg transition-colors"
           aria-label="Back to scene"
         >
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-slate-100 truncate">
+          <h1 className="text-lg font-semibold text-fg truncate">
             Shot {shot.shot_number || '—'} · Clip Studio
           </h1>
-          <p className="text-[11px] text-slate-500 truncate">
+          <p className="text-[11px] text-fg-muted truncate">
             {[shot.shot_size, shot.angle, shot.movement].filter(Boolean).join(' · ') ||
               'No coverage metadata set'}
           </p>
@@ -214,14 +214,14 @@ export function ClipStudio() {
         </span>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+      <div className="rounded-frame border border-line bg-bay-900 px-3 py-2">
         <PipelineStepper steps={steps} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="space-y-5 min-w-0">
           <section>
-            <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+            <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
               {workflowSectionNum} · Workflow
             </h2>
             <WorkflowCards
@@ -236,7 +236,7 @@ export function ClipStudio() {
 
           {refsSectionNum && (
             <section>
-              <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
                 {refsSectionNum} · References
               </h2>
               <ReferenceSlots
@@ -253,7 +253,7 @@ export function ClipStudio() {
 
           {drivingVideoSectionNum && (
             <section>
-              <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
                 {drivingVideoSectionNum} · Motion source
               </h2>
               <DrivingVideoPicker
@@ -261,7 +261,7 @@ export function ClipStudio() {
                 selectedId={drivingVideoId}
                 onSelect={setDrivingVideoId}
               />
-              <p className="text-[9px] text-amber-400/70 mt-2">
+              <p className="text-[9px] text-set/70 mt-2">
                 Needs a clearly visible person in both the reference image and this video — SAM3
                 tracks both, and an untrackable one yields empty masks and a failed generation.
               </p>
@@ -269,24 +269,24 @@ export function ClipStudio() {
           )}
 
           <section className="space-y-3">
-            <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+            <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
               {promptSectionNum} · Prompt
             </h2>
             {selectedWorkflow?.dual_prompt && (
               <div>
-                <label className="block text-[10px] text-slate-500 mb-1">
+                <label className="block text-[10px] text-fg-muted mb-1">
                   Identities — who each reference is (auto-composed from your selection)
                 </label>
                 <textarea
                   value={globalPrompt}
                   onChange={(e) => setPrompts((p) => ({ ...p, global: e.target.value }))}
                   rows={4}
-                  className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1.5 text-slate-200 resize-y focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
+                  className="w-full text-[11px] bg-bay-900 border border-line rounded px-2 py-1.5 text-fg resize-y focus:outline-none focus:ring-1 focus:ring-clip"
                 />
               </div>
             )}
             <div>
-              <label className="block text-[10px] text-slate-500 mb-1">
+              <label className="block text-[10px] text-fg-muted mb-1">
                 {selectedWorkflow?.dual_prompt
                   ? 'Action & dialogue — what happens in the shot'
                   : 'Motion prompt — prefilled from this shot’s coverage metadata'}
@@ -295,14 +295,14 @@ export function ClipStudio() {
                 value={localPrompt}
                 onChange={(e) => setPrompts((p) => ({ ...p, local: e.target.value }))}
                 rows={selectedWorkflow?.dual_prompt ? 7 : 5}
-                className="w-full text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1.5 text-slate-200 resize-y focus:outline-none focus:ring-1 focus:ring-fuchsia-400"
+                className="w-full text-[11px] bg-bay-900 border border-line rounded px-2 py-1.5 text-fg resize-y focus:outline-none focus:ring-1 focus:ring-clip"
               />
             </div>
           </section>
 
           {settingSpecs.length > 0 && (
-            <details className="rounded-lg border border-white/10 bg-black/30">
-              <summary className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+            <details className="rounded-frame border border-line bg-bay-900">
+              <summary className="px-3 py-2 text-[10px] font-semibold text-fg-muted uppercase tracking-wider cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
                 Settings
               </summary>
               {/* Rendered entirely from the registry's per-workflow spec — a new
@@ -321,7 +321,7 @@ export function ClipStudio() {
               type="button"
               onClick={() => generateMut.mutate()}
               disabled={!canGenerate || generateMut.isPending}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400"
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-frame bg-clip/60 text-clip hover:bg-clip/60 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-clip"
             >
               {generateMut.isPending || inflight ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
@@ -331,7 +331,7 @@ export function ClipStudio() {
               {inflight ? 'Generating…' : clips.length ? 'Generate another clip' : 'Generate clip'}
             </button>
             {generateMut.isError && (
-              <p className="text-[10px] text-red-400/80 break-words">
+              <p className="text-[10px] text-stop/80 break-words">
                 {generateMut.error?.message}
               </p>
             )}
@@ -339,7 +339,7 @@ export function ClipStudio() {
         </div>
 
         <aside className="space-y-2 min-w-0">
-          <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+          <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
             Results
           </h2>
           <ClipResults

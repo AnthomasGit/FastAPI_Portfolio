@@ -1,2 +1,124 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* UI face: Geist. Data face: Courier Prime — the typeface screenplays are
+   actually set in. Chrome stays quiet; the film document reads as a film
+   document. */
+@import "@fontsource-variable/geist";
+@import "@fontsource/courier-prime/400.css";
+@import "@fontsource/courier-prime/700.css";
+
+/* ── Edit bay ────────────────────────────────────────────────────────────────
+   Surfaces are one hue family (218°, ~14% sat) stepped by brightness, not
+   stacked alpha: inset controls sit darker than their surface, raised ones
+   lighter. Alpha-over-gradient is why the old chrome went muddy behind
+   imagery — here a card is one opaque value and thumbnails read true.
+   One accent only: tungsten amber, the colour of film leader and a 3200K
+   practical. Everything else is neutral or a department colour.              */
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
+
+  --color-bay-950: #0a0c10; /* page */
+  --color-bay-900: #0f1217; /* inset: fields, wells, image mattes */
+  --color-bay-850: #151920; /* surface: cards, table body */
+  --color-bay-800: #1c212a; /* raised: header rows, hover */
+  --color-bay-700: #262d38; /* raised hover, strong border */
+  --color-bay-600: #38414f; /* disabled ink, heavy rule */
+  --color-line: #232a34; /* hairline */
+
+  --color-fg: #e6e9ee;
+  --color-fg-muted: #939caa;
+  --color-fg-faint: #5f6875;
+
+  --color-lead-400: #ffc163; /* lighter variation */
+  --color-lead-500: #f0a22e; /* base accent */
+  --color-lead-600: #ce7f12; /* darker variation */
+
+  /* Department colours, levelled to the same apparent luminosity on bay-850
+     so no category shouts over another. */
+  --color-cast: #5fd0a6;
+  --color-set: #7fb2ff;
+  --color-prop: #c99bf5;
+  --color-clip: #dc8cf0;
+
+  --color-ok: #5fd0a6;
+  --color-warn: #f0a22e;
+  --color-stop: #f2637e;
+
+  --radius-frame: 4px;
+  --radius-md: 4px;
+
+  /* The shadcn primitives in components/ui reference these semantic names.
+     They were never defined, so every Button, Dialog and Popover rendered
+     with a transparent background and an invisible focus ring. Point them at
+     the surfaces above. */
+  --color-background: var(--color-bay-950);
+  --color-foreground: var(--color-fg);
+  --color-card: var(--color-bay-850);
+  --color-card-foreground: var(--color-fg);
+  --color-popover: var(--color-bay-850);
+  --color-popover-foreground: var(--color-fg);
+  --color-primary: var(--color-lead-500);
+  --color-primary-foreground: var(--color-bay-950);
+  --color-secondary: var(--color-bay-800);
+  --color-secondary-foreground: var(--color-fg);
+  --color-muted: var(--color-bay-800);
+  --color-muted-foreground: var(--color-fg-muted);
+  --color-accent: var(--color-bay-800);
+  --color-accent-foreground: var(--color-fg);
+  --color-destructive: var(--color-stop);
+  --color-destructive-foreground: var(--color-bay-950);
+  --color-border: var(--color-line);
+  --color-input: var(--color-bay-900);
+  --color-ring: var(--color-lead-500);
+}
+
+html {
+  background: var(--color-bay-950);
+  color-scheme: dark;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Structural labels use the vernacular of a call sheet: small, uppercase,
+   widely tracked. Not decoration — it marks "this is a field name". */
+@utility label-slug {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-fg-faint);
+}
+
+/* The signature: a clapperboard cap. Sits on anything that stands for a scene,
+   at exactly two sizes — a table row and a page header. */
+@utility clapper {
+  background-image: repeating-linear-gradient(
+    115deg,
+    var(--color-fg) 0 7px,
+    var(--color-bay-950) 7px 14px
+  );
+}
+
+::selection {
+  background: var(--color-lead-500);
+  color: var(--color-bay-950);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-lead-500);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

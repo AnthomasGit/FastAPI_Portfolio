@@ -3,16 +3,16 @@
 // line up with these dropdown options. Each field cycles its own set of
 // colors so values are visually distinct within a column.
 const PALETTE = [
-  { bg: 'bg-sky-500/15', text: 'text-sky-300', ring: 'focus:ring-sky-400' },
-  { bg: 'bg-emerald-500/15', text: 'text-emerald-300', ring: 'focus:ring-emerald-400' },
-  { bg: 'bg-amber-500/15', text: 'text-amber-300', ring: 'focus:ring-amber-400' },
-  { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-300', ring: 'focus:ring-fuchsia-400' },
-  { bg: 'bg-violet-500/15', text: 'text-violet-300', ring: 'focus:ring-violet-400' },
-  { bg: 'bg-rose-500/15', text: 'text-rose-300', ring: 'focus:ring-rose-400' },
-  { bg: 'bg-teal-500/15', text: 'text-teal-300', ring: 'focus:ring-teal-400' },
-  { bg: 'bg-orange-500/15', text: 'text-orange-300', ring: 'focus:ring-orange-400' },
+  { bg: 'bg-set/15', text: 'text-set', ring: 'focus:ring-set' },
+  { bg: 'bg-cast/15', text: 'text-cast', ring: 'focus:ring-cast' },
+  { bg: 'bg-lead-500/15', text: 'text-lead-400', ring: 'focus:ring-lead-500' },
+  { bg: 'bg-clip/15', text: 'text-clip', ring: 'focus:ring-clip' },
+  { bg: 'bg-prop/15', text: 'text-prop', ring: 'focus:ring-prop' },
+  { bg: 'bg-stop/15', text: 'text-stop', ring: 'focus:ring-stop' },
+  { bg: 'bg-ok/15', text: 'text-ok', ring: 'focus:ring-ok' },
+  { bg: 'bg-fg/10', text: 'text-fg', ring: 'focus:ring-fg' },
 ];
-const NEUTRAL = { bg: 'bg-white/5', text: 'text-slate-400', ring: 'focus:ring-white/30' };
+const NEUTRAL = { bg: 'bg-bay-800', text: 'text-fg-muted', ring: 'focus:ring-lead-500' };
 
 function buildField(options) {
   const colorOf = {};

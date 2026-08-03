@@ -48,22 +48,22 @@ export function shotReadiness(shot) {
 
   if (state === 'generating') {
     return { key: 'generating', label: 'Generating', met, total: reqs.length, blocking,
-      cls: 'bg-sky-500/15 text-sky-300' };
+      cls: 'bg-set/15 text-set' };
   }
   if (state === 'done') {
     return { key: 'done', label: 'Has clip', met, total: reqs.length, blocking,
-      cls: 'bg-fuchsia-500/15 text-fuchsia-300' };
+      cls: 'bg-clip/15 text-clip' };
   }
   if (state === 'failed') {
     return { key: 'failed', label: 'Failed', met, total: reqs.length, blocking,
-      cls: 'bg-red-500/15 text-red-300' };
+      cls: 'bg-stop/15 text-stop' };
   }
   if (blocking.length) {
     return { key: 'draft', label: 'Draft', met, total: reqs.length, blocking,
-      cls: 'bg-white/5 text-slate-400' };
+      cls: 'bg-bay-800 text-fg-muted' };
   }
   return { key: 'ready', label: 'Ready', met, total: reqs.length, blocking,
-    cls: 'bg-emerald-500/15 text-emerald-300' };
+    cls: 'bg-ok/15 text-ok' };
 }
 
 /** Scene-level progress for the shot-list header. */

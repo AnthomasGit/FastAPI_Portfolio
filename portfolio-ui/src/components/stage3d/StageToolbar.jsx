@@ -69,7 +69,7 @@ export function StageToolbar() {
         variant="ghost"
         onClick={undo}
         disabled={!canUndo}
-        className="text-slate-400 hover:text-white disabled:opacity-30"
+        className="text-fg-muted hover:text-fg disabled:opacity-30"
         title="Undo (Ctrl+Z)"
       >
         <Undo2 className="w-3.5 h-3.5" />
@@ -79,17 +79,17 @@ export function StageToolbar() {
         variant="ghost"
         onClick={redo}
         disabled={!canRedo}
-        className="text-slate-400 hover:text-white disabled:opacity-30"
+        className="text-fg-muted hover:text-fg disabled:opacity-30"
         title="Redo (Ctrl+Shift+Z)"
       >
         <Redo2 className="w-3.5 h-3.5" />
       </Button>
-      <div className="w-px h-5 bg-white/10 mx-1" />
+      <div className="w-px h-5 bg-bay-700 mx-1" />
       <Button
         size="xs"
         variant="outline"
         onClick={() => addBlockout('floor')}
-        className="border-white/10 text-slate-300 hover:text-white"
+        className="border-line text-fg hover:text-fg"
         title="Add floor"
       >
         <Grid className="w-3.5 h-3.5" />
@@ -98,7 +98,7 @@ export function StageToolbar() {
         size="xs"
         variant="outline"
         onClick={() => addBlockout('box')}
-        className="border-white/10 text-slate-300 hover:text-white"
+        className="border-line text-fg hover:text-fg"
         title="Add box"
       >
         <Box className="w-3.5 h-3.5" />
@@ -107,7 +107,7 @@ export function StageToolbar() {
         size="xs"
         variant="outline"
         onClick={() => addBlockout('plane')}
-        className="border-white/10 text-slate-300 hover:text-white"
+        className="border-line text-fg hover:text-fg"
         title="Add plane"
       >
         <Square className="w-3.5 h-3.5" />
@@ -115,17 +115,17 @@ export function StageToolbar() {
 
       {selection && (
         <>
-          <div className="w-px h-5 bg-white/10 mx-1" />
+          <div className="w-px h-5 bg-bay-700 mx-1" />
           <Button
             size="xs"
             variant="ghost"
             onClick={deleteSelected}
-            className="text-rose-400 hover:text-rose-300 hover:bg-rose-400/10"
+            className="text-stop hover:text-stop hover:bg-stop/15"
             title="Delete selected"
           >
             <X className="w-3.5 h-3.5" />
           </Button>
-          <div className="w-px h-5 bg-white/10 mx-1" />
+          <div className="w-px h-5 bg-bay-700 mx-1" />
           {MODES.map(({ key, icon: Icon, label }) => (
             <Button
               key={key}
@@ -134,8 +134,8 @@ export function StageToolbar() {
               onClick={() => setTransformMode(key)}
               className={
                 transformMode === key
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-lead-500 text-bay-950'
+                  : 'text-fg-muted hover:text-fg'
               }
               title={label}
             >
@@ -149,20 +149,20 @@ export function StageToolbar() {
         size="xs"
         variant={fastMode ? 'default' : 'ghost'}
         onClick={toggleFastMode}
-        className={fastMode ? 'bg-amber-500 text-black hover:bg-amber-400' : 'text-slate-400 hover:text-white'}
+        className={fastMode ? 'bg-lead-500 text-black hover:bg-lead-500' : 'text-fg-muted hover:text-fg'}
         title="Fast movement for WASD controls (toggle with Shift)"
       >
         <Zap className="w-3.5 h-3.5" />
       </Button>
 
-      <div className="w-px h-5 bg-white/10 mx-1" />
+      <div className="w-px h-5 bg-bay-700 mx-1" />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             size="xs"
             variant="outline"
-            className="border-white/10 text-slate-300 hover:text-white"
+            className="border-line text-fg hover:text-fg"
             title="Which maps Capture produces (color frame is always included)"
           >
             <Layers className="w-3.5 h-3.5 mr-1" />
@@ -171,19 +171,19 @@ export function StageToolbar() {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="bg-slate-900 border-white/10 min-w-[13rem]"
+          className="bg-bay-850 border-line min-w-[13rem]"
         >
           {CAPTURE_MODES.map((mode) => (
             <DropdownMenuItem
               key={mode.key}
               onSelect={() => setCaptureMode(mode.key)}
-              className="text-slate-200 focus:bg-cyan-500/10 focus:text-cyan-200 gap-2"
+              className="text-fg focus:bg-lead-500/40 focus:text-bay-950 gap-2"
             >
               <div className="flex-1">
                 <p className="text-xs">{mode.label}</p>
-                <p className="text-[10px] text-slate-500">{mode.hint}</p>
+                <p className="text-[10px] text-fg-muted">{mode.hint}</p>
               </div>
-              {captureMode === mode.key && <span className="text-cyan-400">●</span>}
+              {captureMode === mode.key && <span className="text-lead-500">●</span>}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -193,7 +193,7 @@ export function StageToolbar() {
         size="sm"
         onClick={() => captureFn?.()}
         disabled={isCapturing || !captureFn}
-        className="bg-gradient-to-r from-rose-600 to-purple-600 text-white hover:from-rose-500 hover:to-purple-500"
+        className="bg-lead-500 text-bay-950 hover:bg-lead-400"
       >
         {isCapturing ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />

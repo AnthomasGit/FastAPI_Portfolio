@@ -186,13 +186,13 @@ function ShotPreviewFrame() {
       <div ref={wrapRef} className="absolute inset-0 pointer-events-none">
         {gate && (
           <div
-            className="absolute ring-2 ring-cyan-400/70 rounded-sm"
+            className="absolute ring-2 ring-lead-500 rounded-sm"
             style={{ left: gate.x, top: gate.y, width: gate.gw, height: gate.gh }}
           >
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-semibold text-cyan-300 tracking-wider whitespace-nowrap">
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-bay-900 text-[10px] font-semibold text-lead-500 tracking-wider whitespace-nowrap">
               PILOT · WASD/QE move · ←→ pan · ↑↓ tilt · Shift speed · Space capture · Esc done
             </div>
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-medium text-cyan-300 tabular-nums">
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-bay-900 text-[10px] font-medium text-lead-500 tabular-nums">
               {camera.focal_length}mm · {fmt.id}
             </div>
             <div
@@ -209,17 +209,17 @@ function ShotPreviewFrame() {
   const { pw, ph } = pipSize(fmt.aspect, pipScale);
   return (
     <div
-      className="absolute pointer-events-none rounded-sm ring-1 ring-cyan-400/60"
+      className="absolute pointer-events-none rounded-sm ring-1 ring-lead-500"
       style={{ right: PIP_MARGIN, bottom: PIP_MARGIN, width: pw, height: ph }}
     >
-      <div className="absolute -top-5 left-0 text-[10px] font-medium text-cyan-300 tabular-nums">
+      <div className="absolute -top-5 left-0 text-[10px] font-medium text-lead-500 tabular-nums">
         {camera.focal_length}mm · {fmt.id}
       </div>
       <button
         type="button"
         onClick={cyclePipScale}
         title="Resize preview"
-        className="pointer-events-auto absolute -top-5 right-0 flex items-center gap-1 px-1 rounded text-[10px] font-medium text-cyan-300 hover:text-cyan-200 hover:bg-white/10 transition-colors tabular-nums"
+        className="pointer-events-auto absolute -top-5 right-0 flex items-center gap-1 px-1 rounded text-[10px] font-medium text-lead-500 hover:text-lead-400 hover:bg-bay-700 transition-colors tabular-nums"
       >
         <Maximize2 className="w-3 h-3" />
         {pipScale}×

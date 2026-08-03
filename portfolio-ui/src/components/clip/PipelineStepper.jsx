@@ -11,24 +11,24 @@ import { Check, Minus } from 'lucide-react';
 function StepDot({ state }) {
   if (state === 'done') {
     return (
-      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+      <span className="w-5 h-5 rounded-full bg-ok/15 text-cast flex items-center justify-center shrink-0">
         <Check className="w-3 h-3" />
       </span>
     );
   }
   if (state === 'skipped') {
     return (
-      <span className="w-5 h-5 rounded-full bg-white/5 text-slate-600 flex items-center justify-center shrink-0">
+      <span className="w-5 h-5 rounded-full bg-bay-800 text-fg-faint flex items-center justify-center shrink-0">
         <Minus className="w-3 h-3" />
       </span>
     );
   }
   if (state === 'active') {
     return (
-      <span className="w-5 h-5 rounded-full border-2 border-fuchsia-400 bg-fuchsia-500/10 shrink-0 shadow-[0_0_10px_-2px] shadow-fuchsia-500/60" />
+      <span className="w-5 h-5 rounded-full border-2 border-clip bg-clip/60 shrink-0 shadow-[0_0_10px_-2px] shadow-clip/60" />
     );
   }
-  return <span className="w-5 h-5 rounded-full border border-white/15 shrink-0" />;
+  return <span className="w-5 h-5 rounded-full border border-bay-600 shrink-0" />;
 }
 
 export function PipelineStepper({ steps }) {
@@ -42,16 +42,16 @@ export function PipelineStepper({ steps }) {
               <span
                 className={`block text-[11px] font-medium ${
                   step.state === 'active'
-                    ? 'text-fuchsia-200'
+                    ? 'text-clip'
                     : step.state === 'done'
-                      ? 'text-slate-300'
-                      : 'text-slate-500'
+                      ? 'text-fg'
+                      : 'text-fg-muted'
                 }`}
               >
                 {step.label}
               </span>
               {step.optional && (
-                <span className="block text-[9px] text-slate-600">
+                <span className="block text-[9px] text-fg-faint">
                   {step.state === 'skipped' ? 'skipped · optional' : 'optional'}
                 </span>
               )}
@@ -62,10 +62,10 @@ export function PipelineStepper({ steps }) {
               aria-hidden
               className={`w-6 h-px shrink-0 ${
                 steps[i + 1].optional || step.optional
-                  ? 'border-t border-dashed border-white/20'
+                  ? 'border-t border-dashed border-bay-600'
                   : step.state === 'done'
-                    ? 'bg-emerald-500/30'
-                    : 'bg-white/10'
+                    ? 'bg-ok/15'
+                    : 'bg-bay-700'
               }`}
             />
           )}

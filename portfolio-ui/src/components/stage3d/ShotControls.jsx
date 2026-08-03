@@ -35,7 +35,7 @@ export function ShotControls() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
         Shot:
       </span>
 
@@ -44,22 +44,22 @@ export function ShotControls() {
           <Button
             size="xs"
             variant="outline"
-            className="border-white/10 text-slate-300 hover:text-white tabular-nums"
+            className="border-line text-fg hover:text-fg tabular-nums"
             title="Focal length"
           >
             <Aperture className="w-3.5 h-3.5 mr-1" />
             {focal}mm
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="bg-slate-900 border-white/10 min-w-[8rem]">
+        <DropdownMenuContent align="center" className="bg-bay-850 border-line min-w-[8rem]">
           {FOCAL_LENGTHS.map((mm) => (
             <DropdownMenuItem
               key={mm}
               onSelect={() => updateShotCamera({ focal_length: mm })}
-              className="text-slate-200 focus:bg-cyan-500/10 focus:text-cyan-200 tabular-nums"
+              className="text-fg focus:bg-lead-500/40 focus:text-bay-950 tabular-nums"
             >
               {mm}mm
-              {focal === mm && <span className="text-cyan-400 ml-auto">●</span>}
+              {focal === mm && <span className="text-lead-500 ml-auto">●</span>}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -70,22 +70,22 @@ export function ShotControls() {
           <Button
             size="xs"
             variant="outline"
-            className="border-white/10 text-slate-300 hover:text-white"
+            className="border-line text-fg hover:text-fg"
             title="Output format"
           >
             <Frame className="w-3.5 h-3.5 mr-1" />
             {fmt.id}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="bg-slate-900 border-white/10 min-w-[12rem]">
+        <DropdownMenuContent align="center" className="bg-bay-850 border-line min-w-[12rem]">
           {FORMATS.map((f) => (
             <DropdownMenuItem
               key={f.id}
               onSelect={() => updateShotCamera({ format: f.id })}
-              className="text-slate-200 focus:bg-cyan-500/10 focus:text-cyan-200"
+              className="text-fg focus:bg-lead-500/40 focus:text-bay-950"
             >
               {f.label}
-              {fmt.id === f.id && <span className="text-cyan-400 ml-auto">●</span>}
+              {fmt.id === f.id && <span className="text-lead-500 ml-auto">●</span>}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -96,7 +96,7 @@ export function ShotControls() {
         variant="outline"
         onClick={setShotFromView}
         disabled={!navPose || pilotMode}
-        className="border-white/10 text-slate-300 hover:text-white"
+        className="border-line text-fg hover:text-fg"
         title="Move the shot camera to your current view"
       >
         <Crosshair className="w-3.5 h-3.5 mr-1" />
@@ -109,8 +109,8 @@ export function ShotControls() {
         onClick={() => setPilotMode(!pilotMode)}
         className={
           pilotMode
-            ? 'bg-cyan-600 text-white hover:bg-cyan-500'
-            : 'border-white/10 text-slate-300 hover:text-white'
+            ? 'bg-lead-500 text-bay-950 hover:bg-lead-400'
+            : 'border-line text-fg hover:text-fg'
         }
         title={pilotMode ? 'Exit pilot mode (Esc)' : 'Fly the shot camera through the lens'}
       >

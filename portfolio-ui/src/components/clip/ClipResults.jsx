@@ -4,10 +4,10 @@ import { Film } from 'lucide-react';
 import { api } from '../../lib/api';
 
 const STATUS_STYLE = {
-  queued: 'bg-amber-500/15 text-amber-300',
-  processing: 'bg-sky-500/15 text-sky-300',
-  completed: 'bg-emerald-500/15 text-emerald-300',
-  failed: 'bg-red-500/15 text-red-300',
+  queued: 'bg-lead-500/15 text-set',
+  processing: 'bg-set/15 text-set',
+  completed: 'bg-ok/15 text-cast',
+  failed: 'bg-stop/15 text-stop',
 };
 
 // Poll one in-flight clip and refresh the shot once it settles.
@@ -40,9 +40,9 @@ export function ClipResults({ clips, sceneId, shotId, onClipCompleted }) {
 
   if (!clips.length) {
     return (
-      <div className="rounded-lg border border-dashed border-white/10 bg-black/20 p-6 text-center">
-        <Film className="w-5 h-5 text-slate-700 mx-auto mb-2" />
-        <p className="text-[11px] text-slate-500">
+      <div className="rounded-frame border border-dashed border-line bg-bay-900 p-6 text-center">
+        <Film className="w-5 h-5 text-fg-faint mx-auto mb-2" />
+        <p className="text-[11px] text-fg-muted">
           No clips yet. Pick a workflow, choose references, and generate.
         </p>
       </div>
@@ -56,7 +56,7 @@ export function ClipResults({ clips, sceneId, shotId, onClipCompleted }) {
       ))}
 
       {clips.map((clip) => (
-        <div key={clip.id} className="rounded-lg border border-white/10 bg-black/40 overflow-hidden">
+        <div key={clip.id} className="rounded-frame border border-line bg-bay-900 overflow-hidden">
           {clip.status === 'completed' ? (
             <video
               src={api.getVideoFileUrl(clip.id)}
@@ -67,12 +67,12 @@ export function ClipResults({ clips, sceneId, shotId, onClipCompleted }) {
               className="w-full aspect-video bg-black object-contain"
             />
           ) : (
-            <div className="w-full aspect-video bg-black/60 flex items-center justify-center">
+            <div className="w-full aspect-video bg-bay-900 flex items-center justify-center">
               <Film
                 className={`w-6 h-6 ${
                   clip.status === 'failed'
-                    ? 'text-red-500/50'
-                    : 'text-slate-700 animate-pulse motion-reduce:animate-none'
+                    ? 'text-stop/60'
+                    : 'text-fg-faint animate-pulse motion-reduce:animate-none'
                 }`}
               />
             </div>
@@ -80,20 +80,20 @@ export function ClipResults({ clips, sceneId, shotId, onClipCompleted }) {
           <div className="flex items-center gap-2 px-2 py-1.5">
             <span
               className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
-                STATUS_STYLE[clip.status] || 'bg-white/5 text-slate-400'
+                STATUS_STYLE[clip.status] || 'bg-bay-800 text-fg-muted'
               }`}
             >
               {clip.status}
             </span>
             {clip.params?.workflow && (
-              <span className="text-[9px] text-slate-500">{clip.params.workflow}</span>
+              <span className="text-[9px] text-fg-muted">{clip.params.workflow}</span>
             )}
-            <span className="text-[9px] text-slate-600 ml-auto">
+            <span className="text-[9px] text-fg-faint ml-auto">
               {new Date(clip.created_at).toLocaleTimeString()}
             </span>
           </div>
           {clip.error && (
-            <p className="text-[9px] text-red-400/80 break-words px-2 pb-2">{clip.error}</p>
+            <p className="text-[9px] text-stop/80 break-words px-2 pb-2">{clip.error}</p>
           )}
         </div>
       ))}

@@ -37,41 +37,41 @@ export function WorkflowCards({ workflows, selected, onSelect, disabledReason })
             disabled={Boolean(blocked)}
             aria-pressed={isSelected}
             title={blocked || undefined}
-            className={`text-left rounded-lg border p-3 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-400 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`text-left rounded-frame border p-3 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-clip disabled:opacity-40 disabled:cursor-not-allowed ${
               isSelected
-                ? 'border-transparent ring-2 ring-fuchsia-500/50 bg-fuchsia-500/10'
-                : 'border-white/10 bg-black/40 hover:border-white/25'
+                ? 'border-transparent ring-2 ring-clip/50 bg-clip/60'
+                : 'border-line bg-bay-900 hover:border-bay-600'
             }`}
           >
             <div className="flex items-start gap-2">
               <span className="flex-1 min-w-0">
                 <span className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-semibold text-slate-100">{wf.label}</span>
+                  <span className="text-xs font-semibold text-fg">{wf.label}</span>
                   {wf.recommended && (
-                    <span className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+                    <span className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-ok/15 text-cast">
                       <Sparkles className="w-2.5 h-2.5" />
                       Recommended
                     </span>
                   )}
                 </span>
-                <span className="block text-[10px] text-slate-400 mt-1 leading-snug">
+                <span className="block text-[10px] text-fg-muted mt-1 leading-snug">
                   {wf.blurb}
                 </span>
               </span>
-              {isSelected && <Check className="w-4 h-4 text-fuchsia-300 shrink-0" />}
+              {isSelected && <Check className="w-4 h-4 text-clip shrink-0" />}
             </div>
 
             <div className="flex items-center gap-1 flex-wrap mt-2">
               {capabilities(wf).map((c) => (
                 <span
                   key={c}
-                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-slate-400"
+                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-bay-800 text-fg-muted"
                 >
                   {c}
                 </span>
               ))}
               {formatEta(wf.est_seconds) && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-slate-400">
+                <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-bay-800 text-fg-muted">
                   <Clock className="w-2.5 h-2.5" />
                   {formatEta(wf.est_seconds)}
                 </span>
@@ -79,7 +79,7 @@ export function WorkflowCards({ workflows, selected, onSelect, disabledReason })
             </div>
 
             {blocked && (
-              <p className="text-[9px] text-amber-400/80 mt-1.5">{blocked}</p>
+              <p className="text-[9px] text-set/80 mt-1.5">{blocked}</p>
             )}
           </button>
         );

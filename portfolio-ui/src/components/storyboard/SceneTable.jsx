@@ -11,10 +11,10 @@ import { api } from '../../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 
 const COLUMN_DEFAULTS = {
-  scene: 140, screenplay: 200, characters: 120, locations: 120, props: 100, shots: 120,
+  scene: 180, screenplay: 320, characters: 160, locations: 160, props: 140, shots: 180,
 };
 const COLUMN_MIN_WIDTHS = {
-  scene: 120, screenplay: 120, characters: 100, locations: 100, props: 80, shots: 90,
+  scene: 140, screenplay: 160, characters: 110, locations: 110, props: 90, shots: 100,
 };
 const COLUMN_LABELS = {
   scene: 'Scene',
@@ -22,7 +22,7 @@ const COLUMN_LABELS = {
   characters: 'Characters',
   locations: 'Locations',
   props: 'Props',
-  shots: 'Shots',
+  shots: 'Stills',
 };
 const COLUMN_KEYS = ['scene', 'screenplay', 'characters', 'locations', 'props', 'shots'];
 
@@ -127,51 +127,64 @@ export function SceneTable({ scenes, projectId }) {
   };
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/10">
-      <table className="w-full text-sm table-fixed">
-        <thead>
-          <tr className="border-b border-white/10 bg-white/[0.03]">
-            {COLUMN_KEYS.map((key) => (
-              <th
-                key={key}
-                className={`relative p-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider${key === 'scene' ? ' sticky left-0 z-10 bg-[#0f172a]' : ''}`}
-                style={{ width: colWidths[key], minWidth: COLUMN_MIN_WIDTHS[key] }}
-              >
-                {COLUMN_LABELS[key]}
-                <div
-                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-cyan-500/50 active:bg-cyan-500 transition-colors"
-                  onMouseDown={(e) => startResize(key, e)}
-                />
-              </th>
-            ))}
-            <th className="p-3 w-10" />
-          </tr>
-        </thead>
+    <div className="rounded-frame border border-line bg-bay-850 overflow-hidden">
+      <div className="max-h-[calc(100vh-15rem)] overflow-auto">
+        {/* DndContext renders its own a11y announcer div as a sibling of its
+            children in place — wrapping only <tbody> put that div directly
+            inside <table>, which is invalid HTML and threw a hydration
+            warning. Wrapping the whole <table> keeps that div outside it. */}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={items.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-            <tbody>
-              {items.map((scene, i) => (
-                <SceneRow
-                  key={scene.id}
-                  id={scene.id}
-                  scene={scene}
-                  projectId={projectId}
-                  index={i}
-                  onDelete={handleDeleteScene}
-                  colWidths={colWidths}
-                />
-              ))}
-            </tbody>
-          </SortableContext>
+          <table className="w-full text-sm table-fixed border-collapse">
+            <thead>
+              {/* The header sticks to the top of this scroll box (position:sticky on a
+                  <tr> is ignored) so column names stay readable while you scroll
+                  a long breakdown. */}
+              <tr>
+                {COLUMN_KEYS.map((key) => (
+                  <th
+                    key={key}
+                    className={`relative px-3 py-2.5 text-left label-slug bg-bay-800 border-b border-line sticky top-0 ${
+                      key === 'scene' ? 'left-0 z-30' : 'z-20'
+                    }`}
+                    style={{ width: colWidths[key], minWidth: COLUMN_MIN_WIDTHS[key] }}
+                  >
+                    {COLUMN_LABELS[key]}
+                    <div
+                      role="separator"
+                      aria-label={`Resize ${COLUMN_LABELS[key]} column`}
+                      className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-lead-500 active:bg-lead-400 transition-colors"
+                      onMouseDown={(e) => startResize(key, e)}
+                    />
+                  </th>
+                ))}
+                <th className="w-10 bg-bay-800 border-b border-line sticky top-0 z-20" />
+              </tr>
+            </thead>
+            <SortableContext items={items.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              <tbody>
+                {items.map((scene, i) => (
+                  <SceneRow
+                    key={scene.id}
+                    id={scene.id}
+                    scene={scene}
+                    projectId={projectId}
+                    index={i}
+                    onDelete={handleDeleteScene}
+                    colWidths={colWidths}
+                  />
+                ))}
+              </tbody>
+            </SortableContext>
+          </table>
         </DndContext>
-      </table>
-      <div className="p-3 border-t border-white/5">
+      </div>
+      <div className="px-3 py-2 border-t border-line">
         <button
           onClick={handleAddScene}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+          className="flex items-center gap-1.5 rounded-frame px-1.5 py-1 text-xs text-fg-muted hover:text-lead-500 transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
-          Add Scene
+          Add scene
         </button>
       </div>
     </div>

@@ -38,9 +38,9 @@ export function BadgeSelectCell({ value, field, fieldConfig, shotId, sceneId }) 
       // rather than a hardcoded width that truncates longer values.
       className={`text-[11px] font-medium rounded-full px-2 py-0.5 border-0 appearance-none cursor-pointer text-center disabled:opacity-50 transition-colors focus:outline-none focus:ring-1 ${color.bg} ${color.text} ${color.ring}`}
     >
-      <option value="" className="bg-slate-900 text-slate-500">—</option>
+      <option value="" className="bg-bay-850 text-fg-muted">—</option>
       {options.map((o) => (
-        <option key={o} value={o} className="bg-slate-900 text-slate-200">{o}</option>
+        <option key={o} value={o} className="bg-bay-850 text-fg">{o}</option>
       ))}
     </select>
   );

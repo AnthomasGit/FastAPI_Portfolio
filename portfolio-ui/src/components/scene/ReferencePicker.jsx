@@ -32,15 +32,15 @@ export function ReferencePicker({ refs, selectedId, onSelect, ring }) {
         <button
           type="button"
           title="Primary for this scene — the source of truth used to generate this asset here (can differ from the entity's overall default, e.g. different clothing per scene)"
-          className="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] bg-black/50 border border-white/10 rounded px-1 py-0.5 text-slate-300 hover:bg-black/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          className="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] bg-bay-900 border border-line rounded px-1 py-0.5 text-fg hover:bg-bay-950/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600"
         >
           <span className="truncate flex-1">{selected ? labelFor(selected) : 'Pick reference'}</span>
-          <ChevronDown className="w-3 h-3 text-slate-600 shrink-0" />
+          <ChevronDown className="w-3 h-3 text-fg-faint shrink-0" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2 bg-slate-900 border-white/10" align="start">
+      <PopoverContent className="w-64 p-2 bg-bay-850 border-line" align="start">
         {refs.length === 0 ? (
-          <p className="text-[11px] text-slate-500 p-2">
+          <p className="text-[11px] text-fg-muted p-2">
             No references — use the image buttons to add one.
           </p>
         ) : (
@@ -49,13 +49,13 @@ export function ReferencePicker({ refs, selectedId, onSelect, ring }) {
               type="button"
               onClick={() => pick(null)}
               title="No reference"
-              className={`aspect-square rounded border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
+              className={`aspect-square rounded border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 ${
                 !selectedId
-                  ? `border-transparent ring-2 ${ring} bg-black/60`
-                  : 'border-white/10 bg-black/40 hover:bg-black/60'
+                  ? `border-transparent ring-2 ${ring} bg-bay-900`
+                  : 'border-line bg-bay-900 hover:bg-bay-900'
               }`}
             >
-              <X className="w-4 h-4 text-slate-500" />
+              <X className="w-4 h-4 text-fg-muted" />
             </button>
             {refs.map((ref) => {
               const thumb = api.getReferenceFileUrl(ref);
@@ -66,20 +66,20 @@ export function ReferencePicker({ refs, selectedId, onSelect, ring }) {
                   type="button"
                   onClick={() => pick(ref.id)}
                   title={labelFor(ref)}
-                  className={`group/tile flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 ${
-                    isSelected ? `border-transparent ring-2 ${ring}` : 'border-white/10 hover:border-white/30'
+                  className={`group/tile flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 ${
+                    isSelected ? `border-transparent ring-2 ${ring}` : 'border-line hover:border-bay-600'
                   }`}
                 >
-                  <div className="aspect-square bg-black/50">
+                  <div className="aspect-square bg-bay-900">
                     {thumb ? (
                       <img src={thumb} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <ImageIcon className="w-4 h-4 text-slate-700" />
+                        <ImageIcon className="w-4 h-4 text-fg-faint" />
                       </div>
                     )}
                   </div>
-                  <span className="text-[9px] text-slate-400 truncate px-0.5 py-0.5 bg-black/60 group-hover/tile:text-slate-200">
+                  <span className="text-[9px] text-fg-muted truncate px-0.5 py-0.5 bg-bay-900 group-hover/tile:text-fg">
                     {labelFor(ref)}
                   </span>
                 </button>

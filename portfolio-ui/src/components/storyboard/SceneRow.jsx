@@ -57,37 +57,35 @@ export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
     <tr
       ref={setNodeRef}
       style={style}
-      className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group"
+      className="group border-b border-line align-top [&>td]:bg-bay-850 hover:[&>td]:bg-bay-800 [&>td]:transition-colors"
     >
-      <td className="sticky left-0 z-10 bg-[#0f172a] p-3" style={{ width: colWidths.scene, minWidth: 120 }}>
-        <div className="flex items-center gap-2">
+      {/* The slate. Scene number boxed like a clapper's, slugline in the
+          typeface a screenplay is actually set in. */}
+      <td
+        className="sticky left-0 z-10 px-3 py-2.5"
+        style={{ width: colWidths.scene, minWidth: 140 }}
+      >
+        <div className="flex items-start gap-1.5">
           <button
             ref={setActivatorNodeRef}
             {...attributes}
             {...listeners}
-            className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-white/10 transition-colors shrink-0"
+            aria-label={`Reorder scene ${index + 1}`}
+            className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing rounded-frame p-0.5 hover:bg-bay-700 transition-colors"
           >
-            <GripVertical className="w-3.5 h-3.5 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            <GripVertical className="w-3.5 h-3.5 text-bay-600 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
-          <div className="min-w-0 overflow-hidden">
-            <div className="flex items-center gap-1.5">
-              <Link
-                to={`/project/${projectId}/scene/${scene.id}`}
-                className="text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
-              >
-                SC {index + 1}
-              </Link>
-              <Link
-                to={`/project/${projectId}/scene/${scene.id}`}
-                className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 transition-colors leading-none"
-                title="Open scene details"
-              >
-                Details
-              </Link>
-            </div>
+          <div className="min-w-0 flex-1">
+            <Link
+              to={`/project/${projectId}/scene/${scene.id}`}
+              className="inline-block rounded-frame border border-bay-600 px-1.5 py-0.5 font-mono text-[11px] font-bold text-fg hover:border-lead-500 hover:text-lead-500 transition-colors"
+              title="Open scene"
+            >
+              SC {index + 1}
+            </Link>
             {editingSlug ? (
               <input
-                className="w-full text-[10px] bg-black/60 border border-cyan-500/50 rounded px-1 py-0.5 text-white focus:outline-none mt-0.5"
+                className="mt-1.5 w-full rounded-frame border border-lead-500 bg-bay-900 px-1.5 py-1 font-mono text-[11px] uppercase text-fg focus:outline-none"
                 value={slugValue}
                 onChange={(e) => setSlugValue(e.target.value)}
                 onBlur={handleSaveSlug}
@@ -95,40 +93,43 @@ export function SceneRow({ id, scene, projectId, index, onDelete, colWidths }) {
                 autoFocus
               />
             ) : (
-              <p
-                className="text-[10px] text-slate-500 text-wrap mt-0.5 cursor-text"
+              <button
+                type="button"
+                className="mt-1.5 block w-full text-left font-mono text-[11px] font-bold uppercase leading-snug tracking-wide text-fg-muted hover:text-fg transition-colors"
                 onClick={() => {
                   setSlugValue(scene.slugline || '');
                   setEditingSlug(true);
                 }}
+                title="Edit slugline"
               >
-                {scene.slugline || <span className="text-slate-600 italic">Add slugline...</span>}
-              </p>
+                {scene.slugline || <span className="normal-case tracking-normal font-normal text-fg-faint">Add slugline</span>}
+              </button>
             )}
           </div>
         </div>
       </td>
-      <td className="p-3" style={{ width: colWidths.screenplay, minWidth: 120 }}>
+      <td className="px-3 py-2.5" style={{ width: colWidths.screenplay, minWidth: 160 }}>
         <CellScreenplay scene={scene} />
       </td>
-      <td className="p-3" style={{ width: colWidths.characters, minWidth: 100 }}>
+      <td className="px-3 py-2.5" style={{ width: colWidths.characters, minWidth: 110 }}>
         <CellCharacters scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3" style={{ width: colWidths.locations, minWidth: 100 }}>
+      <td className="px-3 py-2.5" style={{ width: colWidths.locations, minWidth: 110 }}>
         <CellLocations scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3" style={{ width: colWidths.props, minWidth: 80 }}>
+      <td className="px-3 py-2.5" style={{ width: colWidths.props, minWidth: 90 }}>
         <CellProps scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3" style={{ width: colWidths.shots, minWidth: 80 }}>
+      <td className="px-3 py-2.5" style={{ width: colWidths.shots, minWidth: 100 }}>
         <CellShots scene={scene} projectId={projectId} />
       </td>
-      <td className="p-3 w-10">
+      <td className="w-10 px-2 py-2.5">
         <button
           onClick={() => onDelete(scene.id)}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/20"
+          aria-label={`Delete scene ${index + 1}`}
+          className="rounded-frame p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-fg-faint hover:text-stop hover:bg-stop/10 transition-all"
         >
-          <Trash2 className="w-3.5 h-3.5 text-red-400" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </td>
     </tr>

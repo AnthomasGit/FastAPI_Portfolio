@@ -13,7 +13,7 @@ export function Graph() {
     queryFn: () => api.getProjectGraph(id),
   });
 
-  if (isLoading) return <div className="flex justify-center p-12"><div className="animate-spin h-8 w-8 border-2 border-cyan-400 border-t-transparent rounded-full" /></div>;
+  if (isLoading) return <div className="flex justify-center p-12"><div className="animate-spin h-8 w-8 border-2 border-lead-500 border-t-transparent rounded-full" /></div>;
 
   const nodeColors = { scene: '#3b82f6', character: '#22c55e', location: '#f59e0b', prop: '#a855f7' };
 
@@ -46,16 +46,16 @@ export function Graph() {
   return (
     <div className="h-[calc(100vh-3.5rem)]">
       <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
-        <button onClick={() => navigate(`/project/${id}`)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">
+        <button onClick={() => navigate(`/project/${id}`)} className="flex items-center gap-1 px-3 py-1.5 rounded-frame bg-bay-900 border border-line text-sm text-fg hover:text-fg transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
-        <div className="px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-sm text-slate-300">
+        <div className="px-3 py-1.5 rounded-frame bg-bay-900 border border-line text-sm text-fg">
           Entity Relationships
         </div>
       </div>
       <div className="absolute bottom-4 left-4 z-10 flex gap-4">
         {Object.entries(nodeColors).map(([type, color]) => (
-          <div key={type} className="flex items-center gap-1.5 text-xs text-slate-400">
+          <div key={type} className="flex items-center gap-1.5 text-xs text-fg-muted">
             <div className="w-3 h-3 rounded" style={{ background: color }} />
             {type}
           </div>
@@ -68,7 +68,7 @@ export function Graph() {
         attributionPosition="bottom-right"
       >
         <Background color="#1e293b" gap={16} />
-        <Controls className="[&>button]:bg-slate-800 [&>button]:border-slate-700 [&>button]:text-slate-300" />
+        <Controls className="[&>button]:bg-bay-800 [&>button]:border-line [&>button]:text-fg" />
         <MiniMap
           nodeColor={(n) => nodeColors[n.data?.type] || '#64748b'}
           style={{ background: '#0f172a', border: '1px solid #1e293b' }}

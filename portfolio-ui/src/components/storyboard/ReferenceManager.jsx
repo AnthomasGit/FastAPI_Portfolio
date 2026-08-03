@@ -120,13 +120,13 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-slate-900 border-white/10 text-slate-200 max-w-xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="bg-bay-850 border-line text-fg max-w-xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>References — {entityName}</DialogTitle>
         </DialogHeader>
 
         {entityType === 'character' && (
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-300 mb-3">
+          <div className="bg-lead-500/15 border border-lead-500/30 rounded-frame p-3 text-xs text-set mb-3">
             For best 3D mesh results, upload a front-facing photo with a neutral T/A-pose
             and uncluttered background. Background removal is available for each reference.
           </div>
@@ -142,27 +142,27 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
 
         {loading ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+            <Loader2 className="w-6 h-6 animate-spin text-fg-muted" />
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-3">
             <div
               onClick={() => document.getElementById('ref-upload-input').click()}
-              className="aspect-[3/4] rounded-lg border-2 border-dashed border-white/20 bg-white/5 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-white/10 hover:border-white/30 transition-colors"
+              className="aspect-[3/4] rounded-frame border-2 border-dashed border-bay-600 bg-bay-800 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-bay-700 hover:border-bay-600 transition-colors"
             >
               {uploading ? (
-                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                <Loader2 className="w-6 h-6 animate-spin text-fg-muted" />
               ) : (
                 <>
-                  <Plus className="w-8 h-8 text-slate-500" />
-                  <span className="text-xs text-slate-500">Upload</span>
+                  <Plus className="w-8 h-8 text-fg-muted" />
+                  <span className="text-xs text-fg-muted">Upload</span>
                 </>
               )}
             </div>
 
             {references.map((ref) => (
-              <div key={ref.id} className="aspect-[3/4] rounded-lg border border-white/10 bg-white/5 overflow-hidden flex flex-col group relative">
-                <div className="flex-1 bg-black/30 flex items-center justify-center overflow-hidden">
+              <div key={ref.id} className="aspect-[3/4] rounded-frame border border-line bg-bay-800 overflow-hidden flex flex-col group relative">
+                <div className="flex-1 bg-bay-900 flex items-center justify-center overflow-hidden">
                   {ref.url ? (
                     <img
                       src={api.getReferenceFileUrl(ref, { processed: viewProcessed[ref.id] ?? true })}
@@ -170,7 +170,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-[10px] text-slate-600">No file</span>
+                    <span className="text-[10px] text-fg-faint">No file</span>
                   )}
                 </div>
                 <div className="p-1.5 space-y-1">
@@ -178,7 +178,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                     <select
                       value={ref.role}
                       onChange={(e) => handleRoleChange(ref.id, e.target.value)}
-                      className="text-[9px] bg-black/40 border border-white/10 rounded px-1 py-0.5 text-slate-300 w-full"
+                      className="text-[9px] bg-bay-900 border border-line rounded px-1 py-0.5 text-fg w-full"
                     >
                       {ROLES.map((r) => (
                         <option key={r} value={r}>{r}</option>
@@ -191,7 +191,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                         <button
                           onClick={() => handleRemoveBg(ref.id)}
                           disabled={bgBusy[ref.id]}
-                          className="p-0.5 rounded hover:bg-purple-500/20 text-purple-400 transition-colors disabled:opacity-40"
+                          className="p-0.5 rounded hover:bg-clip/20 text-prop transition-colors disabled:opacity-40"
                           title="Remove background"
                         >
                           {bgBusy[ref.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
@@ -203,8 +203,8 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                             onClick={() => toggleView(ref.id)}
                             className={`p-0.5 rounded transition-colors ${
                               (viewProcessed[ref.id] ?? true)
-                                ? 'text-green-400 hover:bg-green-500/20'
-                                : 'text-slate-500 hover:bg-white/10'
+                                ? 'text-ok hover:bg-ok/15'
+                                : 'text-fg-muted hover:bg-bay-700'
                             }`}
                             title={
                               (viewProcessed[ref.id] ?? true)
@@ -217,7 +217,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                           <button
                             onClick={() => handleRestoreBg(ref.id)}
                             disabled={bgBusy[ref.id]}
-                            className="text-[7px] rounded bg-green-700 hover:bg-red-600 text-green-200 hover:text-white px-1 py-0 transition-colors disabled:opacity-40"
+                            className="text-[7px] rounded bg-bay-700 hover:bg-stop text-fg-muted hover:text-bay-950 px-1 py-0 transition-colors disabled:opacity-40"
                             title="Delete background-removed image"
                           >
                             BG off
@@ -227,7 +227,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
                     </div>
                     <button
                       onClick={() => handleDelete(ref.id)}
-                      className="p-0.5 rounded hover:bg-red-500/20 text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-0.5 rounded hover:bg-stop/15 text-stop transition-colors opacity-0 group-hover:opacity-100"
                       title="Delete reference"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -240,7 +240,7 @@ export function ReferenceManager({ entityType, entityId, entityName, open, onOpe
         )}
 
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)} className="bg-cyan-600 hover:bg-cyan-500 text-white">
+          <Button onClick={() => onOpenChange(false)} className="bg-lead-500 hover:bg-lead-400 text-bay-950 font-semibold">
             Done
           </Button>
         </DialogFooter>
