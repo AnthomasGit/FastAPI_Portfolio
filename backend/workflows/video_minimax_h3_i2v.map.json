@@ -1,0 +1,18 @@
+{
+  "_comment": "MiniMax H3 Image-to-Video. The MiniMaxH3ImageToVideo node (105:104) carries the prompt inline and takes an input image as its first_frame (LoadImage 114) plus an OPTIONAL last_frame keyframe (LoadImage 121). first_frame is fed the shot's beauty-pass still (needs_still); last_frame is an optional reference pick. Node ids use the '105:NN' subgraph-namespaced form from the ComfyUI export — they are plain string keys.",
+
+  "prompt_node": "105:104",
+  "seed_node": "105:15",
+  "output_node": "92",
+
+  "ref_node": "105:104",
+  "image_node": "114",
+  "last_frame_node": "121",
+
+  "sampler_node": "105:17",
+  "scheduler_node": "105:9",
+  "steps_node": "105:9",
+  "duration_node": "105:111",
+  "aspect_ratio_node": "115",
+  "megapixels_node": "115"
+}

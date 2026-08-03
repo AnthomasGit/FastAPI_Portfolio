@@ -1,0 +1,509 @@
+{
+  "92": {
+    "inputs": {
+      "filename_prefix": "video/MiniMax_H3",
+      "format": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": [
+        "130",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "115": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 0.3,
+      "multiple": 32
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector (Size)"
+    }
+  },
+  "119": {
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "120": {
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "121": {
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "120",
+        0
+      ]
+    },
+    "class_type": "VAEDecodeAudio",
+    "_meta": {
+      "title": "VAE Decode Audio"
+    }
+  },
+  "122": {
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "123": {
+    "inputs": {
+      "sampler_name": "res_multistep"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "124": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 20,
+      "denoise": 1,
+      "model": [
+        "127",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "BasicScheduler"
+    }
+  },
+  "125": {
+    "inputs": {
+      "noise": [
+        "129",
+        0
+      ],
+      "guider": [
+        "126",
+        0
+      ],
+      "sampler": [
+        "123",
+        0
+      ],
+      "sigmas": [
+        "124",
+        0
+      ],
+      "latent_image": [
+        "136",
+        1
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "126": {
+    "inputs": {
+      "model": [
+        "127",
+        0
+      ],
+      "conditioning": [
+        "136",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "Basic Guider"
+    }
+  },
+  "127": {
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "128": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "129": {
+    "inputs": {
+      "noise_seed": 928301395386261
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "130": {
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "images": [
+        "122",
+        0
+      ],
+      "audio": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "131": {
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "132",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "132": {
+    "inputs": {
+      "value": 10
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (Duration)"
+    }
+  },
+  "136": {
+    "inputs": {
+      "prompt": [
+        "138",
+        0
+      ],
+      "width": [
+        "115",
+        0
+      ],
+      "height": [
+        "115",
+        1
+      ],
+      "length": [
+        "131",
+        1
+      ],
+      "ref_image_size": "match",
+      "clip": [
+        "128",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ],
+      "ref_images.ref_image_0": [
+        "137",
+        0
+      ],
+      "ref_images.ref_image_1": [
+        "139",
+        0
+      ],
+      "ref_images.ref_image_2": [
+        "141",
+        0
+      ],
+      "ref_images.ref_image_3": [
+        "142",
+        0
+      ],
+      "ref_images.ref_image_4": [
+        "143",
+        0
+      ],
+      "ref_images.ref_image_5": [
+        "144",
+        0
+      ],
+      "ref_images.ref_image_6": [
+        "145",
+        0
+      ],
+      "ref_images.ref_image_7": [
+        "146",
+        0
+      ],
+      "ref_images.ref_image_8": [
+        "147",
+        0
+      ],
+      "ref_videos.ref_video_0": [
+        "149",
+        0
+      ],
+      "ref_videos.ref_video_1": [
+        "151",
+        0
+      ],
+      "ref_videos.ref_video_2": [
+        "155",
+        0
+      ],
+      "ref_video_audios.ref_video_audio_0": [
+        "149",
+        1
+      ],
+      "ref_video_audios.ref_video_audio_1": [
+        "151",
+        1
+      ],
+      "ref_video_audios.ref_video_audio_2": [
+        "155",
+        1
+      ],
+      "ref_audios.ref_audio_0": [
+        "156",
+        0
+      ],
+      "ref_audios.ref_audio_1": [
+        "157",
+        0
+      ],
+      "ref_audios.ref_audio_2": [
+        "158",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "_meta": {
+      "title": "MiniMax H3 Reference to Video"
+    }
+  },
+  "137": {
+    "inputs": {
+      "image": "4f453364-68df-443a-adea-ec1897488fbd.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_0"
+    }
+  },
+  "138": {
+    "inputs": {
+      "value": "Here's a 10-second fight-scene prompt using the woman, the knight, and the coastal breakfast table as the battleground:\n\nPrompt:\n\n<Picture 1> shows a young woman with short wavy blonde hair, fair skin, and light freckles, wearing a dark navy long-sleeve sweater and jeans. <Picture 2> shows a full suit of medieval plate armor, polished steel, with an closed helmet, articulated joints, and a leather-strapped waist. <Picture 3> shows an elegant outdoor breakfast table at a coastal restaurant, set with pastries, fruit, orange juice, a charcuterie board, and glassware, overlooking a marina with boats and palm trees in bright daylight.\n\nExterior of the coastal terrace from <Picture 3>, bright daylight, boats glinting on the water behind. The camera holds a dynamic tracking shot, circling the table as the confrontation unfolds.\n\nThe woman from <Picture 1> and the knight from <Picture 2> burst into a sudden physical struggle around the breakfast table, the elegant setting becoming an improvised battleground. She grabs a wine glass off the table and hurls the contents at the knight's visor, then snatches the charcuterie board and swings it like a shield to block his lunging grab. He staggers back into the table's edge, knocking the fruit bowl and pastries clattering to the ground, glass shattering.\n\nShe vaults partially onto the table, kicking a plate of food into the knight's chest as he advances, steel armor clanking heavily with each stride. He grabs the tablecloth and yanks it hard, sending the remaining dishes and the orange juice pitcher crashing down, using the momentary chaos to lunge for her wrist. She twists free, snatches a serving fork off the ground, and jabs it toward a gap in his armor at the joint, forcing him to stumble back off-balance into an overturned chair.\n\nThe scene stays kinetic and continuous throughout — cloth ripping, ceramic shattering, metal clanking against the table frame, glass tinkling across the terrace floor, her sharp exhales and his heavy armored footfalls the only sounds, no dialogue, both fighters fully committed as the once-pristine table is reduced to wreckage around them."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Input Text (Prompt)"
+    }
+  },
+  "139": {
+    "inputs": {
+      "image": "9a21144f-3c86-46d9-933d-cad2e8bd2fc8.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_1"
+    }
+  },
+  "141": {
+    "inputs": {
+      "image": "bf4893b2-ad14-4b80-b0eb-bca7141cc4bb.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_2"
+    }
+  },
+  "142": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_3"
+    }
+  },
+  "143": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_4"
+    }
+  },
+  "144": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_5"
+    }
+  },
+  "145": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "ref_image_6"
+    }
+  },
+  "146": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "147": {
+    "inputs": {
+      "image": "08a80722-8d48-4684-af3c-2ee52ab3f280.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "149": {
+    "inputs": {
+      "video": [
+        "150",
+        0
+      ]
+    },
+    "class_type": "GetVideoComponents",
+    "_meta": {
+      "title": "Get Video Components"
+    }
+  },
+  "150": {
+    "inputs": {
+      "file": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "ref_video_audio_0"
+    }
+  },
+  "151": {
+    "inputs": {
+      "video": [
+        "152",
+        0
+      ]
+    },
+    "class_type": "GetVideoComponents",
+    "_meta": {
+      "title": "Get Video Components"
+    }
+  },
+  "152": {
+    "inputs": {
+      "file": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "ref_video_audio_1"
+    }
+  },
+  "154": {
+    "inputs": {
+      "file": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "ref_video_audio_2"
+    }
+  },
+  "155": {
+    "inputs": {
+      "video": [
+        "154",
+        0
+      ]
+    },
+    "class_type": "GetVideoComponents",
+    "_meta": {
+      "title": "Get Video Components"
+    }
+  },
+  "156": {
+    "inputs": {
+      "audio": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "ref_audio_0"
+    }
+  },
+  "157": {
+    "inputs": {
+      "audio": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "ref_audio_1"
+    }
+  },
+  "158": {
+    "inputs": {
+      "audio": "8f050956-55ff-4838-a82b-6b41e71b9cca.mp4"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "ref_audio_2"
+    }
+  }
+}

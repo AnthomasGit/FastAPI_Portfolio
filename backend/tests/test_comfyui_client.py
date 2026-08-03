@@ -49,10 +49,24 @@ def test_workflow_and_map_are_valid(name, wf_path, map_path):
     assert isinstance(node_map, dict), f"{name}.map.json must be a dict"
     assert len(node_map) > 0, f"{name}.map.json is empty"
 
-    for map_key, node_id in node_map.items():
-        assert map_key.endswith("_node"), f"Map key {map_key!r} should end with '_node'"
-        assert node_id in workflow, (
-            f"Node {node_id!r} from map key {map_key!r} "
+    for map_key, value in node_map.items():
+        # Metadata keys (a leading-underscore comment) carry no node reference.
+        if map_key.startswith("_"):
+            continue
+        # Autogrow maps (MiniMax H3 R2V) list several slot node-ids under one key
+        # (e.g. image_slots) so the service can prune unused ones; validate each.
+        if isinstance(value, list):
+            for node_id in value:
+                assert node_id in workflow, (
+                    f"Node {node_id!r} from list map key {map_key!r} "
+                    f"not found in {name}.json"
+                )
+            continue
+        assert map_key.endswith("_node"), (
+            f"Map key {map_key!r} should end with '_node' (or be a list/_comment)"
+        )
+        assert value in workflow, (
+            f"Node {value!r} from map key {map_key!r} "
             f"not found in {name}.json (valid nodes: {list(workflow.keys())})"
         )
 
@@ -79,10 +93,16 @@ def test_injection_snapshot(name, wf_path, map_path):
     original = copy.deepcopy(workflow)
     injected = inject(workflow, node_map, overrides)
 
-    # Verify prompt was injected into the prompt_node
+    # Verify prompt was injected into the prompt_node. Lands in "text" for a
+    # CLIPTextEncode, or "value" for a PrimitiveStringMultiline (MiniMax H3 R2V).
     prompt_node = node_map.get("prompt_node")
     if prompt_node:
-        assert injected[prompt_node]["inputs"]["text"] == "TEST_PROMPT"
+        p_inputs = injected[prompt_node]["inputs"]
+        assert (
+            p_inputs.get("text") == "TEST_PROMPT"
+            or p_inputs.get("value") == "TEST_PROMPT"
+            or p_inputs.get("prompt") == "TEST_PROMPT"
+        ), f"prompt not set in node {prompt_node}"
 
     # Verify seed was injected
     seed_node = node_map.get("seed_node")

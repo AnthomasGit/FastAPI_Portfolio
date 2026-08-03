@@ -8,9 +8,19 @@ import { api } from '../../lib/api';
 // clip of someone walking gets uploaded once — so this renders an inline
 // grid with its own upload control, not a scene-scoped picker like
 // ReferencePicker. Selection follows the same ring-2 convention.
-export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
+// Single-select (SCAIL-2) by default. Pass `multiple` + `selectedIds` + `onToggle`
+// (and an optional `max`) to select several — MiniMax H3 R2V takes up to 3
+// reference videos. Selection order is preserved so slot 1/2/3 stay stable.
+export function DrivingVideoPicker({
+  projectId, selectedId, onSelect,
+  multiple = false, selectedIds = [], onToggle, max,
+}) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
+
+  const isChosen = (id) => (multiple ? selectedIds.includes(id) : id === selectedId);
+  const slotOf = (id) => (multiple ? selectedIds.indexOf(id) + 1 : 0);
+  const atCapacity = multiple && max != null && selectedIds.length >= max;
 
   const { data: videos = [], isLoading } = useQuery({
     queryKey: ['driving-videos'],
@@ -21,15 +31,25 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
     mutationFn: (file) => api.uploadDrivingVideo(file, { projectId, label: file.name }),
     onSuccess: (dv) => {
       queryClient.invalidateQueries({ queryKey: ['driving-videos'] });
-      onSelect(dv.id);
+      if (multiple) {
+        if (!atCapacity) onToggle?.(dv.id);
+      } else {
+        onSelect?.(dv.id);
+      }
     },
   });
+
+  const choose = (id) => (multiple ? onToggle?.(id) : onSelect?.(id));
 
   const deleteMut = useMutation({
     mutationFn: (id) => api.deleteDrivingVideo(id),
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['driving-videos'] });
-      if (id === selectedId) onSelect(null);
+      if (multiple) {
+        if (selectedIds.includes(id)) onToggle?.(id);
+      } else if (id === selectedId) {
+        onSelect?.(null);
+      }
     },
   });
 
@@ -43,7 +63,7 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
-          Driving video
+          {multiple ? `Reference videos${max != null ? ` (${selectedIds.length}/${max})` : ''}` : 'Driving video'}
         </h3>
         <button
           type="button"
@@ -80,14 +100,16 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-64 overflow-y-auto">
           {videos.map((v) => {
-            const isSelected = v.id === selectedId;
+            const isSelected = isChosen(v.id);
+            const slot = slotOf(v.id);
             return (
               <div key={v.id} className="relative group/tile">
                 <button
                   type="button"
-                  onClick={() => onSelect(v.id)}
+                  onClick={() => choose(v.id)}
+                  disabled={!isSelected && atCapacity}
                   title={v.label || v.video_url}
-                  className={`w-full flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 ${
+                  className={`w-full flex flex-col rounded overflow-hidden border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bay-600 disabled:opacity-30 disabled:cursor-not-allowed ${
                     isSelected
                       ? 'border-transparent ring-2 ring-clip/50'
                       : 'border-line hover:border-bay-600'
@@ -101,6 +123,11 @@ export function DrivingVideoPicker({ projectId, selectedId, onSelect }) {
                       className="w-full h-full object-cover"
                     />
                   </div>
+                  {multiple && slot > 0 && (
+                    <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-bay-950/85 text-[9px] font-semibold text-fg flex items-center justify-center">
+                      {slot}
+                    </span>
+                  )}
                   <span className="text-[9px] text-fg-muted truncate px-0.5 py-0.5 bg-bay-900 group-hover/tile:text-fg">
                     {v.label || v.video_url}
                   </span>

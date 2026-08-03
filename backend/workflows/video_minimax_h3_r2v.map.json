@@ -1,0 +1,38 @@
+{
+  "_comment": "MiniMax H3 Reference-to-Video. Node 136 (MiniMaxH3ReferenceToVideo) has AUTOGROW inputs: up to 9 ref images, 3 ref videos (each LoadVideo -> GetVideoComponents feeds both frames and its soundtrack), and 3 standalone audios. Unused slots MUST be pruned before submit -- an unfilled LoadImage/LoadVideo/LoadAudio still points at a placeholder filename that fails the whole graph at validation. video_service._prune_autogrow_slots reads the *_slots lists below to drop trailing unused ones. The *_node keys are the per-slot injection targets (see comfyui_client.INJECTION_MAP).",
+
+  "prompt_node": "138",
+  "seed_node": "129",
+  "output_node": "92",
+
+  "sampler_node": "123",
+  "scheduler_node": "124",
+  "steps_node": "124",
+  "duration_node": "132",
+  "aspect_ratio_node": "115",
+  "megapixels_node": "115",
+
+  "ref_node": "136",
+  "image_slots": ["137", "139", "141", "142", "143", "144", "145", "146", "147"],
+  "video_slots": ["150", "152", "154"],
+  "video_component_nodes": ["149", "151", "155"],
+  "audio_slots": ["156", "157", "158"],
+
+  "image_node": "137",
+  "image2_node": "139",
+  "image3_node": "141",
+  "image4_node": "142",
+  "image5_node": "143",
+  "image6_node": "144",
+  "image7_node": "145",
+  "image8_node": "146",
+  "image9_node": "147",
+
+  "ref_video_node": "150",
+  "ref_video2_node": "152",
+  "ref_video3_node": "154",
+
+  "ref_audio_node": "156",
+  "ref_audio2_node": "157",
+  "ref_audio3_node": "158"
+}

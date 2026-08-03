@@ -28,7 +28,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import (
-    DrivingVideo, GeneratedImage, GeneratedVideo, JobRecord, Reference, Scene, Shot,
+    DrivingVideo, GeneratedImage, GeneratedVideo, JobRecord, Reference,
+    ReferenceAudio, Scene, Shot,
 )
 from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
 
@@ -73,6 +74,54 @@ VIDEO_WORKFLOWS = {
         "est_seconds": 120,
         "recommended": False,
         "settings": [],
+    },
+    "minimax_h3_i2v": {
+        "workflow": "video_minimax_h3_i2v",
+        "label": "MiniMax H3 Image-to-Video",
+        "blurb": "Animate from a first-frame image, optionally interpolating toward a last-frame keyframe.",
+        "needs_still": False,
+        "max_refs": 0,
+        # First frame is the input image: the shot's still by default, or an
+        # explicit reference pick. Optional last frame is interpolated toward.
+        "first_frame": True,
+        "requires_first_frame": True,
+        "last_frame": True,
+        "background": False,
+        "driving_video": False,
+        "dual_prompt": False,
+        "est_seconds": 150,
+        "recommended": False,
+        "settings": [
+            {
+                "id": "sampler_name",
+                "default": "res_multistep",
+                "options": ["res_multistep", "euler", "dpmpp_2m", "dpmpp_2m_sde", "uni_pc"],
+                "label": "Sampler",
+                "help": "res_multistep is the recommended sampler for H3.",
+            },
+            {
+                "id": "scheduler",
+                "default": "simple",
+                "options": ["simple", "beta", "normal", "karras", "sgm_uniform"],
+                "label": "Scheduler",
+            },
+            {"id": "steps", "default": 20, "min": 4, "max": 60, "label": "Steps"},
+            {"id": "duration", "default": 10, "min": 2, "max": 15, "label": "Seconds",
+             "help": "Trained range is ~5–15s (frames snap to a multiple of 17 at 24fps)."},
+            {
+                "id": "aspect_ratio",
+                "default": "16:9 (Widescreen)",
+                "options": [
+                    "1:1 (Square)", "2:3 (Portrait Photo)", "3:2 (Photo)",
+                    "3:4 (Portrait Standard)", "4:3 (Standard)",
+                    "9:16 (Portrait Widescreen)", "16:9 (Widescreen)", "21:9 (Ultrawide)",
+                ],
+                "label": "Aspect ratio",
+            },
+            {"id": "megapixels", "default": 0.3, "min": 0.1, "max": 1.0, "step": 0.05,
+             "label": "Megapixels",
+             "help": "Output size in megapixels. Higher is sharper but slower."},
+        ],
     },
     "ltx_msr": {
         "workflow": "video_ltx23_msr",
@@ -136,6 +185,65 @@ VIDEO_WORKFLOWS = {
                 "label": "Pose strength",
                 "help": "How strictly the character follows the driving motion.",
             },
+        ],
+    },
+    "minimax_h3_r2v": {
+        "workflow": "video_minimax_h3_r2v",
+        "label": "MiniMax H3 Reference-to-Video",
+        "blurb": "Compose up to 9 reference images, 3 reference videos (with their soundtracks) and 3 audio clips into a video. No still needed.",
+        "needs_still": False,
+        "max_refs": 9,
+        # R2V-only: reference videos each contribute their embedded soundtrack,
+        # plus standalone audio clips. Both consumed by the autogrow node 136.
+        "max_ref_videos": 3,
+        "max_ref_audios": 3,
+        "background": False,
+        # R2V references are plain identity/style images, so locations are just
+        # more references (there's no dedicated background plate) — let them be
+        # picked among the reference slots rather than only as an MSR background.
+        "locations_as_refs": True,
+        "driving_video": False,
+        "dual_prompt": False,
+        # Its LoadImage/LoadVideo/LoadAudio slots ship pointing at placeholder
+        # files; unused ones must be pruned or the whole graph fails validation.
+        "autogrow_slots": True,
+        "est_seconds": 150,
+        "recommended": False,
+        "settings": [
+            {
+                "id": "sampler_name",
+                "default": "res_multistep",
+                # A fixed COMBO on KSamplerSelect (validated by ComfyUI). res_multistep
+                # is MiniMax H3's recommended sampler; a small curated subset.
+                "options": ["res_multistep", "euler", "dpmpp_2m", "dpmpp_2m_sde", "uni_pc"],
+                "label": "Sampler",
+                "help": "res_multistep is the recommended sampler for H3.",
+            },
+            {
+                "id": "scheduler",
+                # beta/normal tend to outperform simple for reference-heavy prompts,
+                # so this defaults to beta rather than the graph's shipped 'simple'.
+                "default": "beta",
+                "options": ["beta", "normal", "simple", "karras", "sgm_uniform"],
+                "label": "Scheduler",
+                "help": "beta or normal usually beat simple when many references are in play.",
+            },
+            {"id": "steps", "default": 20, "min": 4, "max": 60, "label": "Steps"},
+            {"id": "duration", "default": 10, "min": 2, "max": 15, "label": "Seconds",
+             "help": "Trained range is ~5–15s (frames snap to a multiple of 17 at 24fps)."},
+            {
+                "id": "aspect_ratio",
+                "default": "16:9 (Widescreen)",
+                "options": [
+                    "1:1 (Square)", "2:3 (Portrait Photo)", "3:2 (Photo)",
+                    "3:4 (Portrait Standard)", "4:3 (Standard)",
+                    "9:16 (Portrait Widescreen)", "16:9 (Widescreen)", "21:9 (Ultrawide)",
+                ],
+                "label": "Aspect ratio",
+            },
+            {"id": "megapixels", "default": 0.3, "min": 0.1, "max": 1.0, "step": 0.05,
+             "label": "Megapixels",
+             "help": "Output size in megapixels. Higher is sharper but slower."},
         ],
     },
 }
@@ -337,6 +445,91 @@ async def _resolve_driving_video(driving_video_id: str, db: AsyncSession) -> str
     return dv.video_url
 
 
+async def _resolve_reference_videos(video_ids: list[str], db: AsyncSession) -> list[str]:
+    """Resolve each DrivingVideo id (order preserved) to its input filename.
+
+    R2V reuses the driving-video library as its reference-video source; each
+    file must exist or ComfyUI's LoadVideo silently fails the whole graph.
+    """
+    return [await _resolve_driving_video(vid, db) for vid in video_ids]
+
+
+async def _resolve_reference_audios(audio_ids: list[str], db: AsyncSession) -> list[str]:
+    """Resolve each ReferenceAudio id (order preserved) to its input filename.
+
+    Uploaded audio already lives flat in COMFY_INPUT_DIR, so no staging copy is
+    needed — but the file must exist or LoadAudio fails the graph at validation.
+    """
+    files = []
+    for audio_id in audio_ids:
+        result = await db.execute(
+            select(ReferenceAudio).where(ReferenceAudio.id == audio_id)
+        )
+        ra = result.scalars().first()
+        if not ra:
+            raise ValueError(f"Reference audio {audio_id} not found")
+        if not ra.audio_url or not os.path.exists(os.path.join(COMFY_INPUT_DIR, ra.audio_url)):
+            raise ValueError(f"Reference audio file '{ra.audio_url}' is missing from the input directory")
+        files.append(ra.audio_url)
+    return files
+
+
+def _prune_autogrow_slots(
+    workflow: dict, node_map: dict, n_images: int, n_videos: int, n_audios: int
+) -> dict:
+    """Drop unused reference slots from an autogrow graph (MiniMax H3 R2V).
+
+    The exported graph ships with every LoadImage/LoadVideo/LoadAudio slot
+    present and pointing at a placeholder filename. A slot left unfilled would
+    make ComfyUI reject the *entire* graph at validation (and still report
+    success), so any slot beyond the count actually supplied is removed here —
+    both its loader node and its reference on the MiniMaxH3ReferenceToVideo node.
+    """
+    ref_node_id = node_map.get("ref_node")
+    ref_inputs = workflow.get(ref_node_id, {}).get("inputs", {}) if ref_node_id else {}
+
+    def drop_node(node_id):
+        if node_id:
+            workflow.pop(node_id, None)
+
+    for i, node_id in enumerate(node_map.get("image_slots", [])):
+        if i >= n_images:
+            drop_node(node_id)
+            ref_inputs.pop(f"ref_images.ref_image_{i}", None)
+
+    for i, node_id in enumerate(node_map.get("video_slots", [])):
+        if i >= n_videos:
+            drop_node(node_id)
+            ref_inputs.pop(f"ref_videos.ref_video_{i}", None)
+            ref_inputs.pop(f"ref_video_audios.ref_video_audio_{i}", None)
+    for i, node_id in enumerate(node_map.get("video_component_nodes", [])):
+        if i >= n_videos:
+            drop_node(node_id)
+
+    for i, node_id in enumerate(node_map.get("audio_slots", [])):
+        if i >= n_audios:
+            drop_node(node_id)
+            ref_inputs.pop(f"ref_audios.ref_audio_{i}", None)
+
+    return workflow
+
+
+def _prune_optional_last_frame(workflow: dict, node_map: dict) -> dict:
+    """Drop the optional last-frame keyframe slot when none was supplied (I2V).
+
+    The graph ships its last_frame LoadImage pointing at a placeholder file;
+    left unfilled it would fail the whole graph at validation. Remove both the
+    loader node and the last_frame input on the MiniMaxH3ImageToVideo node.
+    """
+    lf_node = node_map.get("last_frame_node")
+    if lf_node:
+        workflow.pop(lf_node, None)
+    ref_node = node_map.get("ref_node")
+    if ref_node:
+        workflow.get(ref_node, {}).get("inputs", {}).pop("last_frame", None)
+    return workflow
+
+
 async def generate_video(
     db: AsyncSession,
     workflow_key: str = DEFAULT_WORKFLOW,
@@ -344,7 +537,11 @@ async def generate_video(
     shot: Shot | None = None,
     reference_ids: list[str] | None = None,
     background_reference_id: str | None = None,
+    first_frame_reference_id: str | None = None,
+    last_frame_reference_id: str | None = None,
     driving_video_id: str | None = None,
+    ref_video_ids: list[str] | None = None,
+    ref_audio_ids: list[str] | None = None,
     motion_prompt: str | None = None,
     global_prompt: str | None = None,
     local_prompts: str | None = None,
@@ -368,6 +565,8 @@ async def generate_video(
 
     params = params or {}
     reference_ids = reference_ids or []
+    ref_video_ids = ref_video_ids or []
+    ref_audio_ids = ref_audio_ids or []
     settings = _resolve_settings(cfg, params)
     seed_val = params.get("seed") or random.randint(1, 1000000000000000)
     workflow_name = cfg["workflow"]
@@ -381,8 +580,24 @@ async def generate_video(
             f"{cfg['label']} accepts at most {cfg['max_refs']} references "
             f"({len(reference_ids)} given)"
         )
+    max_ref_videos = cfg.get("max_ref_videos", 0)
+    if len(ref_video_ids) > max_ref_videos:
+        raise ValueError(
+            f"{cfg['label']} accepts at most {max_ref_videos} reference videos "
+            f"({len(ref_video_ids)} given)"
+        )
+    max_ref_audios = cfg.get("max_ref_audios", 0)
+    if len(ref_audio_ids) > max_ref_audios:
+        raise ValueError(
+            f"{cfg['label']} accepts at most {max_ref_audios} reference audio clips "
+            f"({len(ref_audio_ids)} given)"
+        )
     if cfg["driving_video"] and not driving_video_id:
         raise ValueError(f"{cfg['label']} requires a driving video")
+    # First frame is the input image: it can come from the shot's still OR an
+    # explicit reference pick, but at least one must be present.
+    if cfg.get("requires_first_frame") and image is None and not first_frame_reference_id:
+        raise ValueError(f"{cfg['label']} requires a first-frame image")
 
     # Stage every file BEFORE creating the row: a missing image is a caller
     # error, not a failed generation, and ComfyUI would swallow it silently.
@@ -391,9 +606,17 @@ async def generate_video(
     background_file = None
     if background_reference_id:
         background_file = (await _resolve_reference_files([background_reference_id], db))[0]
+    first_frame_file = None
+    if first_frame_reference_id:
+        first_frame_file = (await _resolve_reference_files([first_frame_reference_id], db))[0]
+    last_frame_file = None
+    if last_frame_reference_id:
+        last_frame_file = (await _resolve_reference_files([last_frame_reference_id], db))[0]
     driving_video_file = None
     if driving_video_id:
         driving_video_file = await _resolve_driving_video(driving_video_id, db)
+    ref_video_files = await _resolve_reference_videos(ref_video_ids, db)
+    ref_audio_files = await _resolve_reference_audios(ref_audio_ids, db)
 
     # The still already carries the look; the prompt here describes motion.
     prompt_text = motion_prompt or (image.prompt if image is not None else "") or ""
@@ -436,6 +659,18 @@ async def generate_video(
             )
         node_map = load_node_map(workflow_name)
 
+        # Autogrow graphs (R2V) ship every reference slot present; drop the ones
+        # we won't fill before injecting, or ComfyUI rejects the whole graph.
+        if cfg.get("autogrow_slots"):
+            workflow = _prune_autogrow_slots(
+                workflow, node_map,
+                len(reference_files), len(ref_video_files), len(ref_audio_files),
+            )
+        # I2V's optional last-frame slot must be removed when unused, or its
+        # placeholder LoadImage fails the graph at validation.
+        if cfg.get("last_frame") and not last_frame_file:
+            workflow = _prune_optional_last_frame(workflow, node_map)
+
         # Per-workflow settings fan out onto their injection keys (one knob may
         # feed several nodes; COMBO widgets get str-cast) — see the registry.
         overrides = {
@@ -452,14 +687,25 @@ async def generate_video(
 
         if source_image:
             overrides["image"] = source_image
+        # An explicit first-frame reference overrides the still as the input image.
+        if first_frame_file:
+            overrides["image"] = first_frame_file
         # Reference slots fill positionally; slot 1 doubles as "image" for the
         # MSR graph, whose first LoadImage is subject #1 rather than a still.
         for idx, filename in enumerate(reference_files):
             overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
         if background_file:
             overrides["background_image"] = background_file
+        if last_frame_file:
+            overrides["last_frame"] = last_frame_file
         if driving_video_file:
             overrides["driving_video"] = driving_video_file
+        # R2V reference videos + standalone audio fill positionally, same as the
+        # image slots above (ref_video / ref_video2 / …, ref_audio / ref_audio2 / …).
+        for idx, filename in enumerate(ref_video_files):
+            overrides["ref_video" if idx == 0 else f"ref_video{idx + 1}"] = filename
+        for idx, filename in enumerate(ref_audio_files):
+            overrides["ref_audio" if idx == 0 else f"ref_audio{idx + 1}"] = filename
 
         workflow = inject(workflow, node_map, overrides)
         prompt_id = await submit(workflow)

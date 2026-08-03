@@ -12,6 +12,8 @@ import { WorkflowCards } from '../components/clip/WorkflowCards';
 import { ReferenceSlots } from '../components/clip/ReferenceSlots';
 import { sceneCandidates } from '../components/clip/referenceCandidates';
 import { DrivingVideoPicker } from '../components/clip/DrivingVideoPicker';
+import { AudioPicker } from '../components/clip/AudioPicker';
+import { KeyframePicker } from '../components/clip/KeyframePicker';
 import { WorkflowSettings } from '../components/clip/WorkflowSettings';
 import { ReadinessChecklist } from '../components/clip/ReadinessChecklist';
 import { ClipResults } from '../components/clip/ClipResults';
@@ -51,7 +53,13 @@ export function ClipStudio() {
   const [workflowId, setWorkflowId] = useState(null);
   const [subjectKeys, setSubjectKeys] = useState([]);
   const [backgroundKey, setBackgroundKey] = useState(null);
+  // I2V first frame: 'still' (default when a still exists) or a reference key.
+  const [firstFrameKey, setFirstFrameKey] = useState('still');
+  const [lastFrameKey, setLastFrameKey] = useState(null);
   const [drivingVideoId, setDrivingVideoId] = useState(null);
+  // R2V: ordered lists (slot 1/2/3), so these are arrays toggled by id.
+  const [refVideoIds, setRefVideoIds] = useState([]);
+  const [refAudioIds, setRefAudioIds] = useState([]);
   const [prompts, setPrompts] = useState({ global: null, local: null });
   // Keyed by setting id, sparse — only entries the user has touched. Effective
   // values (settingsValues below) fall back to each spec's own default, so
@@ -72,15 +80,21 @@ export function ClipStudio() {
   );
 
   const { subjects, locations } = useMemo(() => sceneCandidates(scene), [scene]);
+  // R2V has no background plate, so locations are pickable references too.
+  const includeLocations = Boolean(selectedWorkflow?.locations_as_refs);
+  const pickable = useMemo(
+    () => (includeLocations ? [...subjects, ...locations] : subjects),
+    [includeLocations, subjects, locations]
+  );
 
   // Prompts start auto-composed from the shot and stay that way until edited,
   // so changes to size/angle/description upstream keep flowing through.
   const autoLocal = shotToMotionPrompt(shot);
   const autoGlobal = useMemo(() => {
-    const chosen = subjectKeys.map((k) => subjects.find((s) => s.key === k)).filter(Boolean);
+    const chosen = subjectKeys.map((k) => pickable.find((s) => s.key === k)).filter(Boolean);
     const bg = locations.find((l) => l.key === backgroundKey) || null;
     return shotToGlobalPrompt(chosen, bg);
-  }, [subjectKeys, backgroundKey, subjects, locations]);
+  }, [subjectKeys, backgroundKey, pickable, locations]);
 
   const localPrompt = prompts.local ?? autoLocal;
   const globalPrompt = prompts.global ?? autoGlobal;
@@ -94,6 +108,16 @@ export function ClipStudio() {
     const extra = [];
     if (selectedWorkflow.needs_still) {
       extra.push({ key: 'still', label: 'Beauty-pass still attached', met: Boolean(shot?.still), required: true });
+    }
+    if (selectedWorkflow.first_frame) {
+      const firstFrameMet =
+        firstFrameKey === 'still' ? Boolean(shot?.still) : Boolean(firstFrameKey);
+      extra.push({
+        key: 'first_frame',
+        label: 'First-frame image selected',
+        met: firstFrameMet,
+        required: true,
+      });
     }
     if (selectedWorkflow.max_refs) {
       const label = selectedWorkflow.max_refs === 1
@@ -113,7 +137,7 @@ export function ClipStudio() {
       });
     }
     return [...base, ...extra];
-  }, [shot, selectedWorkflow, subjectKeys, backgroundKey, drivingVideoId]);
+  }, [shot, selectedWorkflow, subjectKeys, backgroundKey, drivingVideoId, firstFrameKey]);
 
   const blocking = requirements.filter((r) => r.required && !r.met);
   const canGenerate = selectedWorkflow && blocking.length === 0 && !inflight;
@@ -121,16 +145,31 @@ export function ClipStudio() {
   const generateMut = useMutation({
     mutationFn: () => {
       const refIds = subjectKeys
-        .map((k) => subjects.find((s) => s.key === k)?.referenceId)
+        .map((k) => pickable.find((s) => s.key === k)?.referenceId)
         .filter(Boolean);
       const bg = locations.find((l) => l.key === backgroundKey);
+      const allCandidates = [...subjects, ...locations];
+      const lastFrame = allCandidates.find((c) => c.key === lastFrameKey);
+      // First frame: the still (key 'still') or a picked reference. For
+      // still-driven workflows without a first-frame picker, keep the old path.
+      const firstFrameRef =
+        selectedWorkflow.first_frame && firstFrameKey && firstFrameKey !== 'still'
+          ? allCandidates.find((c) => c.key === firstFrameKey)
+          : null;
+      const stillAsInput = selectedWorkflow.first_frame
+        ? firstFrameKey === 'still'
+        : selectedWorkflow.needs_still;
       return api.generateClip({
         workflow: selectedWorkflow.id,
         shotId,
-        imageId: selectedWorkflow.needs_still ? shot?.still?.id : null,
+        imageId: stillAsInput ? shot?.still?.id : null,
         referenceIds: refIds,
         backgroundReferenceId: bg?.referenceId || null,
+        firstFrameReferenceId: firstFrameRef?.referenceId || null,
+        lastFrameReferenceId: selectedWorkflow.last_frame ? lastFrame?.referenceId || null : null,
         drivingVideoId: selectedWorkflow.driving_video ? drivingVideoId : null,
+        refVideoIds: selectedWorkflow.max_ref_videos ? refVideoIds : [],
+        refAudioIds: selectedWorkflow.max_ref_audios ? refAudioIds : [],
         motionPrompt: localPrompt,
         globalPrompt: selectedWorkflow.dual_prompt ? globalPrompt : null,
         localPrompts: selectedWorkflow.dual_prompt ? localPrompt : null,
@@ -180,12 +219,29 @@ export function ClipStudio() {
           : keys
     );
 
+  // Ordered toggle for R2V's reference-video / audio slots: remove keeps order,
+  // add appends (respecting the cap), so slot numbers stay stable.
+  const makeToggle = (setter, max) => (id) =>
+    setter((ids) =>
+      ids.includes(id)
+        ? ids.filter((x) => x !== id)
+        : ids.length < max
+          ? [...ids, id]
+          : ids
+    );
+  const toggleRefVideo = makeToggle(setRefVideoIds, selectedWorkflow?.max_ref_videos || 0);
+  const toggleRefAudio = makeToggle(setRefAudioIds, selectedWorkflow?.max_ref_audios || 0);
+
   // Section numbers are derived, not hardcoded, so a workflow that skips
   // references (i2v) or adds a driving video (SCAIL-2) still reads 1, 2, 3...
   let sectionNum = 1;
   const workflowSectionNum = sectionNum++;
   const refsSectionNum = selectedWorkflow?.max_refs > 0 ? sectionNum++ : null;
   const drivingVideoSectionNum = selectedWorkflow?.driving_video ? sectionNum++ : null;
+  const firstFrameSectionNum = selectedWorkflow?.first_frame ? sectionNum++ : null;
+  const lastFrameSectionNum = selectedWorkflow?.last_frame ? sectionNum++ : null;
+  const refVideoSectionNum = selectedWorkflow?.max_ref_videos > 0 ? sectionNum++ : null;
+  const refAudioSectionNum = selectedWorkflow?.max_ref_audios > 0 ? sectionNum++ : null;
   const promptSectionNum = sectionNum;
 
   return (
@@ -243,6 +299,7 @@ export function ClipStudio() {
                 scene={scene}
                 maxRefs={selectedWorkflow.max_refs}
                 allowBackground={selectedWorkflow.background}
+                includeLocations={includeLocations}
                 selectedKeys={subjectKeys}
                 onToggleSubject={toggleSubject}
                 backgroundKey={backgroundKey}
@@ -264,6 +321,83 @@ export function ClipStudio() {
               <p className="text-[9px] text-set/70 mt-2">
                 Needs a clearly visible person in both the reference image and this video — SAM3
                 tracks both, and an untrackable one yields empty masks and a failed generation.
+              </p>
+            </section>
+          )}
+
+          {firstFrameSectionNum && (
+            <section>
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
+                {firstFrameSectionNum} · First-frame image
+              </h2>
+              <KeyframePicker
+                scene={scene}
+                selectedKey={firstFrameKey}
+                onSelect={setFirstFrameKey}
+                allowNone={false}
+                stillOption={
+                  shot?.still
+                    ? { key: 'still', thumb: api.getGeneratedImageUrl(shot.still.id), label: 'Still' }
+                    : null
+                }
+              />
+              <p className="text-[9px] text-set/70 mt-2">
+                The input image the clip animates from — the shot’s beauty-pass still by default, or
+                pick a reference to use instead.
+              </p>
+            </section>
+          )}
+
+          {lastFrameSectionNum && (
+            <section>
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
+                {lastFrameSectionNum} · Last-frame keyframe
+              </h2>
+              <KeyframePicker
+                scene={scene}
+                selectedKey={lastFrameKey}
+                onSelect={setLastFrameKey}
+                noneTitle="No last-frame keyframe"
+              />
+              <p className="text-[9px] text-set/70 mt-2">
+                Optional — the still is the first frame; pick an image for the clip to end on and
+                MiniMax H3 interpolates between them.
+              </p>
+            </section>
+          )}
+
+          {refVideoSectionNum && (
+            <section>
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
+                {refVideoSectionNum} · Reference videos
+              </h2>
+              <DrivingVideoPicker
+                projectId={projectId}
+                multiple
+                selectedIds={refVideoIds}
+                onToggle={toggleRefVideo}
+                max={selectedWorkflow.max_ref_videos}
+              />
+              <p className="text-[9px] text-set/70 mt-2">
+                Optional — each video also contributes its own soundtrack. Pick up to{' '}
+                {selectedWorkflow.max_ref_videos} to guide motion, style, or camera movement.
+              </p>
+            </section>
+          )}
+
+          {refAudioSectionNum && (
+            <section>
+              <h2 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider mb-2">
+                {refAudioSectionNum} · Reference audio
+              </h2>
+              <AudioPicker
+                projectId={projectId}
+                selectedIds={refAudioIds}
+                onToggle={toggleRefAudio}
+                max={selectedWorkflow.max_ref_audios}
+              />
+              <p className="text-[9px] text-set/70 mt-2">
+                Optional — up to {selectedWorkflow.max_ref_audios} standalone voice or soundtrack clips.
               </p>
             </section>
           )}

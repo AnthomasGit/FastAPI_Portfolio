@@ -101,8 +101,9 @@ export const api = {
   // Clip generation with an explicit workflow. Reference-driven workflows need
   // no still, so image_id is optional and the clip hangs off the shot instead.
   generateClip: ({
-    workflow, shotId, imageId, referenceIds, backgroundReferenceId, drivingVideoId,
-    motionPrompt, globalPrompt, localPrompts, params,
+    workflow, shotId, imageId, referenceIds, backgroundReferenceId,
+    firstFrameReferenceId, lastFrameReferenceId,
+    drivingVideoId, refVideoIds, refAudioIds, motionPrompt, globalPrompt, localPrompts, params,
   } = {}) =>
     fetchJSON('/generate/video', {
       method: 'POST',
@@ -112,7 +113,11 @@ export const api = {
         image_id: imageId ?? null,
         reference_ids: referenceIds ?? [],
         background_reference_id: backgroundReferenceId ?? null,
+        first_frame_reference_id: firstFrameReferenceId ?? null,
+        last_frame_reference_id: lastFrameReferenceId ?? null,
         driving_video_id: drivingVideoId ?? null,
+        ref_video_ids: refVideoIds ?? [],
+        ref_audio_ids: refAudioIds ?? [],
         motion_prompt: motionPrompt ?? null,
         global_prompt: globalPrompt ?? null,
         local_prompts: localPrompts ?? null,
@@ -143,6 +148,27 @@ export const api = {
     fetchJSON(projectId ? `/driving-videos?project_id=${projectId}` : '/driving-videos'),
   deleteDrivingVideo: (id) => fetchJSON(`/driving-videos/${id}`, { method: 'DELETE' }),
   getDrivingVideoUrl: (v) => `${API_BASE}/uploads/file/${v.video_url}`,
+
+  // Reference-audio library (MiniMax H3 R2V's standalone audio slots). Same
+  // reusable cross-project shape as the driving-video library above.
+  uploadReferenceAudio: async (file, { projectId, label } = {}) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const qs = new URLSearchParams();
+    if (projectId) qs.set('project_id', projectId);
+    if (label) qs.set('label', label);
+    const q = qs.toString() ? `?${qs}` : '';
+    const res = await fetch(`${API_BASE}/reference-audios${q}`, { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    return res.json();
+  },
+  listReferenceAudios: (projectId) =>
+    fetchJSON(projectId ? `/reference-audios?project_id=${projectId}` : '/reference-audios'),
+  deleteReferenceAudio: (id) => fetchJSON(`/reference-audios/${id}`, { method: 'DELETE' }),
+  getReferenceAudioUrl: (a) => `${API_BASE}/uploads/file/${a.audio_url}`,
 
   // Master shot list (per scene).
   listShots: (sceneId) => fetchJSON(`/scenes/${sceneId}/shots`),

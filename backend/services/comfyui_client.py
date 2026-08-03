@@ -39,7 +39,10 @@ def load_node_map(name: str) -> dict:
 # FloatConstant primitives the LTX graphs use for width/height/fps all carry
 # a plain "value". First candidate present on the node wins.
 INJECTION_MAP = {
-    "prompt": ("prompt_node", ("text",)),
+    # "value" covers a PrimitiveStringMultiline prompt node (MiniMax H3 R2V) and
+    # "prompt" the inline prompt field on MiniMaxH3ImageToVideo, alongside the
+    # usual CLIPTextEncode "text" field.
+    "prompt": ("prompt_node", ("text", "value", "prompt")),
     "negative_prompt": ("negative_node", ("text",)),
     "seed": ("seed_node", ("seed", "noise_seed")),
     "filename_prefix": ("output_node", ("filename_prefix", "value")),
@@ -53,7 +56,31 @@ INJECTION_MAP = {
     "image2": ("image2_node", ("image",)),
     "image3": ("image3_node", ("image",)),
     "image4": ("image4_node", ("image",)),
+    # Reference-image slots 5-9 for MiniMax H3 R2V (up to 9 identity references).
+    "image5": ("image5_node", ("image",)),
+    "image6": ("image6_node", ("image",)),
+    "image7": ("image7_node", ("image",)),
+    "image8": ("image8_node", ("image",)),
+    "image9": ("image9_node", ("image",)),
     "background_image": ("background_node", ("image",)),
+    # MiniMax H3 I2V optional last-frame keyframe (a second LoadImage the
+    # generation interpolates toward; first_frame uses the plain "image" key).
+    "last_frame": ("last_frame_node", ("image",)),
+    # R2V reference videos (LoadVideo "file"; each also contributes its embedded
+    # soundtrack via a downstream GetVideoComponents) and standalone audio clips.
+    "ref_video": ("ref_video_node", ("file",)),
+    "ref_video2": ("ref_video2_node", ("file",)),
+    "ref_video3": ("ref_video3_node", ("file",)),
+    "ref_audio": ("ref_audio_node", ("audio",)),
+    "ref_audio2": ("ref_audio2_node", ("audio",)),
+    "ref_audio3": ("ref_audio3_node", ("audio",)),
+    # R2V sampler/scheduler knobs (KSamplerSelect + BasicScheduler) and the
+    # ResolutionSelector output-size controls.
+    "sampler_name": ("sampler_node", ("sampler_name",)),
+    "scheduler": ("scheduler_node", ("scheduler",)),
+    "steps": ("steps_node", ("steps",)),
+    "aspect_ratio": ("aspect_ratio_node", ("aspect_ratio",)),
+    "megapixels": ("megapixels_node", ("megapixels",)),
     # PromptRelayEncode carries two prompts on ONE node: a global block that
     # describes each reference image's identity, and the per-beat local script.
     # Both map keys therefore point at the same node id but write differently.

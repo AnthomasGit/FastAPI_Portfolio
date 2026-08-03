@@ -208,6 +208,26 @@ class DrivingVideo(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ReferenceAudio(Base):
+    """An uploaded audio clip for reference-driven video (MiniMax H3 R2V).
+
+    Same reusable-library shape as DrivingVideo: origin_project_id nullable so a
+    voice/soundtrack clip is pickable across projects, the file lives flat in
+    COMFY_INPUT_DIR (audio_url is the bare filename) and is served via the
+    /api/uploads/file static mount. Fed into the R2V graph's standalone
+    LoadAudio slots (its ref-video soundtracks come from the videos themselves).
+    """
+    __tablename__ = "reference_audios"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    origin_project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    label = Column(String, nullable=True)
+    audio_url = Column(String, nullable=False)        # bare filename in COMFY_INPUT_DIR
+    content_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class GeneratedImage(Base):
     __tablename__ = "generated_images"
 

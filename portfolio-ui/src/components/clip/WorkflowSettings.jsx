@@ -10,14 +10,20 @@ export function WorkflowSettings({ specs, values, onChange }) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 pb-3">
-      {specs.map((spec) => (
+      {specs.map((spec) => {
+        // String COMBOs (sampler/scheduler/aspect ratio) keep their value as a
+        // string; numeric COMBOs (frame counts) coerce back to a Number.
+        const optionsAreStrings = spec.options && typeof spec.options[0] === 'string';
+        return (
         <div key={spec.id} className={spec.step != null ? 'col-span-2' : undefined}>
           <label className="block">
             <span className="block text-[9px] text-fg-muted mb-0.5">{spec.label}</span>
             {spec.options ? (
               <select
                 value={values[spec.id]}
-                onChange={(e) => onChange(spec.id, Number(e.target.value))}
+                onChange={(e) =>
+                  onChange(spec.id, optionsAreStrings ? e.target.value : Number(e.target.value))
+                }
                 className="w-full text-[11px] bg-bay-900 border border-line rounded px-2 py-1 text-fg focus:outline-none focus:ring-1 focus:ring-clip"
               >
                 {spec.options.map((n) => (
@@ -52,7 +58,8 @@ export function WorkflowSettings({ specs, values, onChange }) {
           </label>
           {spec.help && <p className="text-[9px] text-fg-faint mt-1 leading-snug">{spec.help}</p>}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

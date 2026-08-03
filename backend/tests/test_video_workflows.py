@@ -12,11 +12,12 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from database import DrivingVideo, GeneratedVideo, Reference, Scene, Shot
+from database import DrivingVideo, GeneratedVideo, Reference, ReferenceAudio, Scene, Shot
 from services.comfyui_client import inject, load_node_map, load_workflow
 from services.video_service import (
     DEFAULT_WORKFLOW,
     VIDEO_WORKFLOWS,
+    _prune_autogrow_slots,
     generate_video,
     list_workflows,
 )
@@ -466,3 +467,342 @@ async def test_scail2_happy_path_records_frames_and_pose_strength(db_session, sc
     assert video.params["frames"] == 49
     assert video.params["pose_strength"] == 0.5
     assert video.prompt == "A knight waves."
+
+
+# ── MiniMax H3 R2V: registry, injection, autogrow pruning ────────────────
+
+
+def test_r2v_registry_capabilities_and_settings():
+    entries = {e["id"]: e for e in list_workflows()}
+    assert "minimax_h3_r2v" in entries
+    r2v = entries["minimax_h3_r2v"]
+    assert r2v["needs_still"] is False
+    assert r2v["max_refs"] == 9
+    assert r2v["max_ref_videos"] == 3
+    assert r2v["max_ref_audios"] == 3
+    assert r2v["dual_prompt"] is False
+    # Locations are pickable identity/style references (no background plate).
+    assert r2v["locations_as_refs"] is True
+
+    settings = {s["id"]: s for s in r2v["settings"]}
+    # Sampler defaults to res_multistep (H3's recommended sampler), and the
+    # scheduler defaults to beta -- it beats simple for reference-heavy prompts.
+    assert settings["sampler_name"]["default"] == "res_multistep"
+    assert "res_multistep" in settings["sampler_name"]["options"]
+    assert settings["scheduler"]["default"] == "beta"
+    assert set(["beta", "normal", "simple"]).issubset(settings["scheduler"]["options"])
+    # Backend-only injection wiring must not leak (autogrow_slots is a cfg flag,
+    # not a setting, so it should not appear as a knob either).
+    assert "autogrow_slots" not in settings
+
+
+def test_r2v_injection_fills_all_slots_and_sampler_knobs():
+    name = VIDEO_WORKFLOWS["minimax_h3_r2v"]["workflow"]
+    workflow = load_workflow(name)
+    node_map = load_node_map(name)
+
+    overrides = {
+        "prompt": "A duel.", "seed": 555, "filename_prefix": "job-r2v",
+        "sampler_name": "res_multistep", "scheduler": "beta", "steps": 24,
+        "duration": 8, "aspect_ratio": "9:16 (Portrait Widescreen)", "megapixels": 0.5,
+    }
+    for i in range(9):
+        overrides["image" if i == 0 else f"image{i + 1}"] = f"img{i}.png"
+    for i in range(3):
+        overrides["ref_video" if i == 0 else f"ref_video{i + 1}"] = f"vid{i}.mp4"
+        overrides["ref_audio" if i == 0 else f"ref_audio{i + 1}"] = f"aud{i}.wav"
+
+    injected = inject(workflow, node_map, overrides)
+
+    # Prompt is a PrimitiveStringMultiline -> "value", not "text".
+    assert injected[node_map["prompt_node"]]["inputs"]["value"] == "A duel."
+    assert injected[node_map["seed_node"]]["inputs"]["noise_seed"] == 555
+    assert injected[node_map["output_node"]]["inputs"]["filename_prefix"] == "job-r2v"
+    assert injected[node_map["sampler_node"]]["inputs"]["sampler_name"] == "res_multistep"
+    # scheduler + steps live on the SAME BasicScheduler node; must not clobber.
+    sched = injected[node_map["scheduler_node"]]["inputs"]
+    assert sched["scheduler"] == "beta"
+    assert sched["steps"] == 24
+    assert injected[node_map["duration_node"]]["inputs"]["value"] == 8
+    res = injected[node_map["aspect_ratio_node"]]["inputs"]
+    assert res["aspect_ratio"] == "9:16 (Portrait Widescreen)"
+    assert res["megapixels"] == 0.5
+
+    for i, node_id in enumerate(node_map["image_slots"]):
+        assert injected[node_id]["inputs"]["image"] == f"img{i}.png"
+    for i, node_id in enumerate(node_map["video_slots"]):
+        assert injected[node_id]["inputs"]["file"] == f"vid{i}.mp4"
+    for i, node_id in enumerate(node_map["audio_slots"]):
+        assert injected[node_id]["inputs"]["audio"] == f"aud{i}.wav"
+
+
+def test_r2v_prune_drops_unused_slots_and_their_references():
+    name = VIDEO_WORKFLOWS["minimax_h3_r2v"]["workflow"]
+    workflow = load_workflow(name)
+    node_map = load_node_map(name)
+
+    # Keep 2 images, 1 video, 0 audios.
+    pruned = _prune_autogrow_slots(workflow, node_map, 2, 1, 0)
+
+    # Kept slots survive; trailing ones are gone.
+    assert node_map["image_slots"][0] in pruned
+    assert node_map["image_slots"][1] in pruned
+    for node_id in node_map["image_slots"][2:]:
+        assert node_id not in pruned
+    assert node_map["video_slots"][0] in pruned
+    for node_id in node_map["video_slots"][1:]:
+        assert node_id not in pruned
+    for node_id in node_map["video_component_nodes"][1:]:
+        assert node_id not in pruned
+    for node_id in node_map["audio_slots"]:
+        assert node_id not in pruned
+
+    # The autogrow node's dangling references are gone too, so ComfyUI won't
+    # reject the graph for pointing at deleted loader nodes.
+    ref_inputs = pruned[node_map["ref_node"]]["inputs"]
+    assert "ref_images.ref_image_0" in ref_inputs
+    assert "ref_images.ref_image_2" not in ref_inputs
+    assert "ref_videos.ref_video_0" in ref_inputs
+    assert "ref_videos.ref_video_1" not in ref_inputs
+    assert "ref_video_audios.ref_video_audio_1" not in ref_inputs
+    assert "ref_audios.ref_audio_0" not in ref_inputs
+
+
+@pytest.mark.asyncio
+async def test_r2v_rejects_too_many_reference_videos(db_session, scene):
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url="x.png",
+    )
+    db_session.add(ref)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="at most 3 reference videos"):
+        await generate_video(
+            db_session, workflow_key="minimax_h3_r2v", reference_ids=[ref.id],
+            ref_video_ids=["a", "b", "c", "d"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_r2v_missing_audio_file_raises_before_any_row_is_created(db_session, scene):
+    ref_filename = f"{uuid.uuid4()}.png"
+    with open(os.path.join(COMFY_INPUT_DIR, ref_filename), "wb") as f:
+        f.write(b"fake")
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url=ref_filename,
+    )
+    ra = ReferenceAudio(id=str(uuid.uuid4()), audio_url="definitely_not_on_disk.wav")
+    db_session.add_all([ref, ra])
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="missing from the input directory"):
+        await generate_video(
+            db_session, workflow_key="minimax_h3_r2v", reference_ids=[ref.id],
+            ref_audio_ids=[ra.id],
+        )
+    rows = (await db_session.execute(select(GeneratedVideo))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_r2v_happy_path_prunes_and_submits(db_session, scene, monkeypatch):
+    # Stage one ref image, one ref video, one audio clip on disk.
+    img = f"{uuid.uuid4()}.png"
+    vid = f"{uuid.uuid4()}.mp4"
+    aud = f"{uuid.uuid4()}.wav"
+    for fn in (img, vid, aud):
+        with open(os.path.join(COMFY_INPUT_DIR, fn), "wb") as f:
+            f.write(b"fake")
+
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="character",
+        entity_id=str(uuid.uuid4()), url=img,
+    )
+    dv = DrivingVideo(id=str(uuid.uuid4()), video_url=vid)
+    ra = ReferenceAudio(id=str(uuid.uuid4()), audio_url=aud)
+    shot = Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number="1A")
+    db_session.add_all([ref, dv, ra, shot])
+    await db_session.commit()
+
+    captured = {}
+
+    async def fake_submit(workflow):
+        captured["workflow"] = workflow
+        return "prompt-r2v"
+
+    monkeypatch.setattr("services.video_service.submit", fake_submit)
+
+    video_id = await generate_video(
+        db_session,
+        workflow_key="minimax_h3_r2v",
+        shot=shot,
+        reference_ids=[ref.id],
+        ref_video_ids=[dv.id],
+        ref_audio_ids=[ra.id],
+        motion_prompt="They fight.",
+        params={"scheduler": "normal", "steps": 18},
+    )
+
+    video = await db_session.get(GeneratedVideo, video_id)
+    assert video.status == "processing"
+    assert video.shot_id == shot.id
+    assert video.source_image_id is None
+    assert video.params["workflow"] == "minimax_h3_r2v"
+    assert video.params["scheduler"] == "normal"
+    assert video.params["steps"] == 18
+
+    # The submitted graph kept exactly the filled slots and pruned the rest.
+    submitted = captured["workflow"]
+    node_map = load_node_map("video_minimax_h3_r2v")
+    assert submitted[node_map["image_slots"][0]]["inputs"]["image"] == img
+    assert node_map["image_slots"][1] not in submitted
+    assert submitted[node_map["video_slots"][0]]["inputs"]["file"] == vid
+    assert node_map["video_slots"][1] not in submitted
+    assert submitted[node_map["audio_slots"][0]]["inputs"]["audio"] == aud
+    assert node_map["audio_slots"][1] not in submitted
+    # Sampler default (res_multistep) applied even though only scheduler was set.
+    assert submitted[node_map["sampler_node"]]["inputs"]["sampler_name"] == "res_multistep"
+
+
+# ── MiniMax H3 I2V: still-driven with an optional last-frame keyframe ─────
+
+
+def test_i2v_h3_registry_capabilities():
+    entries = {e["id"]: e for e in list_workflows()}
+    assert "minimax_h3_i2v" in entries
+    i2v = entries["minimax_h3_i2v"]
+    assert i2v["needs_still"] is False
+    assert i2v["first_frame"] is True
+    assert i2v["last_frame"] is True
+    assert i2v["max_refs"] == 0
+    settings = {s["id"]: s for s in i2v["settings"]}
+    assert settings["sampler_name"]["default"] == "res_multistep"
+    assert "sampler_name" in settings and "scheduler" in settings
+
+
+def test_i2v_h3_injection_fills_frames_prompt_and_sampler():
+    name = VIDEO_WORKFLOWS["minimax_h3_i2v"]["workflow"]
+    workflow = load_workflow(name)
+    node_map = load_node_map(name)
+
+    injected = inject(workflow, node_map, {
+        "image": "still.png", "last_frame": "end.png",
+        "prompt": "It moves.", "seed": 77, "filename_prefix": "job-i2v",
+        "sampler_name": "res_multistep", "scheduler": "beta", "steps": 22,
+        "duration": 6, "aspect_ratio": "16:9 (Widescreen)", "megapixels": 0.4,
+    })
+
+    assert injected[node_map["image_node"]]["inputs"]["image"] == "still.png"
+    assert injected[node_map["last_frame_node"]]["inputs"]["image"] == "end.png"
+    # I2V's prompt is inline on the MiniMaxH3ImageToVideo node ("prompt" field).
+    assert injected[node_map["prompt_node"]]["inputs"]["prompt"] == "It moves."
+    assert injected[node_map["seed_node"]]["inputs"]["noise_seed"] == 77
+    assert injected[node_map["output_node"]]["inputs"]["filename_prefix"] == "job-i2v"
+    assert injected[node_map["sampler_node"]]["inputs"]["sampler_name"] == "res_multistep"
+    sched = injected[node_map["scheduler_node"]]["inputs"]
+    assert sched["scheduler"] == "beta" and sched["steps"] == 22
+
+
+def test_i2v_h3_prune_removes_unused_last_frame():
+    from services.video_service import _prune_optional_last_frame
+    name = VIDEO_WORKFLOWS["minimax_h3_i2v"]["workflow"]
+    workflow = load_workflow(name)
+    node_map = load_node_map(name)
+
+    pruned = _prune_optional_last_frame(workflow, node_map)
+    assert node_map["last_frame_node"] not in pruned
+    assert "last_frame" not in pruned[node_map["ref_node"]]["inputs"]
+    # first_frame slot survives.
+    assert node_map["image_node"] in pruned
+
+
+@pytest.mark.asyncio
+async def test_i2v_h3_happy_path_prunes_last_frame_when_absent(db_session, scene, monkeypatch):
+    from database import GeneratedImage
+
+    image = GeneratedImage(
+        id=str(uuid.uuid4()), scene_id=scene.id, project_id=scene.project_id,
+        status="completed", image_url="still.png",
+    )
+    shot = Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number="1A")
+    db_session.add_all([image, shot])
+    await db_session.commit()
+
+    monkeypatch.setattr("services.video_service.COMFY_OUTPUT_DIR", COMFY_INPUT_DIR)
+    with open(os.path.join(COMFY_INPUT_DIR, "still.png"), "wb") as f:
+        f.write(b"fake")
+
+    captured = {}
+
+    async def fake_submit(workflow):
+        captured["workflow"] = workflow
+        return "prompt-i2v"
+
+    monkeypatch.setattr("services.video_service.submit", fake_submit)
+
+    video_id = await generate_video(
+        db_session, workflow_key="minimax_h3_i2v", image=image, shot=shot,
+        motion_prompt="A slow push in.", params={"steps": 16},
+    )
+
+    video = await db_session.get(GeneratedVideo, video_id)
+    assert video.status == "processing"
+    assert video.params["workflow"] == "minimax_h3_i2v"
+
+    node_map = load_node_map("video_minimax_h3_i2v")
+    submitted = captured["workflow"]
+    # first_frame got the staged still; the unused last_frame slot is gone.
+    assert submitted[node_map["image_node"]]["inputs"]["image"] == f"{image.id}_source.png"
+    assert node_map["last_frame_node"] not in submitted
+    assert "last_frame" not in submitted[node_map["ref_node"]]["inputs"]
+
+
+@pytest.mark.asyncio
+async def test_i2v_h3_requires_a_first_frame(db_session, scene):
+    """No still and no first-frame reference is a caller error, not a failed run."""
+    with pytest.raises(ValueError, match="requires a first-frame image"):
+        await generate_video(db_session, workflow_key="minimax_h3_i2v", shot=None)
+
+
+@pytest.mark.asyncio
+async def test_i2v_h3_first_frame_reference_overrides_still(db_session, scene, monkeypatch):
+    """An explicit first-frame reference is used as the input image over the still."""
+    still_fn = "still.png"
+    ref_fn = f"{uuid.uuid4()}.png"
+    monkeypatch.setattr("services.video_service.COMFY_OUTPUT_DIR", COMFY_INPUT_DIR)
+    for fn in (still_fn, ref_fn):
+        with open(os.path.join(COMFY_INPUT_DIR, fn), "wb") as f:
+            f.write(b"fake")
+
+    from database import GeneratedImage
+    image = GeneratedImage(
+        id=str(uuid.uuid4()), scene_id=scene.id, project_id=scene.project_id,
+        status="completed", image_url=still_fn,
+    )
+    ref = Reference(
+        id=str(uuid.uuid4()), entity_type="location",
+        entity_id=str(uuid.uuid4()), url=ref_fn,
+    )
+    shot = Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number="1A")
+    db_session.add_all([image, ref, shot])
+    await db_session.commit()
+
+    captured = {}
+
+    async def fake_submit(workflow):
+        captured["workflow"] = workflow
+        return "prompt-i2v"
+
+    monkeypatch.setattr("services.video_service.submit", fake_submit)
+
+    await generate_video(
+        db_session, workflow_key="minimax_h3_i2v", image=image, shot=shot,
+        first_frame_reference_id=ref.id, motion_prompt="Go.",
+    )
+
+    node_map = load_node_map("video_minimax_h3_i2v")
+    first_frame = captured["workflow"][node_map["image_node"]]["inputs"]["image"]
+    # The reference file wins over the staged still ("<id>_source.png").
+    assert first_frame == ref_fn

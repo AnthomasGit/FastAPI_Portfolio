@@ -195,7 +195,15 @@ class VideoGenerateRequest(BaseModel):
     shot_id: Optional[str] = None
     reference_ids: List[str] = []
     background_reference_id: Optional[str] = None
+    # MiniMax H3 I2V: the first-frame input image (overrides the still) and an
+    # optional last-frame keyframe the clip interpolates toward.
+    first_frame_reference_id: Optional[str] = None
+    last_frame_reference_id: Optional[str] = None
     driving_video_id: Optional[str] = None
+    # MiniMax H3 R2V: up to 3 reference videos (each contributes its own
+    # soundtrack) and up to 3 standalone audio clips, alongside reference_ids.
+    ref_video_ids: List[str] = []
+    ref_audio_ids: List[str] = []
     motion_prompt: Optional[str] = None
     global_prompt: Optional[str] = None
     local_prompts: Optional[str] = None
@@ -211,7 +219,9 @@ class VideoWorkflowSetting(BaseModel):
     label: str
     default: float | int | str
     help: Optional[str] = None
-    options: Optional[List[int]] = None
+    # int options (LiconMSR frame counts) or string options (sampler/scheduler/
+    # aspect-ratio COMBOs on the R2V graph) — a fixed set validated for membership.
+    options: Optional[List[int | str]] = None
     min: Optional[float] = None
     max: Optional[float] = None
     step: Optional[float] = None
@@ -223,7 +233,12 @@ class VideoWorkflowResponse(BaseModel):
     blurb: str
     needs_still: bool
     max_refs: int
+    max_ref_videos: int = 0
+    max_ref_audios: int = 0
     background: bool
+    locations_as_refs: bool = False
+    first_frame: bool = False
+    last_frame: bool = False
     driving_video: bool
     dual_prompt: bool
     settings: List[VideoWorkflowSetting] = []
@@ -236,6 +251,19 @@ class DrivingVideoResponse(BaseModel):
     origin_project_id: Optional[str] = None
     label: Optional[str] = None
     video_url: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ReferenceAudioResponse(BaseModel):
+    id: str
+    origin_project_id: Optional[str] = None
+    label: Optional[str] = None
+    audio_url: str
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
     created_at: datetime

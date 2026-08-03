@@ -48,11 +48,14 @@ function Tile({ candidate, slot, onClick, disabled }) {
 }
 
 export function ReferenceSlots({
-  scene, maxRefs, allowBackground,
+  scene, maxRefs, allowBackground, includeLocations = false,
   selectedKeys, onToggleSubject,
   backgroundKey, onSelectBackground,
 }) {
   const { subjects, locations } = sceneCandidates(scene);
+  // When a workflow has no dedicated background plate (R2V), locations are just
+  // more identity/style references and join the subject grid.
+  const pickable = includeLocations ? [...subjects, ...locations] : subjects;
   const atCapacity = selectedKeys.length >= maxRefs;
 
   return (
@@ -66,14 +69,15 @@ export function ReferenceSlots({
             {selectedKeys.length} / {maxRefs} slots
           </span>
         </div>
-        {subjects.length === 0 ? (
+        {pickable.length === 0 ? (
           <p className="text-[11px] text-fg-muted">
-            No characters or props with a chosen reference are linked to this scene. Pick their
-            per-scene reference on the Scene Detail page first.
+            No {includeLocations ? 'characters, props or locations' : 'characters or props'} with a
+            chosen reference are linked to this scene. Pick their per-scene reference on the Scene
+            Detail page first.
           </p>
         ) : (
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-            {subjects.map((c) => {
+            {pickable.map((c) => {
               const slot = selectedKeys.indexOf(c.key) + 1;
               return (
                 <Tile
