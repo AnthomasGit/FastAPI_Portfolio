@@ -36,6 +36,34 @@ async def test_generate_txt2img_returns_202(client, project, character):
 
 
 @pytest.mark.asyncio
+async def test_generate_txt2img_applies_custom_width_height(client, project, character):
+    prompt_id = str(uuid.uuid4())
+    with respx.mock:
+        route = respx.post(f"{COMFY_API_URL}/prompt").mock(
+            return_value=Response(200, json={"prompt_id": prompt_id})
+        )
+
+        resp = await client.post(
+            "/api/asset-images/generate",
+            json={
+                "project_id": project.id,
+                "entity_type": "characters",
+                "prompt": "A test character image",
+                "width": 1280,
+                "height": 720,
+            },
+        )
+        assert resp.status_code == 202
+
+        sent_workflow = route.calls.last.request.content
+        import json as _json
+        payload = _json.loads(sent_workflow)
+        latent_node = payload["prompt"]["57:13"]["inputs"]
+        assert latent_node["width"] == 1280
+        assert latent_node["height"] == 720
+
+
+@pytest.mark.asyncio
 async def test_generate_txt2img_rejects_missing_prompt(client, project):
     resp = await client.post(
         "/api/asset-images/generate",

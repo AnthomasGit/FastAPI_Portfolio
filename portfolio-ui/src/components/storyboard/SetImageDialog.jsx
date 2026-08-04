@@ -15,6 +15,9 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   const [sourceRefId, setSourceRefId] = useState('');
   const [sourceAssetImageId, setSourceAssetImageId] = useState('');
   const [pendingAssetId, setPendingAssetId] = useState(null);
+  const [imageSize, setImageSize] = useState('768x1024');
+
+  const [sizeWidth, sizeHeight] = imageSize.split('x').map(Number);
 
   const pluralType = `${entityType}s`;
 
@@ -77,6 +80,8 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
       project_id: projectId,
       entity_type: pluralType,
       prompt,
+      width: sizeWidth,
+      height: sizeHeight,
     });
   };
 
@@ -110,6 +115,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
       setSourceRefId('');
       setSourceAssetImageId('');
       setActiveTab('generate-text');
+      setImageSize('768x1024');
     }
     onOpenChange(open);
   };
@@ -147,6 +153,21 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
+
+              <div className="space-y-2">
+                <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Image size</label>
+                <Select value={imageSize} onValueChange={setImageSize}>
+                  <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-bay-850 border-line text-fg text-xs">
+                    <SelectItem value="768x1024">Portrait — 768 × 1024</SelectItem>
+                    <SelectItem value="1024x1024">Square — 1024 × 1024</SelectItem>
+                    <SelectItem value="1024x768">Landscape — 1024 × 768</SelectItem>
+                    <SelectItem value="1280x720">Widescreen — 1280 × 720</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-[11px] text-fg-faint">

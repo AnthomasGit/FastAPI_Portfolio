@@ -65,6 +65,8 @@ async def trigger_asset_image_generation(
             entity_type=PLURAL_TO_SINGULAR[data.entity_type],
             prompt=data.prompt,
             db=db,
+            width=data.width,
+            height=data.height,
         )
 
     return {"asset_image_id": asset_id}

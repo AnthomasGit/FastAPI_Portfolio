@@ -1,5 +1,7 @@
 {
   "prompt_node": "57:27",
   "seed_node": "57:3",
-  "output_node": "9"
+  "output_node": "9",
+  "width_node": "57:13",
+  "height_node": "57:13"
 }

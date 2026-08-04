@@ -21,6 +21,8 @@ async def generate_txt2img(
     entity_type: str,
     prompt: str,
     db: AsyncSession,
+    width: int | None = None,
+    height: int | None = None,
 ) -> str:
     job_id = str(uuid.uuid4())
     seed_val = random.randint(1, 1000000000000000)
@@ -42,11 +44,17 @@ async def generate_txt2img(
         workflow = load_workflow(TXT2IMG_WORKFLOW)
         node_map = load_node_map(TXT2IMG_WORKFLOW)
 
-        workflow = inject(workflow, node_map, {
+        overrides = {
             "prompt": prompt,
             "seed": seed_val,
             "filename_prefix": prefix,
-        })
+        }
+        if width is not None:
+            overrides["width"] = width
+        if height is not None:
+            overrides["height"] = height
+
+        workflow = inject(workflow, node_map, overrides)
 
         prompt_id = await submit(workflow)
 

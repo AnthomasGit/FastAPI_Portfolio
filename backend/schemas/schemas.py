@@ -154,6 +154,8 @@ class AssetImageGenerateRequest(BaseModel):
     prompt: Optional[str] = None
     source_reference_id: Optional[str] = None
     source_asset_image_id: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 
 class AssetImageResponse(BaseModel):
