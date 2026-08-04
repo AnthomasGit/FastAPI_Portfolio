@@ -16,6 +16,13 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   const [sourceAssetImageId, setSourceAssetImageId] = useState('');
   const [pendingAssetId, setPendingAssetId] = useState(null);
   const [imageSize, setImageSize] = useState('768x1024');
+  // Only one Select may be open at a time. Radix's item-aligned dropdown can
+  // visually overlap the field below it, so a click meant for the second
+  // trigger can land while the first Select is still closing — a race that
+  // (via Select's own dismissable-layer stack) can bubble up and close the
+  // whole Dialog. Funneling every Select through this single piece of state
+  // guarantees one closes (in React state, synchronously) before another opens.
+  const [openSelect, setOpenSelect] = useState(null);
 
   const [sizeWidth, sizeHeight] = imageSize.split('x').map(Number);
 
@@ -116,6 +123,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
       setSourceAssetImageId('');
       setActiveTab('generate-text');
       setImageSize('768x1024');
+      setOpenSelect(null);
     }
     onOpenChange(open);
   };
@@ -156,11 +164,17 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
 
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Image size</label>
-                <Select value={imageSize} onValueChange={setImageSize} modal={false}>
+                <Select
+                  value={imageSize}
+                  onValueChange={setImageSize}
+                  modal={false}
+                  open={openSelect === 'imageSize'}
+                  onOpenChange={(v) => setOpenSelect(v ? 'imageSize' : null)}
+                >
                   <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-bay-850 border-line text-fg text-xs">
+                  <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
                     <SelectItem value="768x1024">Portrait — 768 × 1024</SelectItem>
                     <SelectItem value="1024x1024">Square — 1024 × 1024</SelectItem>
                     <SelectItem value="1024x768">Landscape — 1024 × 768</SelectItem>
@@ -258,11 +272,17 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Source reference</label>
                 {(references || []).filter((r) => r.url).length > 0 ? (
-                  <Select value={sourceRefId} onValueChange={(v) => { setSourceRefId(v); setSourceAssetImageId(''); }} modal={false}>
+                  <Select
+                    value={sourceRefId}
+                    onValueChange={(v) => { setSourceRefId(v); setSourceAssetImageId(''); }}
+                    modal={false}
+                    open={openSelect === 'sourceRef'}
+                    onOpenChange={(v) => setOpenSelect(v ? 'sourceRef' : null)}
+                  >
                     <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                       <SelectValue placeholder="None selected" />
                     </SelectTrigger>
-                    <SelectContent className="bg-bay-850 border-line text-fg text-xs">
+                    <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
                       {(references || []).filter((r) => r.url).map((r) => (
                         <SelectItem key={r.id} value={r.id}>
                           {r.role}
@@ -280,11 +300,17 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Library image</label>
                 {(assetImages || []).filter((a) => a.status === 'completed').length > 0 ? (
-                  <Select value={sourceAssetImageId} onValueChange={(v) => { setSourceAssetImageId(v); setSourceRefId(''); }} modal={false}>
+                  <Select
+                    value={sourceAssetImageId}
+                    onValueChange={(v) => { setSourceAssetImageId(v); setSourceRefId(''); }}
+                    modal={false}
+                    open={openSelect === 'libraryImage'}
+                    onOpenChange={(v) => setOpenSelect(v ? 'libraryImage' : null)}
+                  >
                     <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                       <SelectValue placeholder="None selected" />
                     </SelectTrigger>
-                    <SelectContent className="bg-bay-850 border-line text-fg text-xs">
+                    <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
                       {(assetImages || []).filter((a) => a.status === 'completed').map((a) => (
                         <SelectItem key={a.id} value={a.id}>
                           {a.kind} — {a.prompt?.slice(0, 30)}
