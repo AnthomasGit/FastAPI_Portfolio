@@ -196,6 +196,8 @@ export const api = {
 
   listReferences: (entityType, entityId) => fetchJSON(`/${entityType}/${entityId}/references`),
 
+  listProjectReferences: (projectId, entityType) => fetchJSON(`/projects/${projectId}/references?entity_type=${entityType}`),
+
   createReference: (entityType, entityId, data) => fetchJSON(`/${entityType}/${entityId}/references`, { method: 'POST', body: JSON.stringify(data) }),
 
   updateReference: (id, data) => fetchJSON(`/references/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

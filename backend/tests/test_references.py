@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database import Reference, Character
+from database import Reference, Character, Project
 from services.reference_service import delete_entity_references
 
 
@@ -97,6 +97,48 @@ async def test_list_references_other_entity_not_included(client, scene, characte
     )
     resp = await client.get(f"/api/scenes/{scene.id}/references")
     assert len(resp.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_project_references(client, project, character, location):
+    await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "a.png", "role": "moodboard"},
+    )
+    await client.post(
+        f"/api/locations/{location.id}/references",
+        json={"url": "b.png", "role": "moodboard"},
+    )
+
+    resp = await client.get(f"/api/projects/{project.id}/references?entity_type=characters")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["entity_id"] == character.id
+
+
+@pytest.mark.asyncio
+async def test_list_project_references_excludes_other_project(client, db_session, project, character):
+    other_project = Project(id=str(uuid.uuid4()), title="Other", idea="Other idea")
+    db_session.add(other_project)
+    await db_session.commit()
+    other_character = Character(id=str(uuid.uuid4()), project_id=other_project.id, name="Other Character")
+    db_session.add(other_character)
+    await db_session.commit()
+
+    await client.post(
+        f"/api/characters/{character.id}/references",
+        json={"url": "a.png", "role": "moodboard"},
+    )
+    await client.post(
+        f"/api/characters/{other_character.id}/references",
+        json={"url": "b.png", "role": "moodboard"},
+    )
+
+    resp = await client.get(f"/api/projects/{project.id}/references?entity_type=characters")
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["entity_id"] == character.id
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,8 @@ import { SceneTable } from '../components/storyboard/SceneTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Play, GitBranch, Loader2 } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
+import { EntityAssetLibrary } from '../components/storyboard/EntityAssetLibrary';
+import { PooledAssetGallery } from '../components/storyboard/PooledAssetGallery';
 
 function DeptPanel({ title, count, accent, empty, children }) {
   return (
@@ -121,12 +123,14 @@ export function Storyboard() {
           </TabsContent>
 
           <TabsContent value="characters">
+            <PooledAssetGallery entityType="characters" projectId={id} />
             <DeptPanel title="Characters" count={characters.length} accent="text-cast" empty="No characters yet. Add them from a scene.">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {characters.map((ch) => (
                   <div key={ch.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-cast">{ch.name}</h3>
                     {ch.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{ch.description}</p>}
+                    <EntityAssetLibrary entityType="character" entityId={ch.id} entityName={ch.name} projectId={id} />
                   </div>
                 ))}
               </div>
@@ -134,12 +138,14 @@ export function Storyboard() {
           </TabsContent>
 
           <TabsContent value="locations">
+            <PooledAssetGallery entityType="locations" projectId={id} />
             <DeptPanel title="Locations" count={locations.length} accent="text-set" empty="No locations yet. Add them from a scene.">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {locations.map((loc) => (
                   <div key={loc.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-set">{loc.name}</h3>
                     {loc.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{loc.description}</p>}
+                    <EntityAssetLibrary entityType="location" entityId={loc.id} entityName={loc.name} projectId={id} />
                   </div>
                 ))}
               </div>
@@ -147,12 +153,15 @@ export function Storyboard() {
           </TabsContent>
 
           <TabsContent value="props">
+            <PooledAssetGallery entityType="props" projectId={id} />
             <DeptPanel title="Props" count={props.length} accent="text-prop" empty="No props yet. Add them from a scene.">
-              <div className="flex flex-wrap gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {props.map((p) => (
-                  <span key={p.id} className="rounded-frame border border-line bg-bay-900 px-2.5 py-1 font-mono text-xs text-prop">
-                    {p.name}
-                  </span>
+                  <div key={p.id} className="rounded-frame border border-line bg-bay-900 p-3">
+                    <h3 className="font-mono text-sm font-bold text-prop">{p.name}</h3>
+                    {p.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{p.description}</p>}
+                    <EntityAssetLibrary entityType="prop" entityId={p.id} entityName={p.name} projectId={id} />
+                  </div>
                 ))}
               </div>
             </DeptPanel>

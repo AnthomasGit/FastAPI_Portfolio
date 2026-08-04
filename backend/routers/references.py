@@ -35,6 +35,12 @@ ENTITY_LOAD_OPTS = {
     "prop": selectinload(Prop.references),
 }
 
+PROJECT_SCOPED_MODELS = {
+    "character": Character,
+    "location": Location,
+    "prop": Prop,
+}
+
 
 @router.post("/api/uploads")
 async def upload_file(file: UploadFile = File(...)):
@@ -58,6 +64,28 @@ async def upload_file(file: UploadFile = File(...)):
         f.write(contents)
 
     return {"url": filename}
+
+
+@router.get("/api/projects/{project_id}/references", response_model=List[ReferenceResponse])
+async def list_project_references(project_id: str, entity_type: str, db: AsyncSession = Depends(get_db)):
+    if entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(status_code=422, detail=f"Invalid entity_type: {entity_type}")
+
+    singular = PLURAL_TO_SINGULAR[entity_type]
+    model = PROJECT_SCOPED_MODELS.get(singular)
+    if model is None:
+        raise HTTPException(status_code=422, detail=f"entity_type {entity_type} is not project-scoped")
+
+    entity_ids = select(model.id).where(model.project_id == project_id)
+    result = await db.execute(
+        select(Reference)
+        .where(
+            Reference.entity_type == singular,
+            Reference.entity_id.in_(entity_ids),
+        )
+        .order_by(Reference.created_at.desc())
+    )
+    return result.scalars().all()
 
 
 @router.get("/api/{entity_type}/{entity_id}/references", response_model=List[ReferenceResponse])
