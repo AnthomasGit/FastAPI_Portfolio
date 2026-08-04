@@ -156,7 +156,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
 
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Image size</label>
-                <Select value={imageSize} onValueChange={setImageSize}>
+                <Select value={imageSize} onValueChange={setImageSize} modal={false}>
                   <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -258,7 +258,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Source reference</label>
                 {(references || []).filter((r) => r.url).length > 0 ? (
-                  <Select value={sourceRefId} onValueChange={(v) => { setSourceRefId(v); setSourceAssetImageId(''); }}>
+                  <Select value={sourceRefId} onValueChange={(v) => { setSourceRefId(v); setSourceAssetImageId(''); }} modal={false}>
                     <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                       <SelectValue placeholder="None selected" />
                     </SelectTrigger>
@@ -280,7 +280,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Library image</label>
                 {(assetImages || []).filter((a) => a.status === 'completed').length > 0 ? (
-                  <Select value={sourceAssetImageId} onValueChange={(v) => { setSourceAssetImageId(v); setSourceRefId(''); }}>
+                  <Select value={sourceAssetImageId} onValueChange={(v) => { setSourceAssetImageId(v); setSourceRefId(''); }} modal={false}>
                     <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
                       <SelectValue placeholder="None selected" />
                     </SelectTrigger>
