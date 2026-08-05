@@ -76,6 +76,10 @@ export const api = {
   // Batches (Phase 1). `spec`: { project_id, scope, kind, target_ids, workflow,
   // variants, seed_policy, priority, run_after, params, name }.
   createBatch: (spec) => fetchJSON('/batches', { method: 'POST', body: JSON.stringify(spec) }),
+  getBatch: (batchId) => fetchJSON(`/batches/${batchId}`),
+  listProjectBatches: (projectId) => fetchJSON(`/projects/${projectId}/batches`),
+  cancelBatch: (batchId) => fetchJSON(`/batches/${batchId}/cancel`, { method: 'POST' }),
+  retryFailedBatch: (batchId) => fetchJSON(`/batches/${batchId}/retry-failed`, { method: 'POST' }),
   getGenerationStatus: (genId) => fetchJSON(`/generate/status/${genId}`),
   generateControlled: (captureId, { promptOverride, params } = {}) =>
     fetchJSON('/generate/controlled', {

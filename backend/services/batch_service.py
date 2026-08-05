@@ -12,7 +12,7 @@ records it on the batch.
 import random
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import (
@@ -133,3 +133,104 @@ def _parse_run_after(value):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+# ── progress / cancel / retry (KAN-27) ─────────────────────────────────────
+
+_JOB_STATES = ("queued", "running", "completed", "failed", "cancelled")
+_TERMINAL = ("completed", "failed", "cancelled")
+
+
+async def batch_counts(batch_id: str, db: AsyncSession) -> dict:
+    rows = (await db.execute(
+        select(JobRecord.status, func.count())
+        .where(JobRecord.batch_id == batch_id)
+        .group_by(JobRecord.status)
+    )).all()
+    counts = {s: 0 for s in _JOB_STATES}
+    for status, n in rows:
+        counts[status] = counts.get(status, 0) + n
+    counts["total"] = sum(counts[s] for s in _JOB_STATES)
+    return counts
+
+
+def derive_status(counts: dict) -> str:
+    """Overall batch status from its jobs' aggregate counts."""
+    if counts["total"] == 0:
+        return "pending"
+    active = counts["queued"] + counts["running"]
+    if active == 0:  # everything terminal
+        if counts["completed"] > 0:
+            return "completed"
+        if counts["failed"] > 0:
+            return "failed"
+        return "cancelled"
+    if counts["running"] > 0 or counts["completed"] > 0:
+        return "running"
+    return "pending"
+
+
+async def batch_summary(batch: Batch, db: AsyncSession) -> dict:
+    counts = await batch_counts(batch.id, db)
+    # An explicit cancel is a deliberate terminal state — honour it even if a
+    # job happened to complete before cancellation landed.
+    status = "cancelled" if batch.status == "cancelled" else derive_status(counts)
+    return {
+        "id": batch.id,
+        "project_id": batch.project_id,
+        "name": batch.name,
+        "kind": batch.kind,
+        "status": status,
+        "run_after": batch.run_after.isoformat() if batch.run_after else None,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "updated_at": batch.updated_at.isoformat() if batch.updated_at else None,
+        "counts": counts,
+    }
+
+
+async def cancel_batch(batch: Batch, db: AsyncSession) -> dict:
+    """Cancel every non-terminal child job. In-flight ComfyUI work is left to
+    finish — we simply stop recording its result. Completed/failed jobs are
+    untouched."""
+    jobs = (await db.execute(
+        select(JobRecord).where(
+            JobRecord.batch_id == batch.id,
+            JobRecord.status.in_(["queued", "running"]),
+        )
+    )).scalars().all()
+    now = datetime.utcnow()
+    for job in jobs:
+        job.status = "cancelled"
+        job.finished_at = now
+        job.error = job.error or "Batch cancelled"
+    batch.status = "cancelled"
+    await db.commit()
+    return await batch_summary(batch, db)
+
+
+async def retry_failed(batch: Batch, db: AsyncSession) -> dict:
+    """Reset failed jobs to queued with a clean slate. Cancelled jobs are NOT
+    resurrected — cancellation is a deliberate stop."""
+    jobs = (await db.execute(
+        select(JobRecord).where(
+            JobRecord.batch_id == batch.id,
+            JobRecord.status == "failed",
+        )
+    )).scalars().all()
+    for job in jobs:
+        job.status = "queued"
+        job.attempts = 0
+        job.error = None
+        job.finished_at = None
+        job.scheduled_after = None
+    if jobs:
+        batch.status = "pending"
+    await db.commit()
+    return await batch_summary(batch, db)
+
+
+async def list_project_batches(project_id: str, db: AsyncSession) -> list[dict]:
+    batches = (await db.execute(
+        select(Batch).where(Batch.project_id == project_id).order_by(Batch.created_at.desc())
+    )).scalars().all()
+    return [await batch_summary(b, db) for b in batches]
