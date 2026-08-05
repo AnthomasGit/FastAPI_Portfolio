@@ -5,45 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Scene, GeneratedImage, JobRecord, Project, Character, Location, Prop, scene_characters, scene_locations, scene_props
 from services.comfyui_client import poll
 from services.job_handlers import frontend_status
+from services.prompt_builder import build_scene_prompt
 
 WORKFLOW_NAME = "image_z_image_turbo"
 
 
 async def construct_prompt(scene_id: str, db: AsyncSession) -> str:
-    scene = await db.get(Scene, scene_id)
-    if not scene:
-        return ""
-
-    char_rows = await db.execute(
-        select(Character).join(scene_characters).where(scene_characters.c.scene_id == scene_id)
-    )
-    characters = char_rows.scalars().all()
-
-    loc_rows = await db.execute(
-        select(Location).join(scene_locations).where(scene_locations.c.scene_id == scene_id)
-    )
-    locations = loc_rows.scalars().all()
-
-    prop_rows = await db.execute(
-        select(Prop).join(scene_props).where(scene_props.c.scene_id == scene_id)
-    )
-    props_list = prop_rows.scalars().all()
-
-    char_desc = "; ".join([f"{c.name}: {c.description}" for c in characters if c.description])
-    loc_desc = "; ".join([f"{l.name}: {l.description}" for l in locations if l.description])
-    prop_desc = "; ".join([f"{p.name}: {p.description}" for p in props_list if p.description])
-
-    prompt = f"Scene: {scene.slugline}\n"
-    prompt += f"Screenplay: {scene.screenplay}\n"
-    if char_desc:
-        prompt += f"Characters: {char_desc}\n"
-    if loc_desc:
-        prompt += f"Location: {loc_desc}\n"
-    if prop_desc:
-        prompt += f"Props: {prop_desc}\n"
-    prompt += "Style: cinematic, film still, professional lighting, high detail, 4K"
-
-    return prompt
+    """Positive scene prompt. Delegates to prompt_builder (KAN-34); signature
+    unchanged for existing callers. Use build_scene_prompt directly when the
+    separate negative prompt is also needed."""
+    positive, _negative = await build_scene_prompt(scene_id, db)
+    return positive
 
 
 async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
@@ -57,7 +29,7 @@ async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
     if not scene:
         raise ValueError(f"Scene not found: {scene_id}")
 
-    prompt_text = await construct_prompt(scene_id, db)
+    prompt_text, negative_text = await build_scene_prompt(scene_id, db)
 
     gen = GeneratedImage(scene_id=scene_id, prompt=prompt_text, status="queued")
     db.add(gen)
@@ -69,7 +41,8 @@ async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
         status="queued",
         entity_type="generated_image",
         entity_id=gen_id,
-        payload={"prompt": prompt_text, "generation_id": gen_id},
+        payload={"prompt": prompt_text, "negative_prompt": negative_text,
+                 "generation_id": gen_id},
     )
     db.add(job)
     await db.commit()

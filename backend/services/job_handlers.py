@@ -188,11 +188,16 @@ async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict
 
     workflow = load_workflow(SCENE_WORKFLOW)
     node_map = load_node_map(SCENE_WORKFLOW)
-    workflow = inject(workflow, node_map, {
+    overrides = {
         "prompt": prompt,
         "seed": seed_val,
         "filename_prefix": job_id,
-    })
+    }
+    # Separate negative prompt (KAN-34) — inject() no-ops on workflows whose map
+    # has no negative_node, so this is safe for every graph.
+    if payload.get("negative_prompt"):
+        overrides["negative_prompt"] = payload["negative_prompt"]
+    workflow = inject(workflow, node_map, overrides)
     meta = {
         "job_id": job_id,
         "seed": seed_val,
