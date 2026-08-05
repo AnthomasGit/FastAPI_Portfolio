@@ -212,7 +212,7 @@ def _not_started(counts: dict) -> bool:
             and counts["failed"] == 0 and counts["cancelled"] == 0)
 
 
-async def batch_summary(batch: Batch, db: AsyncSession) -> dict:
+async def batch_summary(batch: Batch, db: AsyncSession, include_jobs: bool = False) -> dict:
     counts = await batch_counts(batch.id, db)
     # An explicit cancel is a deliberate terminal state — honour it even if a
     # job happened to complete before cancellation landed.
@@ -223,7 +223,7 @@ async def batch_summary(batch: Batch, db: AsyncSession) -> dict:
         status = "scheduled"
     else:
         status = derive_status(counts)
-    return {
+    summary = {
         "id": batch.id,
         "project_id": batch.project_id,
         "name": batch.name,
@@ -234,6 +234,25 @@ async def batch_summary(batch: Batch, db: AsyncSession) -> dict:
         "updated_at": batch.updated_at.isoformat() if batch.updated_at else None,
         "counts": counts,
     }
+    if include_jobs:
+        # Only the single-batch view needs per-job detail (status + error) to
+        # back the queue panel's expandable row; the list view stays light.
+        rows = (await db.execute(
+            select(JobRecord).where(JobRecord.batch_id == batch.id)
+            .order_by(JobRecord.created_at.asc())
+        )).scalars().all()
+        summary["jobs"] = [
+            {
+                "job_id": j.job_id,
+                "kind": j.kind,
+                "status": j.status,
+                "entity_type": j.entity_type,
+                "entity_id": j.entity_id,
+                "error": j.error,
+            }
+            for j in rows
+        ]
+    return summary
 
 
 async def cancel_batch(batch: Batch, db: AsyncSession) -> dict:

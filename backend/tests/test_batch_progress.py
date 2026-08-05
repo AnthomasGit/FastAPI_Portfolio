@@ -104,6 +104,19 @@ async def test_retry_failed_resets_only_failed(client, db_session, project):
 
 
 @pytest.mark.asyncio
+async def test_get_batch_includes_job_detail_list_does_not(client, db_session, project):
+    batch, _ = await _batch_with_jobs(db_session, project, ["completed", "failed"])
+    # Single-batch view carries per-job detail (status + error) for the panel.
+    single = (await client.get(f"/api/batches/{batch.id}")).json()
+    assert "jobs" in single and len(single["jobs"]) == 2
+    failed = next(j for j in single["jobs"] if j["status"] == "failed")
+    assert failed["error"] == "boom"
+    # List view stays light — no per-job detail.
+    listed = (await client.get(f"/api/projects/{project.id}/batches")).json()
+    assert all("jobs" not in b for b in listed)
+
+
+@pytest.mark.asyncio
 async def test_get_missing_batch_404(client):
     resp = await client.get(f"/api/batches/{uuid.uuid4()}")
     assert resp.status_code == 404

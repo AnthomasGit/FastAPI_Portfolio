@@ -48,7 +48,7 @@ async def create_batch_endpoint(
 @router.get("/api/batches/{batch_id}")
 async def get_batch(batch_id: str, db: AsyncSession = Depends(get_db)):
     batch = await _get_batch(batch_id, db)
-    return await batch_summary(batch, db)
+    return await batch_summary(batch, db, include_jobs=True)
 
 
 @router.get("/api/projects/{project_id}/batches")

@@ -10,6 +10,7 @@ import { Play, GitBranch, Loader2 } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 import { EntityAssetLibrary } from '../components/storyboard/EntityAssetLibrary';
 import { PooledAssetGallery } from '../components/storyboard/PooledAssetGallery';
+import { QueuePanel } from '../components/queue/QueuePanel';
 
 function DeptPanel({ title, count, accent, empty, children }) {
   return (
@@ -115,6 +116,7 @@ export function Storyboard() {
           <TabsTrigger value="locations" className={`${tab} data-active:text-set`}>Locations</TabsTrigger>
           <TabsTrigger value="props" className={`${tab} data-active:text-prop`}>Props</TabsTrigger>
           <TabsTrigger value="assets3d" className={`${tab} data-active:text-fg`}>3D assets</TabsTrigger>
+          <TabsTrigger value="queue" className={`${tab} data-active:text-fg`}>Queue</TabsTrigger>
         </TabsList>
 
         <div className="pt-5">
@@ -176,6 +178,10 @@ export function Storyboard() {
                 <AssetDrawer projectId={id} characters={characters} props={props} />
               </div>
             </section>
+          </TabsContent>
+
+          <TabsContent value="queue">
+            <QueuePanel projectId={id} />
           </TabsContent>
         </div>
       </Tabs>
