@@ -223,6 +223,7 @@ async def _maybe_color_match_job(source_job, target_type, target_id, spec, batch
             "source": {"$from_parent": "image_url"},
             "reference_image": reference_url,
             "generation_id": matched.id,
+            "film_grain": bool(spec.get("film_grain")),
         },
     )
 

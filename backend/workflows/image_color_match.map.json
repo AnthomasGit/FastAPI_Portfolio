@@ -1,6 +1,8 @@
 {
-  "_comment": "Colour-match post pass (KAN-37). image_node = the source still to match; reference_image_node = the approved key frame; output_node = SaveImage. No prompt/seed — this is a deterministic image→image pass. UNVALIDATED against a live ComfyUI.",
+  "_comment": "Colour-match post pass (KAN-37). image_node = source still; reference_image_node = approved key frame; color_node = KJNodes ColorMatch; grain_node = ProPostFilmGrain (removed by build_color_match when film grain is off); output_node = SaveImage. No prompt/seed — deterministic image→image pass. UNVALIDATED against a live ComfyUI.",
   "image_node": "1",
   "reference_image_node": "2",
-  "output_node": "4"
+  "color_node": "3",
+  "grain_node": "4",
+  "output_node": "5"
 }

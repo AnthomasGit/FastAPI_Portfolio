@@ -1,0 +1,628 @@
+{
+  "_note": "Single-still LTX-2.3 MSR (Licon-MSR) reference workflow (KAN-36): derived from video_ltx23_msr with length forced to 1 and a SaveImage tap on the VAEDecode output (node 38). Composes up to 4 character canonical images (LiconMSR subjects 1-4) into a still. LiconMSR requires all 4 subject LoadImage slots to point at real files, so build_scene_image pads unused slots by repeating the last reference. UNVALIDATED against a live ComfyUI \u2014 test-render before trusting output.",
+  "7": {
+    "inputs": {
+      "frame_rate": [
+        "129",
+        0
+      ],
+      "positive": [
+        "180",
+        1
+      ],
+      "negative": [
+        "185",
+        0
+      ]
+    },
+    "class_type": "LTXVConditioning",
+    "_meta": {
+      "title": "LTXVConditioning"
+    }
+  },
+  "8": {
+    "inputs": {
+      "width": [
+        "43",
+        0
+      ],
+      "height": [
+        "44",
+        0
+      ],
+      "length": [
+        "50",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLTXVLatentVideo",
+    "_meta": {
+      "title": "EmptyLTXVLatentVideo"
+    }
+  },
+  "9": {
+    "inputs": {
+      "frame_idx": 0,
+      "strength": 1,
+      "latent_downscale_factor": 1,
+      "crop": "center",
+      "use_tiled_encode": false,
+      "tile_size": 256,
+      "tile_overlap": 64,
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "7",
+        1
+      ],
+      "vae": [
+        "192",
+        0
+      ],
+      "latent": [
+        "8",
+        0
+      ],
+      "image": [
+        "190",
+        0
+      ]
+    },
+    "class_type": "LTXAddVideoICLoRAGuide",
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Add Video IC-LoRA Guide"
+    }
+  },
+  "10": {
+    "inputs": {
+      "lora_name": "LTX-2.3/LTX-2.3-Licon-MSR-V2.safetensors",
+      "strength_model": 1,
+      "model": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "LTXICLoRALoaderModelOnly",
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 IC-LoRA Loader Model Only"
+    }
+  },
+  "13": {
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "15": {
+    "inputs": {
+      "noise_seed": 1060759211403161
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "16": {
+    "inputs": {
+      "noise": [
+        "15",
+        0
+      ],
+      "guider": [
+        "37",
+        0
+      ],
+      "sampler": [
+        "13",
+        0
+      ],
+      "sigmas": [
+        "27",
+        0
+      ],
+      "latent_image": [
+        "23",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "17": {
+    "inputs": {
+      "positive": [
+        "9",
+        0
+      ],
+      "negative": [
+        "9",
+        1
+      ],
+      "latent": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "LTXVCropGuides",
+    "_meta": {
+      "title": "LTXVCropGuides"
+    }
+  },
+  "22": {
+    "inputs": {
+      "frames_number": [
+        "50",
+        0
+      ],
+      "frame_rate": [
+        "128",
+        0
+      ],
+      "batch_size": 1,
+      "audio_vae": [
+        "194",
+        0
+      ]
+    },
+    "class_type": "LTXVEmptyLatentAudio",
+    "_meta": {
+      "title": "LTXV Empty Latent Audio"
+    }
+  },
+  "23": {
+    "inputs": {
+      "video_latent": [
+        "9",
+        2
+      ],
+      "audio_latent": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "LTXVConcatAVLatent"
+    }
+  },
+  "24": {
+    "inputs": {
+      "av_latent": [
+        "16",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "27": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "29": {
+    "inputs": {
+      "image": "945a069b-88d4-41eb-a7ff-bd3acd9fc2d8.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Input #1"
+    }
+  },
+  "30": {
+    "inputs": {
+      "image": "bf4893b2-ad14-4b80-b0eb-bca7141cc4bb.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Location/Background Input"
+    }
+  },
+  "33": {
+    "inputs": {
+      "image": "9dd7f637-4737-4e89-af89-4778f9f5d5ff.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Input #2"
+    }
+  },
+  "37": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "121",
+        0
+      ],
+      "positive": [
+        "9",
+        0
+      ],
+      "negative": [
+        "9",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Guider"
+    }
+  },
+  "38": {
+    "inputs": {
+      "samples": [
+        "200",
+        0
+      ],
+      "vae": [
+        "192",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "40": {
+    "inputs": {
+      "image": "4f453364-68df-443a-adea-ec1897488fbd.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Input #3"
+    }
+  },
+  "43": {
+    "inputs": {
+      "value": 544
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "44": {
+    "inputs": {
+      "value": 960
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "50": {
+    "inputs": {
+      "value": [
+        "177",
+        0
+      ]
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "Length"
+    }
+  },
+  "95": {
+    "inputs": {
+      "image": "a879f080-47e8-490f-8a46-edc018f3fc18.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Input #4"
+    }
+  },
+  "104": {
+    "inputs": {},
+    "class_type": "LTXVSetAudioRefTokens",
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Set Audio Ref Tokens"
+    }
+  },
+  "105": {
+    "inputs": {},
+    "class_type": "LTXVSetAudioRefTokens",
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Set Audio Ref Tokens"
+    }
+  },
+  "121": {
+    "inputs": {
+      "nag_scale": 11,
+      "nag_alpha": 0.25,
+      "nag_tau": 2.5,
+      "inplace": true,
+      "model": [
+        "180",
+        0
+      ],
+      "nag_cond_video": [
+        "9",
+        1
+      ],
+      "nag_cond_audio": [
+        "9",
+        1
+      ]
+    },
+    "class_type": "LTX2_NAG",
+    "_meta": {
+      "title": "LTX2 NAG"
+    }
+  },
+  "128": {
+    "inputs": {
+      "_float": [
+        "129",
+        0
+      ]
+    },
+    "class_type": "CR Float To Integer",
+    "_meta": {
+      "title": "Floating-point to integer"
+    }
+  },
+  "129": {
+    "inputs": {
+      "value": 25
+    },
+    "class_type": "FloatConstant",
+    "_meta": {
+      "title": "FPS"
+    }
+  },
+  "172": {
+    "inputs": {
+      "fps": [
+        "129",
+        0
+      ],
+      "bit_depth": 8,
+      "images": [
+        "38",
+        0
+      ],
+      "audio": [
+        "174",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "173": {
+    "inputs": {
+      "filename_prefix": "LTX-2/\u591a\u53c2",
+      "format": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "174": {
+    "inputs": {
+      "samples": [
+        "24",
+        1
+      ],
+      "audio_vae": [
+        "194",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Audio VAE Decode"
+    }
+  },
+  "177": {
+    "inputs": {
+      "value": "a*b+1",
+      "a": [
+        "129",
+        0
+      ],
+      "b": [
+        "178",
+        0
+      ]
+    },
+    "class_type": "SimpleMath+",
+    "_meta": {
+      "title": "Simple calculation"
+    }
+  },
+  "178": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "Clip Duration"
+    }
+  },
+  "180": {
+    "inputs": {
+      "global_prompt": "Image 1: A stocky man with short black hair, calm rounded face; wearing a white \"BOGATS\" soccer jersey with navy trim and navy pants; seated posture; realistic, natural texture.\n\nImage 2: A young woman with short wavy blonde hair, fair skin, light freckles; wearing a dark navy long-sleeve sweater and jeans; seated posture; realistic, natural texture.\n\nImage 3: A sleek black grackle-like bird with iridescent blue-black feathers, sharp yellow eyes, perched alertly; realistic, natural texture.\n\nImage 4: A black TV/cable remote control with red and grey buttons and a central navigation wheel; realistic, natural texture.\n\nLocation: An elegant outdoor breakfast table at a coastal restaurant, set with pastries, fruit, orange juice, and a charcuterie board, overlooking a marina with boats and palm trees; bright daylight; realistic, natural texture.",
+      "local_prompts": "Exterior of a sunlit coastal restaurant terrace: a beautifully set breakfast table holds pastries, a charcuterie board, and glasses of orange juice, with a marina full of boats sparkling in the background beyond lush palm greenery. The camera holds a bright medium two-shot on the table.\n\nIn Image 1, a man in a white \"BOGATS\" jersey sits on the right, holding the black remote control (Image 4) and idly pointing it at nothing in particular, brow furrowed in concentration. In Image 2, a woman in a navy sweater sits across from him, watching with a bemused, questioning expression.\n\nSuddenly the bird (Image 3) swoops down and lands directly on the table between them, tilting its head and staring straight at the remote. Image 2 (stifling a laugh, incredulous): \"Why do you still have that? We're outside!\" The man freezes, remote still raised, eyes darting to the bird. Image 1 (deadpan, mock-serious): \"...I think it wants the weather channel.\" The bird lets out a sharp squawk and snatches a piece of pastry off the table, hopping away triumphantly as the woman bursts out laughing.",
+      "segment_lengths": "",
+      "epsilon": 0.0011,
+      "model": [
+        "10",
+        0
+      ],
+      "clip": [
+        "195",
+        0
+      ],
+      "latent": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "PromptRelayEncode",
+    "_meta": {
+      "title": "Prompt Relay Encode"
+    }
+  },
+  "185": {
+    "inputs": {
+      "text": "subtitles, watermark, worst quality, blurry, jittery, distorted, inconsistent appearance\n",
+      "clip": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "190": {
+    "inputs": {
+      "1": [
+        "29",
+        0
+      ],
+      "2": [
+        "33",
+        0
+      ],
+      "3": [
+        "40",
+        0
+      ],
+      "4": [
+        "95",
+        0
+      ],
+      "width": [
+        "43",
+        0
+      ],
+      "height": [
+        "44",
+        0
+      ],
+      "frame_count": "17",
+      "background": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "LiconMSR",
+    "_meta": {
+      "title": "Licon MSR"
+    }
+  },
+  "192": {
+    "inputs": {
+      "vae_name": "LTX23_video_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "194": {
+    "inputs": {
+      "vae_name": "LTX23_audio_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "195": {
+    "inputs": {
+      "clip_name1": "gemma_3_12B_it_fp8_scaled.safetensors",
+      "clip_name2": "ltx-2.3_text_projection_bf16.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "DualCLIPLoader"
+    }
+  },
+  "196": {
+    "inputs": {
+      "model_name": "ltx-2.3-22b-distilled-1.1-Q5_K_M.gguf",
+      "extra_model_name": "none",
+      "dequant_dtype": "default",
+      "patch_dtype": "default",
+      "patch_on_device": false,
+      "enable_fp16_accumulation": false,
+      "attention_override": "sageattn"
+    },
+    "class_type": "GGUFLoaderKJ",
+    "_meta": {
+      "title": "GGUFLoaderKJ"
+    }
+  },
+  "199": {
+    "inputs": {
+      "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    },
+    "class_type": "LatentUpscaleModelLoader",
+    "_meta": {
+      "title": "Load Latent Upscale Model"
+    }
+  },
+  "200": {
+    "inputs": {
+      "samples": [
+        "17",
+        2
+      ],
+      "upscale_model": [
+        "199",
+        0
+      ],
+      "vae": [
+        "192",
+        0
+      ]
+    },
+    "class_type": "LTXVLatentUpsampler",
+    "_meta": {
+      "title": "LTXVLatentUpsampler"
+    }
+  },
+  "300": {
+    "inputs": {
+      "filename_prefix": "MSRRef",
+      "images": [
+        "38",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Still (first frame)"
+    }
+  }
+}

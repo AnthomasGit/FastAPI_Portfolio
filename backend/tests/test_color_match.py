@@ -34,9 +34,31 @@ async def test_build_color_match_injection(db_session, tmp_path, monkeypatch):
     # Source -> node 1, reference -> node 2, both staged into the input dir.
     assert workflow["1"]["inputs"]["image"] == "CMJOB_src.png"
     assert workflow["2"]["inputs"]["image"] == "CMJOB_ref.png"
-    assert workflow["4"]["inputs"]["filename_prefix"] == "CMJOB"
+    # Film grain off (default): grain node dropped, SaveImage taps ColorMatch (3).
+    assert "4" not in workflow
+    assert workflow["5"]["inputs"]["images"] == ["3", 0]
+    assert workflow["5"]["inputs"]["filename_prefix"] == "CMJOB"
     assert (in_dir / "CMJOB_src.png").exists()
     assert meta["image_url"] == "CMJOB_00001_.png"
+
+
+@pytest.mark.asyncio
+async def test_build_color_match_with_film_grain(db_session, tmp_path, monkeypatch):
+    out_dir, in_dir = tmp_path / "out", tmp_path / "in"
+    out_dir.mkdir(); in_dir.mkdir()
+    monkeypatch.setattr(jh, "COMFY_OUTPUT_DIR", str(out_dir))
+    monkeypatch.setattr(jh, "COMFY_INPUT_DIR", str(in_dir))
+    for rel in ("still_00001_.png", "keyframe_00001_.png"):
+        with open(out_dir / rel, "wb") as f:
+            f.write(b"img")
+
+    workflow, _meta = await build_color_match(
+        {"source": "still_00001_.png", "reference_image": "keyframe_00001_.png",
+         "job_id": "G", "film_grain": True, "film_grain_power": 0.6}, db_session)
+    # Grain node kept; SaveImage taps it; power overridden.
+    assert "4" in workflow
+    assert workflow["5"]["inputs"]["images"] == ["4", 0]
+    assert workflow["4"]["inputs"]["grain_power"] == 0.6
 
 
 @pytest.mark.asyncio

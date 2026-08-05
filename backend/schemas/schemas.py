@@ -19,6 +19,7 @@ class BatchCreateRequest(BaseModel):
     identity_refs: bool = False
     color_match: bool = False
     color_match_reference: Optional[str] = None
+    film_grain: bool = False
 
 
 class ProjectCreate(BaseModel):

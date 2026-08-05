@@ -1,9 +1,9 @@
 {
-  "_note": "Colour-match post pass (KAN-37): takes a source image and a reference (approved key frame) and writes a colour-matched output. Node 3 is a ColorMatch node (borrowed from the vrgamedevgirl pack). UNVALIDATED against a live ComfyUI (no GPU here) — confirm the ColorMatch node's class_type and input names against the installed pack and test-render before trusting output.",
+  "_note": "Colour-match post pass (KAN-37). Source + reference key frame -> KJNodes ColorMatch (node 3) -> optional ProPostFilmGrain (node 4) -> SaveImage. build_color_match removes node 4 and taps ColorMatch directly when film grain is off. Node class_types/inputs target ComfyUI-KJNodes (ColorMatch) and ComfyUI-ProPost (ProPostFilmGrain); verify against the installed packs and test-render before trusting output.",
   "1": {
     "inputs": {"image": "source.png"},
     "class_type": "LoadImage",
-    "_meta": {"title": "Source image"}
+    "_meta": {"title": "Source still"}
   },
   "2": {
     "inputs": {"image": "reference.png"},
@@ -12,18 +12,33 @@
   },
   "3": {
     "inputs": {
-      "image": ["1", 0],
-      "reference": ["2", 0],
+      "image_target": ["1", 0],
+      "image_ref": ["2", 0],
       "method": "mkl",
       "strength": 1.0
     },
     "class_type": "ColorMatch",
-    "_meta": {"title": "Colour match"}
+    "_meta": {"title": "Colour match (KJNodes)"}
   },
   "4": {
     "inputs": {
+      "image": ["3", 0],
+      "gray_scale": false,
+      "grain_power": 0.4,
+      "shadows": 0.2,
+      "highs": 0.2,
+      "scale": 1.0,
+      "sharpen": 0,
+      "src_gamma": 1.0,
+      "seed": 0
+    },
+    "class_type": "ProPostFilmGrain",
+    "_meta": {"title": "Film grain (ProPost)"}
+  },
+  "5": {
+    "inputs": {
       "filename_prefix": "ColorMatch",
-      "images": ["3", 0]
+      "images": ["4", 0]
     },
     "class_type": "SaveImage",
     "_meta": {"title": "Save matched"}

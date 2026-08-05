@@ -40,10 +40,15 @@ COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 TXT2IMG_WORKFLOW = "image_z_image_turbo"
 IMG2IMG_WORKFLOW = "image_flux2_klein_image_edit_4b_base"
 SCENE_WORKFLOW = "image_z_image_turbo"
-# Identity-capable scene workflow: composes character canonical images as
-# references into a single still (KAN-36). Used only when the scene has
-# canonical identity images; otherwise the plain SCENE_WORKFLOW is used.
-SCENE_REF_WORKFLOW = "image_minimax_h3_ref"
+# Identity-capable scene workflow: LTX-2.3 MSR (Licon-MSR) composes character
+# canonical images as reference subjects into a single still (KAN-36). Used only
+# when the scene has canonical identity images; otherwise the plain
+# SCENE_WORKFLOW is used.
+SCENE_REF_WORKFLOW = "image_msr_ref"
+# MSR-style ref maps expose a fixed set of subject slots (image_node,
+# image2_node…) rather than an autogrow image_slots list.
+_REF_SLOT_KEYS = ["image_node", "image2_node", "image3_node", "image4_node",
+                  "image5_node", "image6_node", "image7_node", "image8_node", "image9_node"]
 COLOR_MATCH_WORKFLOW = "image_color_match"
 
 # Map internal job status to the status strings the frontend already expects on
@@ -248,21 +253,28 @@ async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict
     # to the plain workflow when the scene has no canonical images (KAN-36).
     ref_files: list[str] = []
     scene_id = payload.get("scene_id")
+    ref_slot_keys: list[str] = []
     if scene_id and payload.get("identity_refs"):
-        ref_slots = len(load_node_map(SCENE_REF_WORKFLOW).get("image_slots", []))
-        ref_files = await resolve_scene_identity_refs(scene_id, db, max_slots=ref_slots)
+        ref_map = load_node_map(SCENE_REF_WORKFLOW)
+        ref_slot_keys = [k for k in _REF_SLOT_KEYS if k in ref_map]
+        ref_files = await resolve_scene_identity_refs(scene_id, db, max_slots=len(ref_slot_keys))
 
     if ref_files:
         workflow_name = SCENE_REF_WORKFLOW
         workflow = load_workflow(workflow_name)
         node_map = load_node_map(workflow_name)
-        # Autogrow graph: drop the unused ref-image slots (and every video/audio
-        # slot — identity stills use none) before injecting.
-        from services.video_service import _prune_autogrow_slots
-        workflow = _prune_autogrow_slots(workflow, node_map, len(ref_files), 0, 0)
-        overrides = {"prompt": prompt, "seed": seed_val, "filename_prefix": job_id}
-        for idx, filename in enumerate(ref_files):
+        # LiconMSR requires every subject slot to point at a real file, so pad
+        # the unused slots by repeating the last reference rather than pruning.
+        filled = ref_files + [ref_files[-1]] * (len(ref_slot_keys) - len(ref_files))
+        overrides = {"seed": seed_val, "filename_prefix": job_id}
+        for idx, filename in enumerate(filled):
             overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
+        # MSR drives its prompt through PromptRelayEncode (global/local); also
+        # set the plain key so single-prompt graphs work — inject() ignores keys
+        # a workflow's map doesn't expose.
+        overrides["prompt"] = prompt
+        overrides["global_prompt"] = prompt
+        overrides["local_prompts"] = prompt
     else:
         workflow_name = SCENE_WORKFLOW
         workflow = load_workflow(workflow_name)
@@ -312,6 +324,19 @@ async def build_color_match(payload: dict, db: AsyncSession) -> tuple[dict, dict
 
     workflow = load_workflow(COLOR_MATCH_WORKFLOW)
     node_map = load_node_map(COLOR_MATCH_WORKFLOW)
+
+    # Optional film-grain pass: when off, drop the grain node and tap the
+    # ColorMatch output directly (KAN-37).
+    grain_node = node_map.get("grain_node")
+    color_node = node_map.get("color_node")
+    output_node = node_map.get("output_node")
+    if not payload.get("film_grain") and grain_node and grain_node in workflow:
+        workflow.pop(grain_node, None)
+        if output_node and color_node:
+            workflow[output_node]["inputs"]["images"] = [color_node, 0]
+    elif payload.get("film_grain") and grain_node in workflow and payload.get("film_grain_power") is not None:
+        workflow[grain_node]["inputs"]["grain_power"] = payload["film_grain_power"]
+
     workflow = inject(workflow, node_map, {
         "image": source_in,
         "reference_image": reference_in,

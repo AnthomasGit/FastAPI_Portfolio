@@ -1,0 +1,13 @@
+{
+  "_comment": "Single-still LTX-2.3 MSR reference workflow (KAN-36). image_node..image4_node are the four LiconMSR subject slots (all must point at real files — build_scene_image pads unused ones); background_node is the optional plate; global/local prompt via PromptRelayEncode; negative via CLIPTextEncode; output_node is the SaveImage still tap. UNVALIDATED against a live ComfyUI.",
+  "image_node": "29",
+  "image2_node": "33",
+  "image3_node": "40",
+  "image4_node": "95",
+  "background_node": "30",
+  "global_prompt_node": "180",
+  "local_prompts_node": "180",
+  "negative_node": "185",
+  "seed_node": "15",
+  "output_node": "300"
+}

@@ -419,5 +419,81 @@ if [ -d "${CNK_NODE_DIR}/.git" ] && ! python3.13 -c "import mediapipe" >/dev/nul
     fi
 fi
 
+# --- Krea2 T2I/I2I/Inpaint workflow node packs -------------------------------
+# Three pure-Python node packs the Krea2 2-pass workflow needs, none of which
+# ship a requirements.txt (all deps are in the base image), so each is a
+# clone-and-pin, same shape as Comfyroll/PromptRelay above:
+#   - comfyui-mxtoolkit         mxSlider (step/denoise sliders)
+#   - ComfyUI-krea2-negpip      ApplyKrea2NegPiP (negative-weight prompt tokens)
+#   - ComfyUI-Krea2T-Enhancer   ComfyUI-Krea2T-Enhancer (seed enhancer/jazz-up)
+# negpip + enhancer are pinned to the exact SHAs the shipped workflow JSON was
+# exported against; mxToolkit has no releases/tags so it tracks a pinned HEAD.
+# rgthree-comfy (Power Lora Loader / Any Switch / Image Comparer), comfyui-easy-use
+# (easy seed/float/simpleMath), comfyui-image-saver (Image Saver Simple) and
+# RES4LYF (ClownsharKSampler_Beta) are already present in the base image.
+for spec in \
+    "comfyui-mxtoolkit|https://github.com/Smirnov75/ComfyUI-mxToolkit.git|7f7a0e584f12078a1c589645d866ae96bad0cc35" \
+    "ComfyUI-krea2-negpip|https://github.com/blue-pen5805/ComfyUI-krea2-negpip.git|ad98c02334ca328d6e5c3faee3faae7c551851bb" \
+    "ComfyUI-Krea2T-Enhancer|https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer.git|cf8895005540680306cd46e1faaf75f8902db794"; do
+    K2_NAME="${spec%%|*}"; K2_REST="${spec#*|}"
+    K2_URL="${K2_REST%%|*}"; K2_SHA="${K2_REST##*|}"
+    K2_DIR="/root/ComfyUI/custom_nodes/${K2_NAME}"
+
+    if [ ! -d "${K2_DIR}/.git" ]; then
+        log "Cloning ${K2_NAME} into ${K2_DIR}..."
+        rm -rf "${K2_DIR:?}"/* "${K2_DIR:?}"/.[!.]* 2>/dev/null
+        git clone "${K2_URL}" "${K2_DIR}" \
+            || log "WARNING: git clone failed (offline?); ${K2_NAME} will not load this boot."
+    fi
+    if [ -d "${K2_DIR}/.git" ] && \
+       [ "$(git -C "${K2_DIR}" rev-parse HEAD 2>/dev/null)" != "${K2_SHA}" ]; then
+        log "Pinning ${K2_NAME} to ${K2_SHA}..."
+        git -C "${K2_DIR}" fetch --depth 1 origin "${K2_SHA}" 2>/dev/null \
+            && git -C "${K2_DIR}" checkout -q "${K2_SHA}" \
+            || log "WARNING: could not check out pinned ${K2_NAME} SHA (offline / SHA unreachable?)."
+    fi
+done
+
+# --- ComfyUI-KJNodes (provides ColorMatch) -----------------------------------
+# kijai's utility pack; the colour-match post pass (image_color_match) uses its
+# ColorMatch node (image_ref/image_target/method). Deps are in the base image;
+# clone-only, same shape as Comfyroll above.
+KJ_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-KJNodes
+KJ_REPO_URL=https://github.com/kijai/ComfyUI-KJNodes.git
+
+if [ ! -d "${KJ_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-KJNodes into ${KJ_NODE_DIR}..."
+    rm -rf "${KJ_NODE_DIR:?}"/* "${KJ_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone --depth 1 "${KJ_REPO_URL}" "${KJ_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-KJNodes will not load this boot."
+fi
+if [ -d "${KJ_NODE_DIR}/requirements.txt" ] 2>/dev/null; then :; fi
+if [ -d "${KJ_NODE_DIR}/.git" ] && [ -f "${KJ_NODE_DIR}/requirements.txt" ]; then
+    KJ_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && KJ_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    python3.13 -m pip install --user --no-cache-dir "${KJ_CONSTRAINT_ARGS[@]}" \
+        -r "${KJ_NODE_DIR}/requirements.txt" \
+        || log "WARNING: KJNodes requirements install failed; some KJ nodes may not load."
+fi
+
+# --- ComfyUI-ProPost (provides ProPostFilmGrain) -----------------------------
+# Optional film-grain pass appended after colour match (image_color_match).
+PP_NODE_DIR=/root/ComfyUI/custom_nodes/ComfyUI-ProPost
+PP_REPO_URL=https://github.com/digitaljohn/comfyui-propost.git
+
+if [ ! -d "${PP_NODE_DIR}/.git" ]; then
+    log "Cloning ComfyUI-ProPost into ${PP_NODE_DIR}..."
+    rm -rf "${PP_NODE_DIR:?}"/* "${PP_NODE_DIR:?}"/.[!.]* 2>/dev/null
+    git clone --depth 1 "${PP_REPO_URL}" "${PP_NODE_DIR}" \
+        || log "WARNING: git clone failed (offline?); ComfyUI-ProPost will not load this boot."
+fi
+if [ -d "${PP_NODE_DIR}/.git" ] && [ -f "${PP_NODE_DIR}/requirements.txt" ]; then
+    PP_CONSTRAINT_ARGS=()
+    [ -f "${CONSTRAINTS}" ] && PP_CONSTRAINT_ARGS=(-c "${CONSTRAINTS}")
+    python3.13 -m pip install --user --no-cache-dir "${PP_CONSTRAINT_ARGS[@]}" \
+        -r "${PP_NODE_DIR}/requirements.txt" \
+        || log "WARNING: ProPost requirements install failed; film grain may not load."
+fi
+
 log "pre-start finished."
 set -e
