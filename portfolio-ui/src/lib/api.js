@@ -77,6 +77,16 @@ export const api = {
   // variants, seed_policy, priority, run_after, params, name }.
   createBatch: (spec) => fetchJSON('/batches', { method: 'POST', body: JSON.stringify(spec) }),
   getBatch: (batchId) => fetchJSON(`/batches/${batchId}`),
+
+  // Consistency profiles (Phase 2). entityType is plural: characters/locations/props.
+  generatePromptProfile: (entityType, id) =>
+    fetchJSON(`/${entityType}/${id}/prompt-profile`, { method: 'POST' }),
+  savePromptProfile: (entityType, id, profile) =>
+    fetchJSON(`/${entityType}/${id}/prompt-profile`, { method: 'PUT', body: JSON.stringify(profile) }),
+  generateStyleProfile: (projectId) =>
+    fetchJSON(`/projects/${projectId}/style-profile`, { method: 'POST' }),
+  saveStyleProfile: (projectId, profile) =>
+    fetchJSON(`/projects/${projectId}/style-profile`, { method: 'PUT', body: JSON.stringify(profile) }),
   listProjectBatches: (projectId) => fetchJSON(`/projects/${projectId}/batches`),
   cancelBatch: (batchId) => fetchJSON(`/batches/${batchId}/cancel`, { method: 'POST' }),
   retryFailedBatch: (batchId) => fetchJSON(`/batches/${batchId}/retry-failed`, { method: 'POST' }),
