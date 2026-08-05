@@ -22,6 +22,7 @@ from database import (
     Batch, JobRecord, Scene, Shot, Character, Location, Prop, GeneratedImage,
 )
 from services.comfyui_service import construct_prompt
+from services.seed_policy import resolve_seed
 
 VALID_SCOPES = {"project", "scene", "shot", "entity"}
 SEED_MAX = 1000000000000000
@@ -69,41 +70,37 @@ async def estimate_output_bytes(spec: dict, db: AsyncSession) -> tuple[int, int]
     return job_count * _avg_bytes(spec.get("kind")), job_count
 
 
-def _resolve_seed(spec: dict, variant_index: int) -> int:
-    """Placeholder until KAN-35. Every variant gets its own random seed."""
-    return random.randint(1, SEED_MAX)
-
-
 async def _resolve_targets(scope: str, target_ids: list[str], db: AsyncSession):
-    """Return an ordered list of (target_type, target_id) for the scope."""
+    """Return an ordered list of (target_type, target_id, obj) for the scope."""
     target_ids = target_ids or []
     if scope == "project":
         rows = (await db.execute(
             select(Scene).where(Scene.project_id.in_(target_ids)).order_by(Scene.sort_order)
         )).scalars().all()
-        return [("scene", s.id) for s in rows]
+        return [("scene", s.id, s) for s in rows]
     if scope == "scene":
         rows = (await db.execute(
             select(Scene).where(Scene.id.in_(target_ids)).order_by(Scene.sort_order)
         )).scalars().all()
-        return [("scene", s.id) for s in rows]
+        return [("scene", s.id, s) for s in rows]
     if scope == "shot":
         rows = (await db.execute(
             select(Shot).where(Shot.scene_id.in_(target_ids)).order_by(Shot.sort_order)
         )).scalars().all()
-        return [("shot", s.id) for s in rows]
+        return [("shot", s.id, s) for s in rows]
     if scope == "entity":
         targets = []
         for model, etype in ((Character, "character"), (Location, "location"), (Prop, "prop")):
             rows = (await db.execute(select(model).where(model.id.in_(target_ids)))).scalars().all()
-            targets += [(etype, r.id) for r in rows]
+            targets += [(etype, r.id, r) for r in rows]
         return targets
     raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
 
 
 async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
     """Build one JobRecord for a target+variant, creating the owning row when the
-    kind needs one (scene_image → a queued GeneratedImage)."""
+    kind needs one (scene_image → a queued GeneratedImage). The resolved seed is
+    recorded on the owning row's params so a past run can be reproduced exactly."""
     kind = spec["kind"]
     priority = int(spec.get("priority") or 0)
     base = {**(spec.get("params") or {}), "seed": seed}
@@ -112,7 +109,8 @@ async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
 
     if kind == "scene_image" and target_type == "scene":
         prompt = await construct_prompt(target_id, db)
-        gen = GeneratedImage(scene_id=target_id, prompt=prompt, status="queued")
+        gen = GeneratedImage(scene_id=target_id, prompt=prompt, status="queued",
+                             params={"seed": seed, "seed_policy": spec.get("seed_policy") or "random"})
         db.add(gen)
         await db.flush()
         return JobRecord(
@@ -156,10 +154,22 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     db.add(batch)
     await db.flush()
 
+    policy = spec.get("seed_policy") or "random"
+    base_seed = spec.get("base_seed")
+    project_id = spec["project_id"]
+
     jobs: list[JobRecord] = []
-    for target_type, target_id in targets:
+    for target_type, target_id, target_obj in targets:
+        # `locked` prefers the entity's own locked_seed (scenes/shots have none).
+        locked_seed = (getattr(target_obj, "prompt_profile", None) or {}).get("locked_seed")
         for v in range(variants):
-            seed = _resolve_seed(spec, v)
+            seed = resolve_seed(policy, {
+                "project_id": project_id,
+                "target_id": target_id,
+                "variant_index": v,
+                "locked_seed": locked_seed,
+                "base_seed": base_seed,
+            })
             job = await _materialize_job(target_type, target_id, spec, seed, db)
             job.batch_id = batch.id
             # Overnight start: the worker skips a job until scheduled_after passes.

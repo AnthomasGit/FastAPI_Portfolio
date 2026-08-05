@@ -11,6 +11,7 @@ class BatchCreateRequest(BaseModel):
     workflow: Optional[str] = None
     variants: int = 1
     seed_policy: str = "random"
+    base_seed: Optional[int] = None
     priority: int = 0
     run_after: Optional[str] = None
     params: dict = {}
