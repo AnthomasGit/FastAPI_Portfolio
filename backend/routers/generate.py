@@ -12,6 +12,7 @@ from services.controlled_gen_service import (
     has_inflight_generation,
     generate_controlled_image,
 )
+from services.batch_service import create_batch
 
 COMFY_API_URL = os.environ.get("COMFY_API_URL", "http://comfyui:8188")
 
@@ -30,21 +31,21 @@ async def trigger_scene_generation(scene_id: str, db: AsyncSession = Depends(get
 
 @router.post("/api/generate/project/{project_id}")
 async def trigger_project_generation(project_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    if not result.scalars().first():
+    """Queue a scene image for every scene as one Batch (Phase 1).
+
+    Replaces the old inline fire-hose: nothing is submitted synchronously — the
+    worker drains the batch. Returns `generation_ids` (unchanged key) alongside
+    the new `batch_id` so existing callers keep working.
+    """
+    if not (await db.execute(select(Project).where(Project.id == project_id))).scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")
 
-    scenes = await db.execute(
-        select(Scene).where(Scene.project_id == project_id).order_by(Scene.sort_order)
+    batch, jobs = await create_batch(
+        {"project_id": project_id, "scope": "project", "kind": "scene_image"},
+        db,
     )
-    scenes = scenes.scalars().all()
-
-    generation_ids = []
-    for scene in scenes:
-        gen_id = await generate_scene_image(scene.id, db)
-        generation_ids.append(gen_id)
-
-    return {"generation_ids": generation_ids}
+    generation_ids = [j.payload["generation_id"] for j in jobs if j.payload and "generation_id" in j.payload]
+    return {"batch_id": batch.id, "generation_ids": generation_ids}
 
 
 @router.post("/api/generate/controlled", status_code=202)
