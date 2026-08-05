@@ -36,31 +36,33 @@ async def test_generate_txt2img_returns_202(client, project, character):
 
 
 @pytest.mark.asyncio
-async def test_generate_txt2img_applies_custom_width_height(client, project, character):
-    prompt_id = str(uuid.uuid4())
-    with respx.mock:
-        route = respx.post(f"{COMFY_API_URL}/prompt").mock(
-            return_value=Response(200, json={"prompt_id": prompt_id})
-        )
+async def test_generate_txt2img_applies_custom_width_height(client, project, character, db_session):
+    # Generation now enqueues a JobRecord (the worker submits later), so
+    # width/height are carried on the job payload rather than injected inline.
+    resp = await client.post(
+        "/api/asset-images/generate",
+        json={
+            "project_id": project.id,
+            "entity_type": "characters",
+            "prompt": "A test character image",
+            "width": 1280,
+            "height": 720,
+        },
+    )
+    assert resp.status_code == 202
+    asset_id = resp.json()["asset_image_id"]
 
-        resp = await client.post(
-            "/api/asset-images/generate",
-            json={
-                "project_id": project.id,
-                "entity_type": "characters",
-                "prompt": "A test character image",
-                "width": 1280,
-                "height": 720,
-            },
+    from sqlalchemy import select
+    from database import JobRecord
+    job = (
+        await db_session.execute(
+            select(JobRecord).where(JobRecord.entity_id == asset_id)
         )
-        assert resp.status_code == 202
-
-        sent_workflow = route.calls.last.request.content
-        import json as _json
-        payload = _json.loads(sent_workflow)
-        latent_node = payload["prompt"]["57:13"]["inputs"]
-        assert latent_node["width"] == 1280
-        assert latent_node["height"] == 720
+    ).scalars().first()
+    assert job is not None
+    assert job.kind == "asset_txt2img"
+    assert job.payload["width"] == 1280
+    assert job.payload["height"] == 720
 
 
 @pytest.mark.asyncio
@@ -287,31 +289,40 @@ async def test_picker_filters_by_entity_type(client, project, db_session):
 
 @pytest.mark.asyncio
 async def test_poll_status_transitions(client, project, db_session):
+    # The status endpoint now reflects the owning job's state onto the row
+    # (queued -> queued, running -> processing) instead of polling ComfyUI.
+    from database import JobRecord
+
     asset = AssetImage(
         origin_project_id=project.id,
         entity_type="character",
         kind="txt2img",
         status="queued",
-        prompt_id=str(uuid.uuid4()),
     )
     db_session.add(asset)
     await db_session.commit()
     await db_session.refresh(asset)
 
-    with respx.mock:
-        respx.get(f"{COMFY_API_URL}/history/{asset.prompt_id}").mock(
-            return_value=Response(200, json={
-                asset.prompt_id: {
-                    "status": {"status_str": "completed"},
-                    "outputs": {"9": {"images": [{"filename": "test.png", "type": "output"}]}},
-                }
-            })
-        )
+    job = JobRecord(
+        kind="asset_txt2img",
+        status="queued",
+        entity_type="asset_image",
+        entity_id=asset.id,
+        payload={"asset_image_id": asset.id},
+    )
+    db_session.add(job)
+    await db_session.commit()
 
-        resp = await client.get(f"/api/asset-images/{asset.id}")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "completed"
+    # queued job -> "queued"
+    resp = await client.get(f"/api/asset-images/{asset.id}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "queued"
+
+    # running job -> "processing"
+    job.status = "running"
+    await db_session.commit()
+    resp = await client.get(f"/api/asset-images/{asset.id}")
+    assert resp.json()["status"] == "processing"
 
 
 # ── 404 for nonexistent asset ─────────────────────────────────────────────

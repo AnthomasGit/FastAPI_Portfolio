@@ -1,14 +1,11 @@
 import os
-import uuid
-import random
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import AssetImage
-from services.comfyui_client import submit, poll
+from database import AssetImage, JobRecord
 from services.job_handlers import (
-    HANDLERS,
+    frontend_status,
     _resolve_source_image,  # re-exported for backward compatibility
 )
 
@@ -27,46 +24,36 @@ async def generate_txt2img(
     width: int | None = None,
     height: int | None = None,
 ) -> str:
-    job_id = str(uuid.uuid4())
-    seed_val = random.randint(1, 1000000000000000)
-
+    """Enqueue a txt2img job and return immediately; the worker submits it."""
     asset = AssetImage(
         origin_project_id=project_id,
         entity_type=entity_type,
         kind="txt2img",
         prompt=prompt,
         status="queued",
-        job_id=job_id,
     )
     db.add(asset)
     await db.flush()
     asset_id = asset.id
 
-    try:
-        workflow, meta = await HANDLERS["asset_txt2img"].build_workflow(
-            {
-                "project_id": project_id,
-                "entity_type": entity_type,
-                "prompt": prompt,
-                "width": width,
-                "height": height,
-                "job_id": job_id,
-                "seed": seed_val,
-            },
-            db,
-        )
-
-        prompt_id = await submit(workflow)
-
-        asset.status = "processing"
-        asset.prompt_id = prompt_id
-        asset.image_url = meta["image_url"]
-        await db.commit()
-
-    except Exception as e:
-        asset.status = "failed"
-        asset.error = str(e)
-        await db.commit()
+    # No job_id in the payload — the worker mints a fresh output prefix per
+    # attempt (idempotent retry, KAN-21).
+    job = JobRecord(
+        kind="asset_txt2img",
+        status="queued",
+        entity_type="asset_image",
+        entity_id=asset_id,
+        payload={
+            "project_id": project_id,
+            "entity_type": entity_type,
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "asset_image_id": asset_id,
+        },
+    )
+    db.add(job)
+    await db.commit()
 
     return asset_id
 
@@ -79,16 +66,13 @@ async def generate_img2img(
     source_reference_id: str | None = None,
     source_asset_image_id: str | None = None,
 ) -> str:
-    job_id = str(uuid.uuid4())
-    seed_val = random.randint(1, 1000000000000000)
-
+    """Enqueue an img2img job and return immediately; the worker submits it."""
     asset = AssetImage(
         origin_project_id=project_id,
         entity_type=entity_type,
         kind="img2img",
         prompt=prompt,
         status="queued",
-        job_id=job_id,
         source_reference_id=source_reference_id,
         source_asset_image_id=source_asset_image_id,
     )
@@ -96,57 +80,58 @@ async def generate_img2img(
     await db.flush()
     asset_id = asset.id
 
-    try:
-        workflow, meta = await HANDLERS["asset_img2img"].build_workflow(
-            {
-                "project_id": project_id,
-                "entity_type": entity_type,
-                "prompt": prompt,
-                "source_reference_id": source_reference_id,
-                "source_asset_image_id": source_asset_image_id,
-                "job_id": job_id,
-                "seed": seed_val,
-            },
-            db,
-        )
-
-        prompt_id = await submit(workflow)
-
-        asset.status = "processing"
-        asset.prompt_id = prompt_id
-        asset.image_url = meta["image_url"]
-        await db.commit()
-
-    except Exception as e:
-        asset.status = "failed"
-        asset.error = str(e)
-        await db.commit()
+    job = JobRecord(
+        kind="asset_img2img",
+        status="queued",
+        entity_type="asset_image",
+        entity_id=asset_id,
+        payload={
+            "project_id": project_id,
+            "entity_type": entity_type,
+            "prompt": prompt,
+            "source_reference_id": source_reference_id,
+            "source_asset_image_id": source_asset_image_id,
+            "asset_image_id": asset_id,
+        },
+    )
+    db.add(job)
+    await db.commit()
 
     return asset_id
 
 
 async def poll_asset_image_status(asset_id: str, db: AsyncSession) -> dict:
-    result = await db.execute(select(AssetImage).where(AssetImage.id == asset_id))
-    asset = result.scalars().first()
+    """Reflect the owning job's state onto the AssetImage row (the asset-image
+    endpoint returns the row itself), without driving progress — the worker
+    owns that. Keeps the queued/processing/completed/failed strings intact."""
+    asset = (
+        await db.execute(select(AssetImage).where(AssetImage.id == asset_id))
+    ).scalars().first()
     if not asset:
         return {"status": "not_found"}
 
     if asset.status in ("completed", "failed"):
         return {"id": asset.id, "status": asset.status, "image_url": asset.image_url}
 
-    if asset.prompt_id:
-        result = await poll(asset.prompt_id)
-        if result["status"] == "error":
-            asset.status = "failed"
-            asset.error = "ComfyUI reported an error"
-            await db.commit()
-            return {"id": asset.id, "status": "failed"}
-        elif result["status"] == "completed":
-            asset.status = "completed"
-            await db.commit()
-            return {"id": asset.id, "status": "completed", "image_url": asset.image_url}
+    job = (
+        await db.execute(
+            select(JobRecord)
+            .where(JobRecord.entity_type == "asset_image",
+                   JobRecord.entity_id == asset_id)
+            .order_by(JobRecord.created_at.desc())
+        )
+    ).scalars().first()
 
-    return {"id": asset.id, "status": asset.status}
+    if job is not None:
+        mapped = frontend_status(job.status)
+        if asset.status != mapped:
+            asset.status = mapped
+            if mapped == "failed":
+                asset.error = job.error
+            await db.commit()
+        return {"id": asset.id, "status": mapped, "image_url": asset.image_url}
+
+    return {"id": asset.id, "status": asset.status, "image_url": asset.image_url}
 
 
 async def get_asset_image_file(asset_id: str, db: AsyncSession) -> bytes | None:

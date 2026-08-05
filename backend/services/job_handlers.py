@@ -35,6 +35,21 @@ TXT2IMG_WORKFLOW = "image_z_image_turbo"
 IMG2IMG_WORKFLOW = "image_flux2_klein_image_edit_4b_base"
 SCENE_WORKFLOW = "image_z_image_turbo"
 
+# Map internal job status to the status strings the frontend already expects on
+# the owning row (queued/processing/completed/failed). Keeps the polling flow
+# unchanged now that the worker — not the poll endpoint — drives progress.
+_JOB_TO_ROW_STATUS = {
+    "queued": "queued",
+    "running": "processing",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "failed",
+}
+
+
+def frontend_status(job_status: str) -> str:
+    return _JOB_TO_ROW_STATUS.get(job_status, job_status)
+
 SEED_MAX = 1000000000000000
 
 
