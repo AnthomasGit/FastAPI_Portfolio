@@ -235,11 +235,20 @@ class JobHandler:
     on_complete: Callable[[dict, dict, AsyncSession], Awaitable[None]]
 
 
-HANDLERS: dict[str, JobHandler] = {
-    h.kind: h
-    for h in [
-        JobHandler("asset_txt2img", build_asset_txt2img, on_complete_asset_image),
-        JobHandler("asset_img2img", build_asset_img2img, on_complete_asset_image),
-        JobHandler("scene_image", build_scene_image, on_complete_scene_image),
-    ]
-}
+HANDLERS: dict[str, JobHandler] = {}
+
+
+def register(kind, build_workflow, on_complete) -> None:
+    """Register a handler for a job kind.
+
+    The image kinds register here; the video / controlled_image / mesh kinds
+    register from their own service modules on import (avoiding an import cycle,
+    since those services build on this module). main.py imports every router —
+    and therefore every service — so the registry is complete at app startup.
+    """
+    HANDLERS[kind] = JobHandler(kind, build_workflow, on_complete)
+
+
+register("asset_txt2img", build_asset_txt2img, on_complete_asset_image)
+register("asset_img2img", build_asset_img2img, on_complete_asset_image)
+register("scene_image", build_scene_image, on_complete_scene_image)

@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Asset3D, JobRecord, Reference, Project
-from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
+from services.comfyui_client import load_workflow, load_node_map, inject
+from services.job_handlers import register, frontend_status
 from services.preprocess_service import remove_background
 
 # Characters keep the dual-output Trellis2 workflow (textured + white/base
@@ -136,23 +137,25 @@ async def trigger_mesh(
 
     source_url = await _resolve_source_for_load(ref)
 
+    seed_val = params.get("seed", random.randint(1, MAX_MESH_SEED)) if params else random.randint(1, MAX_MESH_SEED)
+    dual_output = MESH_WORKFLOWS[entity_type]["dual_output"]
+
     asset = Asset3D(
         project_id=project_id,
         entity_type=entity_type,
         entity_id=entity_id,
         source_reference_id=ref.id,
         status="queued",
-        params=params or {},
+        params={**(params or {}), "seed": seed_val, "workflow": workflow_name},
     )
     db.add(asset)
     await db.flush()
     asset_id = asset.id
 
-    job_id = str(uuid.uuid4())
-    seed_val = params.get("seed", random.randint(1, MAX_MESH_SEED)) if params else random.randint(1, MAX_MESH_SEED)
-
+    # Enqueue only — the worker submits, polls and finalizes via the mesh handler.
+    # No job_id in the payload, so each attempt mints a fresh output prefix.
     job = JobRecord(
-        job_id=job_id,
+        kind="mesh",
         status="queued",
         model_name=workflow_name,
         query=f"mesh/{entity_type}/{entity_id}",
@@ -160,43 +163,72 @@ async def trigger_mesh(
         job_type="mesh",
         entity_type="asset3d",
         entity_id=asset_id,
+        payload={
+            "workflow_name": workflow_name,
+            "entity_type": entity_type,
+            "project_id": project_id,
+            "source_url": source_url,
+            "seed": seed_val,
+            "dual_output": dual_output,
+            "asset3d_id": asset_id,
+        },
     )
     db.add(job)
-    await db.flush()
-
-    try:
-        workflow = load_workflow(workflow_name)
-        if workflow.get("_placeholder"):
-            raise RuntimeError(f"Mesh workflow not yet configured — {workflow_name}.json is missing or a placeholder")
-
-        node_map = load_node_map(workflow_name)
-
-        prefix = f"meshes/{project_id}/{entity_type}s/{job_id}"
-        workflow = inject(workflow, node_map, {
-            "image": source_url,
-            "seed": seed_val,
-            "filename_prefix": prefix,
-        })
-
-        prompt_id = await submit(workflow)
-
-        asset.status = "mesh_processing"
-        asset.mesh_job_id = job_id
-        asset.params = {**(asset.params or {}), "seed": seed_val, "workflow": workflow_name}
-
-        job.prompt_id = prompt_id
-        job.status = "processing"
-        await db.commit()
-
-    except Exception as e:
-        asset.status = "mesh_failed"
-        asset.error = str(e)
-        job.status = "failed"
-        job.error = str(e)
-        job.finished_at = datetime.utcnow()
-        await db.commit()
+    await db.commit()
 
     return asset_id, warning
+
+
+async def build_mesh(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    workflow_name = payload["workflow_name"]
+    entity_type = payload["entity_type"]
+    project_id = payload["project_id"]
+    job_id = payload.get("job_id") or str(uuid.uuid4())
+    seed_val = payload.get("seed") or random.randint(1, MAX_MESH_SEED)
+
+    workflow = load_workflow(workflow_name)
+    if workflow.get("_placeholder"):
+        raise RuntimeError(
+            f"Mesh workflow not yet configured — {workflow_name}.json is missing or a placeholder"
+        )
+    node_map = load_node_map(workflow_name)
+
+    prefix = f"meshes/{project_id}/{entity_type}s/{job_id}"
+    workflow = inject(workflow, node_map, {
+        "image": payload["source_url"],
+        "seed": seed_val,
+        "filename_prefix": prefix,
+    })
+    meta = {"job_id": job_id, "seed": seed_val, "prefix": prefix}
+    return workflow, meta
+
+
+async def on_complete_mesh(payload: dict, outputs: dict, db: AsyncSession) -> None:
+    """Locate the exported GLB(s) and mark the asset mesh_ready.
+
+    A "completed" ComfyUI run that produced no file means the graph was rejected
+    at validation — raise so the worker records the failure (and retries).
+    """
+    asset = await db.get(Asset3D, payload["asset3d_id"])
+    if asset is None:
+        return
+    textured_url, white_url = _find_meshes_by_prefix(
+        payload["project_id"], payload["entity_type"], payload["job_id"],
+        dual=payload.get("dual_output", True),
+    )
+    if not textured_url:
+        raise RuntimeError(
+            "ComfyUI finished but produced no mesh file (workflow may have failed validation)"
+        )
+    asset.mesh_url = textured_url
+    if white_url:
+        asset.white_mesh_url = white_url
+    asset.mesh_job_id = payload["job_id"]
+    asset.status = "mesh_ready"
+    await db.commit()
+
+
+register("mesh", build_mesh, on_complete_mesh)
 
 
 def _find_meshes_by_prefix(
@@ -223,69 +255,40 @@ def _find_meshes_by_prefix(
 
 
 async def poll_asset(asset3d_id: str, db: AsyncSession) -> Asset3D | None:
+    """Reflect the mesh job's state onto the Asset3D row. Does NOT drive
+    progress — the worker submits/polls/finalizes — but keeps the status
+    vocabulary (queued / mesh_processing / mesh_ready / mesh_failed) intact so
+    the frontend is unchanged."""
     result = await db.execute(select(Asset3D).where(Asset3D.id == asset3d_id))
     asset = result.scalars().first()
     if not asset:
         return None
 
+    # Terminal / non-mesh-processing states are authoritative already.
     if asset.status in ("mesh_ready", "mesh_failed", "rigged", "rig_failed"):
         return asset
 
-    if asset.status == "queued":
+    job = (
+        await db.execute(
+            select(JobRecord)
+            .where(JobRecord.entity_type == "asset3d", JobRecord.entity_id == asset3d_id)
+            .order_by(JobRecord.created_at.desc())
+        )
+    ).scalars().first()
+    if job is None:
         return asset
 
-    if asset.status == "mesh_processing":
-        if not asset.mesh_job_id:
-            return asset
-
-        job_result = await db.execute(select(JobRecord).where(JobRecord.job_id == asset.mesh_job_id))
-        job = job_result.scalars().first()
-
-        if job and job.created_at:
-            elapsed = datetime.utcnow() - job.created_at
-            if elapsed > timedelta(minutes=MESH_TIMEOUT_MINUTES):
-                asset.status = "mesh_failed"
-                asset.error = "Mesh generation timed out"
-                if job:
-                    job.status = "failed"
-                    job.error = "Timed out"
-                    job.finished_at = datetime.utcnow()
-                await db.commit()
-                return asset
-
-        if job and job.prompt_id:
-            poll_result = await poll(job.prompt_id)
-            if poll_result["status"] == "error":
-                asset.status = "mesh_failed"
-                asset.error = "ComfyUI reported an error"
-                job.status = "failed"
-                job.error = "ComfyUI error"
-                job.finished_at = datetime.utcnow()
-                await db.commit()
-            elif poll_result["status"] == "completed":
-                dual_output = MESH_WORKFLOWS[asset.entity_type]["dual_output"]
-                textured_url, white_url = _find_meshes_by_prefix(
-                    asset.project_id, asset.entity_type, asset.mesh_job_id, dual=dual_output
-                )
-                if textured_url:
-                    # ComfyUI can report "completed" even when the graph was
-                    # rejected at validation (e.g. an out-of-range node input)
-                    # and produced no output — only declare ready once an
-                    # actual textured mesh file is confirmed on disk.
-                    asset.mesh_url = textured_url
-                    if white_url:
-                        asset.white_mesh_url = white_url
-                    asset.status = "mesh_ready"
-                    job.status = "completed"
-                else:
-                    asset.status = "mesh_failed"
-                    asset.error = "ComfyUI finished but produced no mesh file (workflow may have failed validation)"
-                    job.status = "failed"
-                    job.error = "No output file found"
-                job.finished_at = datetime.utcnow()
-                await db.commit()
-
-        return asset
+    if job.status in ("failed", "cancelled"):
+        if asset.status != "mesh_failed":
+            asset.status = "mesh_failed"
+            asset.error = job.error or "Mesh generation failed"
+            await db.commit()
+    elif job.status == "running":
+        if asset.status != "mesh_processing":
+            asset.status = "mesh_processing"
+            await db.commit()
+    # job.status == "completed" -> on_complete_mesh already set mesh_ready;
+    # job.status == "queued"    -> asset stays "queued".
 
     return asset
 
@@ -310,11 +313,21 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
         raise ValueError("Source reference has no image")
     source_url = await _resolve_source_for_load(ref)
 
-    job_id = str(uuid.uuid4())
     seed_val = random.randint(1, MAX_MESH_SEED)
+    dual_output = MESH_WORKFLOWS[asset.entity_type]["dual_output"]
+
+    # Reset the row and enqueue a fresh mesh job; the worker takes it from here.
+    asset.status = "queued"
+    asset.error = None
+    asset.mesh_job_id = None
+    asset.params = {**(asset.params or {}), "seed": seed_val, "workflow": workflow_name}
+    asset.mesh_url = None
+    asset.white_mesh_url = None
+    asset.web_mesh_url = None
+    asset.web_status = None
 
     job = JobRecord(
-        job_id=job_id,
+        kind="mesh",
         status="queued",
         model_name=workflow_name,
         query=f"mesh/{asset.entity_type}/{asset.entity_id}/retry",
@@ -322,46 +335,18 @@ async def retry_mesh(asset3d_id: str, db: AsyncSession) -> str:
         job_type="mesh",
         entity_type="asset3d",
         entity_id=asset.id,
+        payload={
+            "workflow_name": workflow_name,
+            "entity_type": asset.entity_type,
+            "project_id": asset.project_id,
+            "source_url": source_url,
+            "seed": seed_val,
+            "dual_output": dual_output,
+            "asset3d_id": asset.id,
+        },
     )
     db.add(job)
-    await db.flush()
-
-    try:
-        workflow = load_workflow(workflow_name)
-        if workflow.get("_placeholder"):
-            raise RuntimeError(f"Mesh workflow not yet configured — {workflow_name}.json is missing or a placeholder")
-
-        node_map = load_node_map(workflow_name)
-
-        prefix = f"meshes/{asset.project_id}/{asset.entity_type}s/{job_id}"
-        workflow = inject(workflow, node_map, {
-            "image": source_url,
-            "seed": seed_val,
-            "filename_prefix": prefix,
-        })
-
-        prompt_id = await submit(workflow)
-
-        asset.status = "mesh_processing"
-        asset.error = None
-        asset.mesh_job_id = job_id
-        asset.params = {**(asset.params or {}), "seed": seed_val, "workflow": workflow_name}
-        asset.mesh_url = None
-        asset.white_mesh_url = None
-        asset.web_mesh_url = None
-        asset.web_status = None
-
-        job.prompt_id = prompt_id
-        job.status = "processing"
-        await db.commit()
-
-    except Exception as e:
-        asset.status = "mesh_failed"
-        asset.error = str(e)
-        job.status = "failed"
-        job.error = str(e)
-        job.finished_at = datetime.utcnow()
-        await db.commit()
+    await db.commit()
 
     return asset.id
 

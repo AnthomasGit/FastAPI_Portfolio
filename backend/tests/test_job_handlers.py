@@ -19,7 +19,9 @@ def _node_text(workflow, node_id, field):
 
 @pytest.mark.asyncio
 async def test_registry_kinds():
-    assert set(HANDLERS) == {"asset_txt2img", "asset_img2img", "scene_image"}
+    # The three image kinds register here; other services (video, mesh,
+    # controlled_image) register their own kinds on import.
+    assert {"asset_txt2img", "asset_img2img", "scene_image"} <= set(HANDLERS)
 
 
 @pytest.mark.asyncio

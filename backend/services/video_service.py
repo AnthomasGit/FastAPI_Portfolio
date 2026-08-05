@@ -31,7 +31,8 @@ from database import (
     DrivingVideo, GeneratedImage, GeneratedVideo, JobRecord, Reference,
     ReferenceAudio, Scene, Shot,
 )
-from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
+from services.comfyui_client import load_workflow, load_node_map, inject
+from services.job_handlers import register
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
@@ -320,25 +321,31 @@ async def get_video(video_id: str, db: AsyncSession) -> GeneratedVideo | None:
     return result.scalars().first()
 
 
-async def has_inflight_video(image_id: str, db: AsyncSession) -> bool:
+async def _has_inflight_video_job(video_ids_subquery, db: AsyncSession) -> bool:
+    """True while any clip job for the given videos is queued or running.
+
+    Keys off JOB state, not the row's: a terminally-failed video job leaves its
+    row non-terminal until polled, so a row-based guard could wedge the 409.
+    """
     result = await db.execute(
-        select(GeneratedVideo).where(
-            GeneratedVideo.source_image_id == image_id,
-            GeneratedVideo.status.in_(["queued", "processing"]),
+        select(JobRecord).where(
+            JobRecord.entity_type == "generated_video",
+            JobRecord.entity_id.in_(video_ids_subquery),
+            JobRecord.status.in_(["queued", "running"]),
         )
     )
     return result.scalars().first() is not None
+
+
+async def has_inflight_video(image_id: str, db: AsyncSession) -> bool:
+    ids = select(GeneratedVideo.id).where(GeneratedVideo.source_image_id == image_id)
+    return await _has_inflight_video_job(ids, db)
 
 
 async def has_inflight_shot_video(shot_id: str, db: AsyncSession) -> bool:
     """In-flight guard for workflows that hang a clip off a shot, not a still."""
-    result = await db.execute(
-        select(GeneratedVideo).where(
-            GeneratedVideo.shot_id == shot_id,
-            GeneratedVideo.status.in_(["queued", "processing"]),
-        )
-    )
-    return result.scalars().first() is not None
+    ids = select(GeneratedVideo.id).where(GeneratedVideo.shot_id == shot_id)
+    return await _has_inflight_video_job(ids, db)
 
 
 def _find_video_by_prefix(job_id: str) -> str | None:
@@ -621,6 +628,37 @@ async def generate_video(
     # The still already carries the look; the prompt here describes motion.
     prompt_text = motion_prompt or (image.prompt if image is not None else "") or ""
 
+    # Build the injection overrides now — every file is resolved and validated
+    # above. The worker's build_video adds the seed and a fresh filename_prefix
+    # per attempt; graph pruning (which needs the loaded workflow) also happens
+    # there, driven by the reference counts recorded on the payload.
+    overrides = dict(_settings_overrides(cfg, settings))
+    if cfg["dual_prompt"]:
+        # PromptRelayEncode: identities up top, the beat-by-beat script below.
+        overrides["global_prompt"] = global_prompt or ""
+        overrides["local_prompts"] = local_prompts or prompt_text
+    else:
+        overrides["prompt"] = prompt_text
+    if source_image:
+        overrides["image"] = source_image
+    # An explicit first-frame reference overrides the still as the input image.
+    if first_frame_file:
+        overrides["image"] = first_frame_file
+    # Reference slots fill positionally; slot 1 doubles as "image" for the MSR
+    # graph, whose first LoadImage is subject #1 rather than a still.
+    for idx, filename in enumerate(reference_files):
+        overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
+    if background_file:
+        overrides["background_image"] = background_file
+    if last_frame_file:
+        overrides["last_frame"] = last_frame_file
+    if driving_video_file:
+        overrides["driving_video"] = driving_video_file
+    for idx, filename in enumerate(ref_video_files):
+        overrides["ref_video" if idx == 0 else f"ref_video{idx + 1}"] = filename
+    for idx, filename in enumerate(ref_audio_files):
+        overrides["ref_audio" if idx == 0 else f"ref_audio{idx + 1}"] = filename
+
     video = GeneratedVideo(
         project_id=image.project_id if image is not None else None,
         scene_id=(image.scene_id if image is not None else None)
@@ -635,9 +673,10 @@ async def generate_video(
     await db.flush()
     video_id = video.id
 
-    job_id = str(uuid.uuid4())
+    # Enqueue only — the worker loads the graph, prunes, injects, submits, polls
+    # and finalizes via the video handler below.
     job = JobRecord(
-        job_id=job_id,
+        kind="video",
         status="queued",
         model_name=workflow_name,
         query=local_prompts or prompt_text,
@@ -645,144 +684,109 @@ async def generate_video(
         job_type="video",
         entity_type="generated_video",
         entity_id=video_id,
+        payload={
+            "workflow_key": workflow_key,
+            "overrides": overrides,
+            "seed": seed_val,
+            "n_images": len(reference_files),
+            "n_videos": len(ref_video_files),
+            "n_audios": len(ref_audio_files),
+            "last_frame_present": bool(last_frame_file),
+            "generated_video_id": video_id,
+        },
     )
     db.add(job)
-    await db.flush()
-
-    try:
-        workflow = load_workflow(workflow_name)
-        if workflow.get("_placeholder"):
-            raise RuntimeError(
-                f"Video workflow not yet configured — export "
-                f"{workflow_name}.json from ComfyUI in API format "
-                f"(see the file's _instructions field)"
-            )
-        node_map = load_node_map(workflow_name)
-
-        # Autogrow graphs (R2V) ship every reference slot present; drop the ones
-        # we won't fill before injecting, or ComfyUI rejects the whole graph.
-        if cfg.get("autogrow_slots"):
-            workflow = _prune_autogrow_slots(
-                workflow, node_map,
-                len(reference_files), len(ref_video_files), len(ref_audio_files),
-            )
-        # I2V's optional last-frame slot must be removed when unused, or its
-        # placeholder LoadImage fails the graph at validation.
-        if cfg.get("last_frame") and not last_frame_file:
-            workflow = _prune_optional_last_frame(workflow, node_map)
-
-        # Per-workflow settings fan out onto their injection keys (one knob may
-        # feed several nodes; COMBO widgets get str-cast) — see the registry.
-        overrides = {
-            "seed": seed_val,
-            "filename_prefix": job_id,
-            **_settings_overrides(cfg, settings),
-        }
-        if cfg["dual_prompt"]:
-            # PromptRelayEncode: identities up top, the beat-by-beat script below.
-            overrides["global_prompt"] = global_prompt or ""
-            overrides["local_prompts"] = local_prompts or prompt_text
-        else:
-            overrides["prompt"] = prompt_text
-
-        if source_image:
-            overrides["image"] = source_image
-        # An explicit first-frame reference overrides the still as the input image.
-        if first_frame_file:
-            overrides["image"] = first_frame_file
-        # Reference slots fill positionally; slot 1 doubles as "image" for the
-        # MSR graph, whose first LoadImage is subject #1 rather than a still.
-        for idx, filename in enumerate(reference_files):
-            overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
-        if background_file:
-            overrides["background_image"] = background_file
-        if last_frame_file:
-            overrides["last_frame"] = last_frame_file
-        if driving_video_file:
-            overrides["driving_video"] = driving_video_file
-        # R2V reference videos + standalone audio fill positionally, same as the
-        # image slots above (ref_video / ref_video2 / …, ref_audio / ref_audio2 / …).
-        for idx, filename in enumerate(ref_video_files):
-            overrides["ref_video" if idx == 0 else f"ref_video{idx + 1}"] = filename
-        for idx, filename in enumerate(ref_audio_files):
-            overrides["ref_audio" if idx == 0 else f"ref_audio{idx + 1}"] = filename
-
-        workflow = inject(workflow, node_map, overrides)
-        prompt_id = await submit(workflow)
-
-        video.status = "processing"
-        video.job_id = job_id
-        video.prompt_id = prompt_id
-        job.status = "processing"
-        job.prompt_id = prompt_id
-        await db.commit()
-
-    except Exception as e:
-        video.status = "failed"
-        video.error = str(e)
-        job.status = "failed"
-        job.error = str(e)
-        job.finished_at = datetime.utcnow()
-        await db.commit()
+    await db.commit()
 
     return video_id
 
 
+async def build_video(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    cfg = VIDEO_WORKFLOWS[payload["workflow_key"]]
+    workflow_name = cfg["workflow"]
+
+    workflow = load_workflow(workflow_name)
+    if workflow.get("_placeholder"):
+        raise RuntimeError(
+            f"Video workflow not yet configured — export {workflow_name}.json "
+            f"from ComfyUI in API format (see the file's _instructions field)"
+        )
+    node_map = load_node_map(workflow_name)
+
+    # Autogrow graphs (R2V) ship every reference slot present; drop the ones we
+    # won't fill before injecting, or ComfyUI rejects the whole graph.
+    if cfg.get("autogrow_slots"):
+        workflow = _prune_autogrow_slots(
+            workflow, node_map,
+            payload["n_images"], payload["n_videos"], payload["n_audios"],
+        )
+    # I2V's optional last-frame slot must be removed when unused.
+    if cfg.get("last_frame") and not payload.get("last_frame_present"):
+        workflow = _prune_optional_last_frame(workflow, node_map)
+
+    job_id = payload.get("job_id") or str(uuid.uuid4())
+    overrides = {**payload["overrides"], "seed": payload["seed"],
+                 "filename_prefix": job_id}
+    workflow = inject(workflow, node_map, overrides)
+    return workflow, {"job_id": job_id, "prefix": job_id}
+
+
+async def on_complete_video(payload: dict, outputs: dict, db: AsyncSession) -> None:
+    """Locate the clip VHS_VideoCombine wrote and mark the row completed.
+
+    A "completed" run with no file on disk means the graph was rejected at
+    validation — raise so the worker records the failure (and retries)."""
+    video = await db.get(GeneratedVideo, payload["generated_video_id"])
+    if video is None:
+        return
+    found = _find_video_by_prefix(payload["job_id"])
+    if not found:
+        raise RuntimeError(
+            "ComfyUI finished but produced no video file (workflow may have failed validation)"
+        )
+    video.video_url = found
+    video.job_id = payload["job_id"]
+    video.status = "completed"
+    await db.commit()
+
+
+register("video", build_video, on_complete_video)
+
+
 async def poll_video(video_id: str, db: AsyncSession) -> GeneratedVideo | None:
+    """Reflect the clip job's state onto the row. The worker drives progress
+    (submit/poll/finalize); this only maps status so the frontend is unchanged
+    (queued / processing / completed / failed)."""
     result = await db.execute(select(GeneratedVideo).where(GeneratedVideo.id == video_id))
     video = result.scalars().first()
     if not video:
         return None
 
-    if video.status in ("completed", "failed", "queued"):
+    if video.status in ("completed", "failed"):
         return video
 
-    if not video.prompt_id:
+    job = (
+        await db.execute(
+            select(JobRecord)
+            .where(JobRecord.entity_type == "generated_video",
+                   JobRecord.entity_id == video_id)
+            .order_by(JobRecord.created_at.desc())
+        )
+    ).scalars().first()
+    if job is None:
         return video
 
-    job_result = await db.execute(select(JobRecord).where(JobRecord.job_id == video.job_id))
-    job = job_result.scalars().first()
-
-    if job and job.created_at:
-        if datetime.utcnow() - job.created_at > timedelta(minutes=VIDEO_TIMEOUT_MINUTES):
+    if job.status in ("failed", "cancelled"):
+        if video.status != "failed":
             video.status = "failed"
-            video.error = "Video generation timed out"
-            job.status = "failed"
-            job.error = "Timed out"
-            job.finished_at = datetime.utcnow()
+            video.error = job.error or "Video generation failed"
             await db.commit()
-            return video
-
-    poll_result = await poll(video.prompt_id)
-    if poll_result["status"] == "error":
-        video.status = "failed"
-        video.error = "ComfyUI reported an error"
-        if job:
-            job.status = "failed"
-            job.error = "ComfyUI error"
-            job.finished_at = datetime.utcnow()
-        await db.commit()
-    elif poll_result["status"] == "completed":
-        found = _find_video_by_prefix(video.job_id)
-        if found:
-            video.video_url = found
-            video.status = "completed"
-            if job:
-                job.status = "completed"
-        else:
-            # "completed" with no file means the graph was rejected at
-            # validation and every output node was skipped.
-            video.status = "failed"
-            video.error = (
-                "ComfyUI finished but produced no video file "
-                "(workflow may have failed validation)"
-            )
-            if job:
-                job.status = "failed"
-                job.error = "No output file found"
-        if job:
-            job.finished_at = datetime.utcnow()
-        await db.commit()
+    elif job.status == "running":
+        if video.status != "processing":
+            video.status = "processing"
+            await db.commit()
+    # job.status == "completed" -> on_complete_video already set the row;
+    # job.status == "queued"    -> row stays "queued".
 
     return video
 

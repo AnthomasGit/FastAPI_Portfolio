@@ -68,18 +68,13 @@ async def test_controlled_resolves_scene_prompt_and_writes_job(
     mock_load_workflow.return_value = copy.deepcopy(FAKE_WORKFLOW)
     mock_load_node_map.return_value = dict(FAKE_NODE_MAP)
 
-    prompt_id = str(uuid.uuid4())
-    with respx.mock:
-        respx.post(f"{COMFY_API_URL}/prompt").mock(
-            return_value=Response(200, json={"prompt_id": prompt_id})
-        )
-
-        resp = await client.post(
-            "/api/generate/controlled",
-            json={"capture_id": capture.id, "params": {"seed": 4242}},
-        )
-        assert resp.status_code == 202
-        gen_id = resp.json()["generation_id"]
+    # Generation now enqueues a job (the worker submits later); no /prompt call here.
+    resp = await client.post(
+        "/api/generate/controlled",
+        json={"capture_id": capture.id, "params": {"seed": 4242}},
+    )
+    assert resp.status_code == 202
+    gen_id = resp.json()["generation_id"]
 
     result = await db_session.execute(
         select(GeneratedImage).where(GeneratedImage.id == gen_id)
@@ -89,8 +84,7 @@ async def test_controlled_resolves_scene_prompt_and_writes_job(
     assert gen.kind == "beauty"
     assert gen.capture_id == capture.id
     assert gen.scene_id == scene.id
-    assert gen.status == "processing"
-    assert gen.prompt_id == prompt_id
+    assert gen.status == "queued"
     # prompt was resolved capture -> staging -> scene
     assert scene.slugline in gen.prompt
     assert gen.params["seed"] == 4242
@@ -101,10 +95,15 @@ async def test_controlled_resolves_scene_prompt_and_writes_job(
     )
     job = job_result.scalars().first()
     assert job is not None
-    assert job.job_type == "controlled_image"
+    assert job.kind == "controlled_image"
     assert job.entity_type == "generated_image"
-    assert job.status == "processing"
+    assert job.status == "queued"
     assert scene.slugline in job.query
+    # source/ref files resolved at enqueue and carried on the payload
+    assert job.payload["seed"] == 4242
+    assert job.payload["image"]
+    assert job.payload["ref_image"]
+    assert job.payload["generation_id"] == gen_id
 
 
 @pytest.mark.asyncio
@@ -137,33 +136,41 @@ async def test_controlled_prompt_override_wins(
 @patch("services.controlled_gen_service.load_workflow")
 @patch("services.controlled_gen_service.load_node_map")
 async def test_controlled_submit_failure_marks_failed_with_error(
-    mock_load_node_map, mock_load_workflow, client, capture, db_session,
+    mock_load_node_map, mock_load_workflow, client, capture, db_session, session_factory,
 ):
+    """Submit now happens in the worker; a terminal failure surfaces as 'failed'
+    through the status endpoint (job -> row mapping)."""
+    from services.job_worker import JobWorker
+
     mock_load_workflow.return_value = copy.deepcopy(FAKE_WORKFLOW)
     mock_load_node_map.return_value = dict(FAKE_NODE_MAP)
 
+    resp = await client.post(
+        "/api/generate/controlled", json={"capture_id": capture.id}
+    )
+    assert resp.status_code == 202
+    gen_id = resp.json()["generation_id"]
+
+    # Make the single attempt terminal.
+    job = (
+        await db_session.execute(select(JobRecord).where(JobRecord.entity_id == gen_id))
+    ).scalars().first()
+    job.max_attempts = 1
+    await db_session.commit()
+
+    worker = JobWorker(session_factory=session_factory, max_inflight=1, retry_backoff_base=0)
     with respx.mock:
-        respx.post(f"{COMFY_API_URL}/prompt").mock(
-            return_value=Response(500, text="boom")
-        )
-        resp = await client.post(
-            "/api/generate/controlled", json={"capture_id": capture.id}
-        )
-        assert resp.status_code == 202
+        respx.post(f"{COMFY_API_URL}/prompt").mock(return_value=Response(500, text="boom"))
+        await worker.tick()
 
-    result = await db_session.execute(
-        select(GeneratedImage).where(GeneratedImage.id == resp.json()["generation_id"])
-    )
-    gen = result.scalars().first()
-    assert gen.status == "failed"
-    assert "ComfyUI submit failed" in gen.error
+    async with session_factory() as db:
+        job = await db.get(JobRecord, job.job_id)
+        assert job.status == "failed"
+        assert "ComfyUI submit failed" in (job.error or "")
 
-    job_result = await db_session.execute(
-        select(JobRecord).where(JobRecord.entity_id == gen.id)
-    )
-    job = job_result.scalars().first()
-    assert job.status == "failed"
-    assert job.finished_at is not None
+    # Status endpoint maps the failed job onto the row.
+    resp = await client.get(f"/api/generate/status/{gen_id}")
+    assert resp.json()["status"] == "failed"
 
 
 # ── Injection snapshot against the real committed workflow ─────────────────
@@ -217,10 +224,21 @@ async def test_controlled_404_unknown_capture(client):
 async def test_controlled_409_when_generation_inflight(
     client, capture, db_session,
 ):
+    # The 409 guard now keys off JOB state: a queued/running controlled job for
+    # one of this capture's images means a generation is already in flight.
     inflight = GeneratedImage(
-        capture_id=capture.id, kind="controlled", status="processing"
+        capture_id=capture.id, kind="controlled", status="queued"
     )
     db_session.add(inflight)
+    await db_session.flush()
+    job = JobRecord(
+        kind="controlled_image",
+        status="running",
+        entity_type="generated_image",
+        entity_id=inflight.id,
+        payload={},
+    )
+    db_session.add(job)
     await db_session.commit()
 
     resp = await client.post(

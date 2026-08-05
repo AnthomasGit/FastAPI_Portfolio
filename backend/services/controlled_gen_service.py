@@ -22,8 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import (
     SceneCapture, SceneStaging, GeneratedImage, Scene, JobRecord, Asset3D, Reference,
 )
-from services.comfyui_client import load_workflow, load_node_map, inject, submit
+from services.comfyui_client import load_workflow, load_node_map, inject
 from services.comfyui_service import construct_prompt
+from services.job_handlers import register, on_complete_scene_image
 
 WORKFLOW_NAME = "image_klein_beauty"
 
@@ -36,10 +37,18 @@ async def get_capture(capture_id: str, db: AsyncSession) -> SceneCapture | None:
 
 
 async def has_inflight_generation(capture_id: str, db: AsyncSession) -> bool:
+    """True while a beauty-pass job for this capture is queued or running.
+
+    Checks JOB state, not the row's — a terminally-failed job leaves its
+    GeneratedImage row at "queued", so keying off the row would wedge the 409
+    guard permanently. The worker owns progress now, so the job is the truth.
+    """
+    gen_ids = select(GeneratedImage.id).where(GeneratedImage.capture_id == capture_id)
     result = await db.execute(
-        select(GeneratedImage).where(
-            GeneratedImage.capture_id == capture_id,
-            GeneratedImage.status.in_(["queued", "processing"]),
+        select(JobRecord).where(
+            JobRecord.entity_type == "generated_image",
+            JobRecord.entity_id.in_(gen_ids),
+            JobRecord.status.in_(["queued", "running"]),
         )
     )
     return result.scalars().first() is not None
@@ -127,49 +136,50 @@ async def generate_controlled_image(
     await db.flush()
     gen_id = gen.id
 
-    job_id = str(uuid.uuid4())
+    # Enqueue only — the worker submits, polls and finalizes via the
+    # controlled_image handler below. Source/ref files are resolved here (they
+    # need the capture + db) and carried on the payload.
     job = JobRecord(
-        job_id=job_id,
+        kind="controlled_image",
         status="queued",
+        job_type="controlled_image",
         model_name=WORKFLOW_NAME,
         query=prompt_text,
         seed=seed_val,
-        job_type="controlled_image",
         entity_type="generated_image",
         entity_id=gen_id,
-    )
-    db.add(job)
-    await db.flush()
-
-    try:
-        workflow = load_workflow(WORKFLOW_NAME)
-        node_map = load_node_map(WORKFLOW_NAME)
-
-        workflow = inject(workflow, node_map, {
+        payload={
             "prompt": prompt_text,
             "seed": seed_val,
-            "filename_prefix": job_id,
             "image": source_image,
             "ref_image": ref_image,
-        })
-
-        prompt_id = await submit(workflow)
-
-        gen.status = "processing"
-        gen.job_id = job_id
-        gen.prompt_id = prompt_id
-        gen.image_url = f"{job_id}_00001_.png"
-        job.status = "processing"
-        job.prompt_id = prompt_id
-        job.image_url = gen.image_url
-        await db.commit()
-
-    except Exception as e:
-        gen.status = "failed"
-        gen.error = str(e)
-        job.status = "failed"
-        job.error = str(e)
-        job.finished_at = datetime.utcnow()
-        await db.commit()
+            "generation_id": gen_id,
+        },
+    )
+    db.add(job)
+    await db.commit()
 
     return gen_id
+
+
+async def build_controlled_image(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    job_id = payload.get("job_id") or str(uuid.uuid4())
+    seed_val = payload.get("seed") or random.randint(1, 1000000000000000)
+
+    workflow = load_workflow(WORKFLOW_NAME)
+    node_map = load_node_map(WORKFLOW_NAME)
+    workflow = inject(workflow, node_map, {
+        "prompt": payload["prompt"],
+        "seed": seed_val,
+        "filename_prefix": job_id,
+        "image": payload["image"],
+        "ref_image": payload["ref_image"],
+    })
+    meta = {"job_id": job_id, "seed": seed_val, "prefix": job_id,
+            "image_url": f"{job_id}_00001_.png"}
+    return workflow, meta
+
+
+# Controlled images are GeneratedImage rows, finalized exactly like scene images
+# (status -> completed, image_url from the winning attempt's prefix).
+register("controlled_image", build_controlled_image, on_complete_scene_image)

@@ -12,17 +12,29 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from database import DrivingVideo, GeneratedVideo, Reference, ReferenceAudio, Scene, Shot
+from database import DrivingVideo, GeneratedVideo, JobRecord, Reference, ReferenceAudio, Scene, Shot
 from services.comfyui_client import inject, load_node_map, load_workflow
 from services.video_service import (
     DEFAULT_WORKFLOW,
     VIDEO_WORKFLOWS,
     _prune_autogrow_slots,
+    build_video,
     generate_video,
     list_workflows,
 )
 
 COMFY_INPUT_DIR = os.environ["COMFY_INPUT_DIR"]
+
+
+async def _submitted_workflow(db, video_id):
+    """The graph the worker would submit: build_video() on the enqueued job's
+    payload. Generation now enqueues rather than submitting inline, so injection
+    is asserted against this rather than a captured submit() call."""
+    job = (
+        await db.execute(select(JobRecord).where(JobRecord.entity_id == video_id))
+    ).scalars().first()
+    workflow, _ = await build_video(job.payload, db)
+    return workflow
 
 
 # ── Registry ────────────────────────────────────────────────────────────
@@ -244,11 +256,6 @@ async def test_msr_clip_attaches_to_shot_and_records_params(db_session, scene, m
     db_session.add_all([ref, shot])
     await db_session.commit()
 
-    async def fake_submit(_workflow):
-        return "prompt-123"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
-
     video_id = await generate_video(
         db_session,
         workflow_key="ltx_msr",
@@ -260,7 +267,7 @@ async def test_msr_clip_attaches_to_shot_and_records_params(db_session, scene, m
     )
 
     video = await db_session.get(GeneratedVideo, video_id)
-    assert video.status == "processing"
+    assert video.status == "queued"
     assert video.shot_id == shot.id
     assert video.source_image_id is None      # MSR consumes no still
     assert video.scene_id == scene.id
@@ -284,11 +291,6 @@ async def test_msr_reference_frame_count_is_overridable(db_session, scene, monke
     shot = Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number="1A")
     db_session.add_all([ref, shot])
     await db_session.commit()
-
-    async def fake_submit(_workflow):
-        return "prompt-123"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
 
     video_id = await generate_video(
         db_session,
@@ -335,11 +337,6 @@ async def test_i2v_ignores_reference_frame_count(db_session, scene, monkeypatch)
     monkeypatch.setattr("services.video_service.COMFY_OUTPUT_DIR", COMFY_INPUT_DIR)
     with open(os.path.join(COMFY_INPUT_DIR, "still.png"), "wb") as f:
         f.write(b"fake")
-
-    async def fake_submit(_workflow):
-        return "prompt-123"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
 
     video_id = await generate_video(
         db_session, workflow_key="ltx_i2v", image=image,
@@ -445,11 +442,6 @@ async def test_scail2_happy_path_records_frames_and_pose_strength(db_session, sc
     db_session.add_all([ref, dv, shot])
     await db_session.commit()
 
-    async def fake_submit(_workflow):
-        return "prompt-456"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
-
     video_id = await generate_video(
         db_session,
         workflow_key="scail2_anim",
@@ -461,7 +453,7 @@ async def test_scail2_happy_path_records_frames_and_pose_strength(db_session, sc
     )
 
     video = await db_session.get(GeneratedVideo, video_id)
-    assert video.status == "processing"
+    assert video.status == "queued"
     assert video.shot_id == shot.id
     assert video.params["workflow"] == "scail2_anim"
     assert video.params["frames"] == 49
@@ -626,14 +618,6 @@ async def test_r2v_happy_path_prunes_and_submits(db_session, scene, monkeypatch)
     db_session.add_all([ref, dv, ra, shot])
     await db_session.commit()
 
-    captured = {}
-
-    async def fake_submit(workflow):
-        captured["workflow"] = workflow
-        return "prompt-r2v"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
-
     video_id = await generate_video(
         db_session,
         workflow_key="minimax_h3_r2v",
@@ -646,15 +630,15 @@ async def test_r2v_happy_path_prunes_and_submits(db_session, scene, monkeypatch)
     )
 
     video = await db_session.get(GeneratedVideo, video_id)
-    assert video.status == "processing"
+    assert video.status == "queued"
     assert video.shot_id == shot.id
     assert video.source_image_id is None
     assert video.params["workflow"] == "minimax_h3_r2v"
     assert video.params["scheduler"] == "normal"
     assert video.params["steps"] == 18
 
-    # The submitted graph kept exactly the filled slots and pruned the rest.
-    submitted = captured["workflow"]
+    # The graph the worker will submit kept exactly the filled slots, pruned the rest.
+    submitted = await _submitted_workflow(db_session, video_id)
     node_map = load_node_map("video_minimax_h3_r2v")
     assert submitted[node_map["image_slots"][0]]["inputs"]["image"] == img
     assert node_map["image_slots"][1] not in submitted
@@ -734,25 +718,17 @@ async def test_i2v_h3_happy_path_prunes_last_frame_when_absent(db_session, scene
     with open(os.path.join(COMFY_INPUT_DIR, "still.png"), "wb") as f:
         f.write(b"fake")
 
-    captured = {}
-
-    async def fake_submit(workflow):
-        captured["workflow"] = workflow
-        return "prompt-i2v"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
-
     video_id = await generate_video(
         db_session, workflow_key="minimax_h3_i2v", image=image, shot=shot,
         motion_prompt="A slow push in.", params={"steps": 16},
     )
 
     video = await db_session.get(GeneratedVideo, video_id)
-    assert video.status == "processing"
+    assert video.status == "queued"
     assert video.params["workflow"] == "minimax_h3_i2v"
 
     node_map = load_node_map("video_minimax_h3_i2v")
-    submitted = captured["workflow"]
+    submitted = await _submitted_workflow(db_session, video_id)
     # first_frame got the staged still; the unused last_frame slot is gone.
     assert submitted[node_map["image_node"]]["inputs"]["image"] == f"{image.id}_source.png"
     assert node_map["last_frame_node"] not in submitted
@@ -789,20 +765,13 @@ async def test_i2v_h3_first_frame_reference_overrides_still(db_session, scene, m
     db_session.add_all([image, ref, shot])
     await db_session.commit()
 
-    captured = {}
-
-    async def fake_submit(workflow):
-        captured["workflow"] = workflow
-        return "prompt-i2v"
-
-    monkeypatch.setattr("services.video_service.submit", fake_submit)
-
-    await generate_video(
+    video_id = await generate_video(
         db_session, workflow_key="minimax_h3_i2v", image=image, shot=shot,
         first_frame_reference_id=ref.id, motion_prompt="Go.",
     )
 
     node_map = load_node_map("video_minimax_h3_i2v")
-    first_frame = captured["workflow"][node_map["image_node"]]["inputs"]["image"]
+    submitted = await _submitted_workflow(db_session, video_id)
+    first_frame = submitted[node_map["image_node"]]["inputs"]["image"]
     # The reference file wins over the staged still ("<id>_source.png").
     assert first_frame == ref_fn
