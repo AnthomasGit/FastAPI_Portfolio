@@ -16,6 +16,9 @@ class BatchCreateRequest(BaseModel):
     run_after: Optional[str] = None
     params: dict = {}
     name: Optional[str] = None
+    identity_refs: bool = False
+    color_match: bool = False
+    color_match_reference: Optional[str] = None
 
 
 class ProjectCreate(BaseModel):

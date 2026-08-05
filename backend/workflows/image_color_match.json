@@ -1,0 +1,31 @@
+{
+  "_note": "Colour-match post pass (KAN-37): takes a source image and a reference (approved key frame) and writes a colour-matched output. Node 3 is a ColorMatch node (borrowed from the vrgamedevgirl pack). UNVALIDATED against a live ComfyUI (no GPU here) — confirm the ColorMatch node's class_type and input names against the installed pack and test-render before trusting output.",
+  "1": {
+    "inputs": {"image": "source.png"},
+    "class_type": "LoadImage",
+    "_meta": {"title": "Source image"}
+  },
+  "2": {
+    "inputs": {"image": "reference.png"},
+    "class_type": "LoadImage",
+    "_meta": {"title": "Reference key frame"}
+  },
+  "3": {
+    "inputs": {
+      "image": ["1", 0],
+      "reference": ["2", 0],
+      "method": "mkl",
+      "strength": 1.0
+    },
+    "class_type": "ColorMatch",
+    "_meta": {"title": "Colour match"}
+  },
+  "4": {
+    "inputs": {
+      "filename_prefix": "ColorMatch",
+      "images": ["3", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save matched"}
+  }
+}

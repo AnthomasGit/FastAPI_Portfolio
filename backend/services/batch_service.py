@@ -179,8 +179,52 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
             db.add(job)
             jobs.append(job)
 
+            # "Colour-match to key frame": every generated still gets a dependent
+            # color_match job that runs once the still completes (KAN-37).
+            cm = await _maybe_color_match_job(job, target_type, target_id, spec, batch, db)
+            if cm is not None:
+                cm.scheduled_after = run_after
+                db.add(cm)
+                jobs.append(cm)
+
     await db.commit()
     return batch, jobs
+
+
+async def _maybe_color_match_job(source_job, target_type, target_id, spec, batch, db):
+    """A dependent color_match job for a scene_image still, or None.
+
+    The result is a NEW GeneratedImage row linked to the source (params), never
+    an overwrite. The source filename is resolved from the parent at build time
+    via the {"$from_parent": "image_url"} convention (KAN-22).
+    """
+    if not spec.get("color_match"):
+        return None
+    if source_job.kind != "scene_image" or target_type != "scene":
+        return None
+    reference_url = spec.get("color_match_reference")
+    if not reference_url:
+        return None
+
+    await db.flush()  # ensure source_job.job_id exists for the dependency
+    source_gen_id = source_job.payload.get("generation_id")
+    matched = GeneratedImage(
+        scene_id=target_id, status="queued", kind="color_match",
+        params={"source_generation_id": source_gen_id, "reference_url": reference_url},
+    )
+    db.add(matched)
+    await db.flush()
+    return JobRecord(
+        kind="color_match", status="queued", priority=int(spec.get("priority") or 0),
+        batch_id=batch.id,
+        entity_type="generated_image", entity_id=matched.id,
+        depends_on_job_id=source_job.job_id,
+        payload={
+            "source": {"$from_parent": "image_url"},
+            "reference_image": reference_url,
+            "generation_id": matched.id,
+        },
+    )
 
 
 _REL_UNITS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}

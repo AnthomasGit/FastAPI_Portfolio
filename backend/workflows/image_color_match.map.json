@@ -1,0 +1,6 @@
+{
+  "_comment": "Colour-match post pass (KAN-37). image_node = the source still to match; reference_image_node = the approved key frame; output_node = SaveImage. No prompt/seed — this is a deterministic image→image pass. UNVALIDATED against a live ComfyUI.",
+  "image_node": "1",
+  "reference_image_node": "2",
+  "output_node": "4"
+}

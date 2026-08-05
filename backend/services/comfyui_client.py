@@ -51,6 +51,9 @@ INJECTION_MAP = {
     # reference alongside the main image (e.g. the Klein beauty pass feeds a
     # character's reference photo in to restore a face the 3D proxy distorted).
     "ref_image": ("ref_image_node", ("image",)),
+    # Colour-match reference: the approved key frame a generated still is matched
+    # to (KAN-37). Distinct from ref_image so a graph can map both.
+    "reference_image": ("reference_image_node", ("image",)),
     # Subject slots 2-4 + background plate for multi-subject reference video
     # (LTX-2.3 MSR composes these into its conditioning guide).
     "image2": ("image2_node", ("image",)),

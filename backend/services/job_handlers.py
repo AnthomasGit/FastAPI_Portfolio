@@ -44,6 +44,7 @@ SCENE_WORKFLOW = "image_z_image_turbo"
 # references into a single still (KAN-36). Used only when the scene has
 # canonical identity images; otherwise the plain SCENE_WORKFLOW is used.
 SCENE_REF_WORKFLOW = "image_minimax_h3_ref"
+COLOR_MATCH_WORKFLOW = "image_color_match"
 
 # Map internal job status to the status strings the frontend already expects on
 # the owning row (queued/processing/completed/failed). Keeps the polling flow
@@ -285,6 +286,41 @@ async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict
     return workflow, meta
 
 
+def _stage_output_to_input(output_rel: str, dest_name: str) -> str:
+    """Copy a COMFY_OUTPUT_DIR-relative file into COMFY_INPUT_DIR under a flat
+    name so a LoadImage node can read it. Returns the input-relative filename."""
+    shutil.copy2(
+        os.path.join(COMFY_OUTPUT_DIR, output_rel),
+        os.path.join(COMFY_INPUT_DIR, dest_name),
+    )
+    return dest_name
+
+
+async def build_color_match(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """Match a generated still's colours to an approved key frame (KAN-37).
+
+    ``source`` (resolved from the parent job via {"$from_parent": "image_url"})
+    and ``reference_image`` are both COMFY_OUTPUT_DIR-relative; stage both into
+    the input dir before injecting.
+    """
+    job_id = _job_id(payload)
+    source_rel = payload["source"]
+    reference_rel = payload["reference_image"]
+
+    source_in = _stage_output_to_input(source_rel, f"{job_id}_src.png")
+    reference_in = _stage_output_to_input(reference_rel, f"{job_id}_ref.png")
+
+    workflow = load_workflow(COLOR_MATCH_WORKFLOW)
+    node_map = load_node_map(COLOR_MATCH_WORKFLOW)
+    workflow = inject(workflow, node_map, {
+        "image": source_in,
+        "reference_image": reference_in,
+        "filename_prefix": job_id,
+    })
+    meta = {"job_id": job_id, "prefix": job_id, "image_url": f"{job_id}_00001_.png"}
+    return workflow, meta
+
+
 # ── on_complete implementations ─────────────────────────────────────────────
 
 async def _finalize_row(model, owner_id: str, payload: dict, db: AsyncSession) -> None:
@@ -335,3 +371,5 @@ def register(kind, build_workflow, on_complete) -> None:
 register("asset_txt2img", build_asset_txt2img, on_complete_asset_image)
 register("asset_img2img", build_asset_img2img, on_complete_asset_image)
 register("scene_image", build_scene_image, on_complete_scene_image)
+# Colour-match result is a GeneratedImage row, finalized like a scene image.
+register("color_match", build_color_match, on_complete_scene_image)
