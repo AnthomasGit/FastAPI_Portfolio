@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_db, Character, Location, Prop, Project
+from database import get_db, Character, Location, Prop, Project, AssetImage
 from services import ai_service
 
 router = APIRouter()
@@ -56,6 +56,23 @@ async def save_prompt_profile(entity_type: str, entity_id: str,
     entity.prompt_profile = profile
     await db.commit()
     return {"prompt_profile": profile}
+
+
+@router.put("/api/{entity_type}/{entity_id}/canonical-image")
+async def set_canonical_image(entity_type: str, entity_id: str,
+                              data: dict = Body(...),
+                              db: AsyncSession = Depends(get_db)):
+    """Set (or clear) an entity's canonical "hero" image from its asset library.
+    Fed into scene generation as an identity reference (KAN-36)."""
+    entity = await _get_entity(entity_type, entity_id, db)
+    asset_image_id = data.get("asset_image_id")
+    if asset_image_id is not None:
+        asset = await db.get(AssetImage, asset_image_id)
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset image not found")
+    entity.canonical_asset_image_id = asset_image_id
+    await db.commit()
+    return {"canonical_asset_image_id": asset_image_id}
 
 
 @router.post("/api/projects/{project_id}/style-profile")

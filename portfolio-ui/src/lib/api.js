@@ -87,6 +87,9 @@ export const api = {
     fetchJSON(`/projects/${projectId}/style-profile`, { method: 'POST' }),
   saveStyleProfile: (projectId, profile) =>
     fetchJSON(`/projects/${projectId}/style-profile`, { method: 'PUT', body: JSON.stringify(profile) }),
+  // Canonical "hero" image → fed into scene generation as an identity reference.
+  setCanonicalImage: (entityType, id, assetImageId) =>
+    fetchJSON(`/${entityType}/${id}/canonical-image`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
   listProjectBatches: (projectId) => fetchJSON(`/projects/${projectId}/batches`),
   cancelBatch: (batchId) => fetchJSON(`/batches/${batchId}/cancel`, { method: 'POST' }),
   retryFailedBatch: (batchId) => fetchJSON(`/batches/${batchId}/retry-failed`, { method: 'POST' }),

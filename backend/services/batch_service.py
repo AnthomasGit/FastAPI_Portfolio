@@ -116,7 +116,9 @@ async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
         return JobRecord(
             kind=kind, status="queued", seed=seed, priority=priority,
             entity_type="generated_image", entity_id=gen.id,
-            payload={**base, "prompt": prompt, "generation_id": gen.id},
+            payload={**base, "prompt": prompt, "generation_id": gen.id,
+                     "scene_id": target_id,
+                     "identity_refs": bool(spec.get("identity_refs"))},
         )
 
     # Generic: link the job directly to its target; the handler for `kind`

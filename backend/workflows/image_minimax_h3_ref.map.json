@@ -1,0 +1,23 @@
+{
+  "_comment": "Single-still MiniMax H3 reference workflow (KAN-36). Same graph as video_minimax_h3_r2v but output_node points at a SaveImage tap on the VAEDecode frames (node 200), and length is forced to 1s — so it composes up to 9 character identity references into a STILL. image_slots are the autogrow ref-image LoadImage nodes; video/audio slots exist only so _prune_autogrow_slots can drop them (identity stills use 0 videos/0 audios). UNVALIDATED against a live ComfyUI — test-render before trusting output.",
+
+  "prompt_node": "138",
+  "seed_node": "129",
+  "output_node": "200",
+
+  "ref_node": "136",
+  "image_slots": ["137", "139", "141", "142", "143", "144", "145", "146", "147"],
+  "video_slots": ["150", "152", "154"],
+  "video_component_nodes": ["149", "151", "155"],
+  "audio_slots": ["156", "157", "158"],
+
+  "image_node": "137",
+  "image2_node": "139",
+  "image3_node": "141",
+  "image4_node": "142",
+  "image5_node": "143",
+  "image6_node": "144",
+  "image7_node": "145",
+  "image8_node": "146",
+  "image9_node": "147"
+}

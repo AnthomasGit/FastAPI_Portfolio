@@ -42,7 +42,8 @@ async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
         entity_type="generated_image",
         entity_id=gen_id,
         payload={"prompt": prompt_text, "negative_prompt": negative_text,
-                 "generation_id": gen_id},
+                 "generation_id": gen_id, "scene_id": scene_id,
+                 "identity_refs": True},
     )
     db.add(job)
     await db.commit()

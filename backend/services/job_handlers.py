@@ -25,8 +25,14 @@ from typing import Awaitable, Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import AssetImage, GeneratedImage, Reference
+import logging
+
+from database import (
+    AssetImage, GeneratedImage, Reference, Character, scene_characters,
+)
 from services.comfyui_client import load_workflow, load_node_map, inject
+
+logger = logging.getLogger("job_handlers")
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
@@ -34,6 +40,10 @@ COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 TXT2IMG_WORKFLOW = "image_z_image_turbo"
 IMG2IMG_WORKFLOW = "image_flux2_klein_image_edit_4b_base"
 SCENE_WORKFLOW = "image_z_image_turbo"
+# Identity-capable scene workflow: composes character canonical images as
+# references into a single still (KAN-36). Used only when the scene has
+# canonical identity images; otherwise the plain SCENE_WORKFLOW is used.
+SCENE_REF_WORKFLOW = "image_minimax_h3_ref"
 
 # Map internal job status to the status strings the frontend already expects on
 # the owning row (queued/processing/completed/failed). Keeps the polling flow
@@ -181,28 +191,96 @@ async def build_asset_img2img(payload: dict, db: AsyncSession) -> tuple[dict, di
     return workflow, meta
 
 
+async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
+                                      max_slots: int) -> list[str]:
+    """Stage the canonical identity images of a scene's linked characters as
+    COMFY_INPUT_DIR-relative filenames, in a deterministic order (KAN-36).
+
+    A character without a canonical image is skipped (not an error). If more
+    characters have canonical images than the workflow has slots, the extras are
+    dropped with a warning. Reuses the OUTPUT→INPUT staging pattern from
+    asset_image_service._resolve_source_image.
+    """
+    chars = (await db.execute(
+        select(Character).join(scene_characters)
+        .where(scene_characters.c.scene_id == scene_id)
+        .order_by(Character.name)
+    )).scalars().all()
+
+    staged: list[str] = []
+    dropped: list[str] = []
+    for char in chars:
+        if not char.canonical_asset_image_id:
+            continue
+        asset = await db.get(AssetImage, char.canonical_asset_image_id)
+        if not asset or not asset.image_url:
+            continue
+        if len(staged) >= max_slots:
+            dropped.append(char.name)
+            continue
+        # Canonical images live in COMFY_OUTPUT_DIR under a subfolder; LoadImage
+        # only reads COMFY_INPUT_DIR, so stage a flat copy in first.
+        input_filename = f"{char.id}_canon.png"
+        try:
+            shutil.copy2(
+                os.path.join(COMFY_OUTPUT_DIR, asset.image_url),
+                os.path.join(COMFY_INPUT_DIR, input_filename),
+            )
+        except OSError:
+            logger.warning("identity ref for %s missing on disk (%s) — skipped",
+                           char.name, asset.image_url)
+            continue
+        staged.append(input_filename)
+
+    if dropped:
+        logger.warning("scene %s has more identity refs than the workflow's %d slots; "
+                       "dropped: %s", scene_id, max_slots, ", ".join(dropped))
+    return staged
+
+
 async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
     prompt = payload["prompt"]
     job_id = _job_id(payload)
     seed_val = _seed(payload)
 
-    workflow = load_workflow(SCENE_WORKFLOW)
-    node_map = load_node_map(SCENE_WORKFLOW)
-    overrides = {
-        "prompt": prompt,
-        "seed": seed_val,
-        "filename_prefix": job_id,
-    }
+    # Feed character identity references when requested and available; fall back
+    # to the plain workflow when the scene has no canonical images (KAN-36).
+    ref_files: list[str] = []
+    scene_id = payload.get("scene_id")
+    if scene_id and payload.get("identity_refs"):
+        ref_slots = len(load_node_map(SCENE_REF_WORKFLOW).get("image_slots", []))
+        ref_files = await resolve_scene_identity_refs(scene_id, db, max_slots=ref_slots)
+
+    if ref_files:
+        workflow_name = SCENE_REF_WORKFLOW
+        workflow = load_workflow(workflow_name)
+        node_map = load_node_map(workflow_name)
+        # Autogrow graph: drop the unused ref-image slots (and every video/audio
+        # slot — identity stills use none) before injecting.
+        from services.video_service import _prune_autogrow_slots
+        workflow = _prune_autogrow_slots(workflow, node_map, len(ref_files), 0, 0)
+        overrides = {"prompt": prompt, "seed": seed_val, "filename_prefix": job_id}
+        for idx, filename in enumerate(ref_files):
+            overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
+    else:
+        workflow_name = SCENE_WORKFLOW
+        workflow = load_workflow(workflow_name)
+        node_map = load_node_map(workflow_name)
+        overrides = {"prompt": prompt, "seed": seed_val, "filename_prefix": job_id}
+
     # Separate negative prompt (KAN-34) — inject() no-ops on workflows whose map
     # has no negative_node, so this is safe for every graph.
     if payload.get("negative_prompt"):
         overrides["negative_prompt"] = payload["negative_prompt"]
+
     workflow = inject(workflow, node_map, overrides)
     meta = {
         "job_id": job_id,
         "seed": seed_val,
         "prefix": job_id,
         "image_url": f"{job_id}_00001_.png",
+        "workflow": workflow_name,
+        "ref_count": len(ref_files),
     }
     return workflow, meta
 
