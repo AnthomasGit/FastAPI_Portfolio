@@ -9,8 +9,10 @@ Seed policy is a placeholder here (random per variant) — KAN-35 replaces
 `_resolve_seed`. `run_after` propagation to child jobs is KAN-29; this task only
 records it on the batch.
 """
+import os
 import re
 import random
+import shutil
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func
@@ -23,6 +25,48 @@ from services.comfyui_service import construct_prompt
 
 VALID_SCOPES = {"project", "scene", "shot", "entity"}
 SEED_MAX = 1000000000000000
+
+COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
+
+# Seed averages (bytes) for the batch-create size estimate. These are rough
+# starting points — tune from real COMFY_OUTPUT_DIR measurements. A batch is
+# usually one kind, so the estimate is job_count × the kind's average.
+KIND_AVG_BYTES = {
+    "scene_image": 2_000_000,
+    "asset_txt2img": 2_000_000,
+    "asset_img2img": 2_000_000,
+    "controlled_image": 2_500_000,
+    "video": 15_000_000,
+    "mesh": 8_000_000,
+}
+DEFAULT_AVG_BYTES = 2_000_000
+# Require this multiple of the estimate to be free before accepting a batch.
+DISK_SAFETY_MARGIN = float(os.environ.get("BATCH_DISK_MARGIN", "1.5"))
+
+
+def _avg_bytes(kind: str) -> int:
+    return KIND_AVG_BYTES.get(kind, DEFAULT_AVG_BYTES)
+
+
+def free_output_bytes() -> int:
+    """Free bytes on COMFY_OUTPUT_DIR's filesystem. Returns a huge sentinel when
+    the dir is absent (e.g. tests / non-Docker) so the guard never false-trips."""
+    try:
+        return shutil.disk_usage(COMFY_OUTPUT_DIR).free
+    except OSError:
+        return 1 << 60
+
+
+async def estimate_output_bytes(spec: dict, db: AsyncSession) -> tuple[int, int]:
+    """Return (estimated_bytes, job_count) for a spec without creating anything."""
+    scope = spec.get("scope")
+    if scope not in VALID_SCOPES:
+        raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
+    variants = max(1, int(spec.get("variants") or 1))
+    target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
+    targets = await _resolve_targets(scope, target_ids, db)
+    job_count = len(targets) * variants
+    return job_count * _avg_bytes(spec.get("kind")), job_count
 
 
 def _resolve_seed(spec: dict, variant_index: int) -> int:

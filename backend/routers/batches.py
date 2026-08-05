@@ -10,6 +10,10 @@ from services.batch_service import (
     cancel_batch,
     retry_failed,
     list_project_batches,
+    estimate_output_bytes,
+    free_output_bytes,
+    parse_run_after,
+    DISK_SAFETY_MARGIN,
     VALID_SCOPES,
 )
 
@@ -37,12 +41,35 @@ async def create_batch_endpoint(
     if not (await db.execute(select(Project).where(Project.id == data.project_id))).scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")
 
+    spec = data.model_dump()
+
+    # Fail fast on a bad run_after before doing any work.
     try:
-        batch, jobs = await create_batch(data.model_dump(), db)
+        parse_run_after(spec.get("run_after"))
     except ValueError as e:
-        # e.g. an unparseable run_after.
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return {"batch_id": batch.id, "job_count": len(jobs)}
+
+    # Refuse an overnight batch that would likely fill the output disk.
+    estimated_bytes, _ = await estimate_output_bytes(spec, db)
+    free = free_output_bytes()
+    if estimated_bytes * DISK_SAFETY_MARGIN > free:
+        raise HTTPException(
+            status_code=507,
+            detail=(
+                f"Estimated output {estimated_bytes} bytes needs "
+                f"{DISK_SAFETY_MARGIN}x free space; only {free} bytes free on the output disk."
+            ),
+        )
+
+    try:
+        batch, jobs = await create_batch(spec, db)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {
+        "batch_id": batch.id,
+        "job_count": len(jobs),
+        "estimated_output_bytes": estimated_bytes,
+    }
 
 
 @router.get("/api/batches/{batch_id}")
