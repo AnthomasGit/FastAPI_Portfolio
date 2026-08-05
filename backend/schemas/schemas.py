@@ -3,6 +3,20 @@ from typing import Any, Optional, List
 from datetime import datetime
 
 
+class BatchCreateRequest(BaseModel):
+    project_id: str
+    scope: str  # project | scene | shot | entity
+    kind: str  # job kind, e.g. "scene_image"
+    target_ids: List[str] = []
+    workflow: Optional[str] = None
+    variants: int = 1
+    seed_policy: str = "random"
+    priority: int = 0
+    run_after: Optional[str] = None
+    params: dict = {}
+    name: Optional[str] = None
+
+
 class ProjectCreate(BaseModel):
     title: Optional[str] = None
     idea: str

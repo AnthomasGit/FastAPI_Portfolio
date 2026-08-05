@@ -72,6 +72,10 @@ export const api = {
 
   generateScene: (sceneId) => fetchJSON(`/generate/scene/${sceneId}`, { method: 'POST' }),
   generateProject: (projectId) => fetchJSON(`/generate/project/${projectId}`, { method: 'POST' }),
+
+  // Batches (Phase 1). `spec`: { project_id, scope, kind, target_ids, workflow,
+  // variants, seed_policy, priority, run_after, params, name }.
+  createBatch: (spec) => fetchJSON('/batches', { method: 'POST', body: JSON.stringify(spec) }),
   getGenerationStatus: (genId) => fetchJSON(`/generate/status/${genId}`),
   generateControlled: (captureId, { promptOverride, params } = {}) =>
     fetchJSON('/generate/controlled', {
