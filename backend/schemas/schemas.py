@@ -60,6 +60,8 @@ class CharacterResponse(BaseModel):
     description: Optional[str] = None
     traits: Optional[dict] = None
     reference_url: Optional[str] = None
+    canonical_asset_image_id: Optional[str] = None
+    prompt_profile: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -87,6 +89,8 @@ class CharacterResponse(BaseModel):
                     'description': data.description,
                     'traits': data.traits,
                     'reference_url': newest.url,
+                    'canonical_asset_image_id': getattr(data, 'canonical_asset_image_id', None),
+                    'prompt_profile': getattr(data, 'prompt_profile', None),
                 }
         return data
 

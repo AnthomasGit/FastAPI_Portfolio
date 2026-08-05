@@ -132,7 +132,7 @@ export function Storyboard() {
                   <div key={ch.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-cast">{ch.name}</h3>
                     {ch.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{ch.description}</p>}
-                    <EntityAssetLibrary entityType="character" entityId={ch.id} entityName={ch.name} projectId={id} />
+                    <EntityAssetLibrary entityType="character" entityId={ch.id} entityName={ch.name} projectId={id} canonicalAssetImageId={ch.canonical_asset_image_id} />
                   </div>
                 ))}
               </div>
