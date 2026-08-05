@@ -4,12 +4,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from routers import projects, scenes, characters, locations, props, ai, generate, references, asset_images, assets3d, staging, video, shots, driving_videos, reference_audios
+from services.job_worker import JobWorker, WORKER_ENABLED
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Database migrations assumed applied via alembic.")
-    yield
+    worker = None
+    if WORKER_ENABLED:
+        worker = JobWorker()
+        await worker.start()
+    try:
+        yield
+    finally:
+        if worker is not None:
+            await worker.stop()
 
 
 app = FastAPI(title="Storyboard Pro", lifespan=lifespan)

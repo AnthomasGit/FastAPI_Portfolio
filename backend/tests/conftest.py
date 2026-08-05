@@ -12,6 +12,8 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-fake-key")
 _test_input_dir = "/tmp/comfy_test_input"
 os.environ.setdefault("COMFY_INPUT_DIR", _test_input_dir)
 os.makedirs(_test_input_dir, exist_ok=True)
+# The background worker must not auto-start under the test ASGI app.
+os.environ.setdefault("WORKER_ENABLED", "false")
 
 from database import Base, get_db, Project, Scene, Character, Location, Prop
 from main import app
@@ -26,18 +28,32 @@ def comfy_api_url():
 
 
 @pytest_asyncio.fixture
-async def db_session():
+async def db_engine():
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)()
+    try:
+        yield engine
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(db_engine):
+    session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)()
     try:
         yield session
     finally:
         await session.close()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+
+
+@pytest.fixture
+def session_factory(db_engine):
+    """An async_sessionmaker on the test engine, for code (e.g. the worker) that
+    opens its own sessions rather than receiving one via dependency injection."""
+    return async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture

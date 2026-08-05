@@ -45,3 +45,7 @@ backend/test.db
 
 # Local database backups (see scripts/db-backup.sh)
 backups/
+
+#User specific files
+docs/
+README.md
