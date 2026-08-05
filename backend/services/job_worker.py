@@ -45,22 +45,29 @@ def _is_postgres(db: AsyncSession) -> bool:
         return False
 
 
-async def claim_jobs(db: AsyncSession, limit: int) -> list[JobRecord]:
+async def claim_jobs(db: AsyncSession, limit: int, now: datetime | None = None) -> list[JobRecord]:
     """Atomically move up to ``limit`` ready queued jobs to ``running``.
 
-    Ready = queued and ``scheduled_after`` in the past (or null). Ordered by
-    priority (high first) then creation time. Race-safe on Postgres via
-    ``FOR UPDATE SKIP LOCKED``; the SQLite test path relies on single-writer
-    semantics instead (the clause is unsupported there).
+    Ready = queued, ``scheduled_after`` in the past (or null), and its
+    ``depends_on_job_id`` (if any) already completed. Ordered by priority (high
+    first) then creation time. Race-safe on Postgres via ``FOR UPDATE SKIP
+    LOCKED``; the SQLite test path relies on single-writer semantics instead
+    (the clause is unsupported there). ``now`` is injectable so tests can drive
+    deferred scheduling without sleeping.
     """
     if limit <= 0:
         return []
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
+    completed_ids = select(JobRecord.job_id).where(JobRecord.status == "completed")
     stmt = (
         select(JobRecord)
         .where(
             JobRecord.status == "queued",
             or_(JobRecord.scheduled_after.is_(None), JobRecord.scheduled_after <= now),
+            or_(
+                JobRecord.depends_on_job_id.is_(None),
+                JobRecord.depends_on_job_id.in_(completed_ids),
+            ),
         )
         .order_by(JobRecord.priority.desc(), JobRecord.created_at.asc())
         .limit(limit)
@@ -77,6 +84,26 @@ async def claim_jobs(db: AsyncSession, limit: int) -> list[JobRecord]:
                     job.job_id, job.kind, job.attempts)
     await db.commit()
     return jobs
+
+
+async def resolve_parent_refs(db: AsyncSession, payload: dict, parent_job_id: str) -> dict:
+    """Resolve ``{"$from_parent": "<attr>"}`` payload values against the parent job.
+
+    A chained step's input is the previous step's output, but that filename only
+    exists once the parent has run — so the dependent stores a placeholder that
+    is resolved here, at build time. ``<attr>`` names a column on the parent
+    JobRecord (typically ``image_url``). Returns a new payload; non-placeholder
+    values pass through untouched.
+    """
+    parent = await db.get(JobRecord, parent_job_id)
+    resolved = {}
+    for key, value in payload.items():
+        if isinstance(value, dict) and "$from_parent" in value:
+            attr = value["$from_parent"]
+            resolved[key] = getattr(parent, attr, None) if parent is not None else None
+        else:
+            resolved[key] = value
+    return resolved
 
 
 async def _poll_until_done(prompt_id: str) -> dict:
@@ -162,6 +189,8 @@ class JobWorker:
                 # Note: payload deliberately carries no job_id, so build_workflow
                 # mints a fresh output prefix on every attempt (idempotent retry).
                 payload = dict(job.payload or {})
+                if job.depends_on_job_id:
+                    payload = await resolve_parent_refs(db, payload, job.depends_on_job_id)
                 try:
                     workflow, meta = await handler.build_workflow(payload, db)
                     prompt_id = await submit(workflow)
@@ -213,7 +242,29 @@ class JobWorker:
             job.finished_at = datetime.utcnow()
             logger.error("job %s (%s) failed permanently after %s attempts: %s",
                          job.job_id, job.kind, attempts, error)
+            # Dependents can never run now — cancel them (and their dependents)
+            # rather than leave them queued forever.
+            await self._cancel_dependents(db, job.job_id)
         await db.commit()
+
+    async def _cancel_dependents(self, db: AsyncSession, failed_job_id: str) -> None:
+        """Cancel every transitive dependent of a terminally-failed job."""
+        frontier = [failed_job_id]
+        while frontier:
+            parent_id = frontier.pop()
+            deps = (
+                await db.execute(
+                    select(JobRecord).where(JobRecord.depends_on_job_id == parent_id)
+                )
+            ).scalars().all()
+            for dep in deps:
+                if dep.status in ("queued", "running"):
+                    dep.status = "cancelled"
+                    dep.error = f"upstream job {parent_id} failed"
+                    dep.finished_at = datetime.utcnow()
+                    frontier.append(dep.job_id)
+                    logger.warning("job %s cancelled: upstream %s failed",
+                                   dep.job_id, parent_id)
 
     async def _requeue_inflight(self) -> None:
         if not self._inflight:
