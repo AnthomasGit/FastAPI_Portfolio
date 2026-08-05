@@ -129,6 +129,11 @@ services:
       # into comfyui_pip_user via pre-start.
       - comfyui_wananimateplus_node:/root/ComfyUI/custom_nodes/ComfyUI-WanAnimatePlus
       - comfyui_customnodekit_node:/root/ComfyUI/custom_nodes/ComfyUI-CustomNodeKit
+      # Krea2 2-pass T2I/I2I/inpaint workflow node packs (clone-once, same
+      # pinned-SHA-on-named-volume rationale). All pure-Python, no extra deps.
+      - comfyui_mxtoolkit_node:/root/ComfyUI/custom_nodes/comfyui-mxtoolkit
+      - comfyui_krea2_negpip_node:/root/ComfyUI/custom_nodes/ComfyUI-krea2-negpip
+      - comfyui_krea2t_enhancer_node:/root/ComfyUI/custom_nodes/ComfyUI-Krea2T-Enhancer
       # `pip install --user` target. Starts empty on every base image tag
       # (unlike mounting over /usr/local/lib64/python3.13/site-packages,
       # which would freeze the base image's OWN deps -- torch et al. -- at
@@ -189,4 +194,7 @@ volumes:
   comfyui_promptrelay_node:
   comfyui_wananimateplus_node:
   comfyui_customnodekit_node:
+  comfyui_mxtoolkit_node:
+  comfyui_krea2_negpip_node:
+  comfyui_krea2t_enhancer_node:
   comfyui_pip_user:

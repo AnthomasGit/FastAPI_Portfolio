@@ -1,0 +1,473 @@
+{
+  "9": {
+    "inputs": {
+      "conditioning": [
+        "247",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Conditioning Zero Out"
+    }
+  },
+  "25": {
+    "inputs": {
+      "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "37": {
+    "inputs": {
+      "vae_name": "krea2RealVae_v10.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE Loader"
+    }
+  },
+  "103": {
+    "inputs": {
+      "images": [
+        "104",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "1st Pass Preview"
+    }
+  },
+  "104": {
+    "inputs": {
+      "samples": [
+        "307",
+        0
+      ],
+      "vae": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "105": {
+    "inputs": {
+      "rgthree_comparer": {
+        "images": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_tgmui_00011_.png&type=temp&subfolder=&rand=0.03366169669934915"
+          },
+          {
+            "name": "B",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_tgmui_00012_.png&type=temp&subfolder=&rand=0.6170359501162921"
+          }
+        ]
+      },
+      "image_a": [
+        "104",
+        0
+      ],
+      "image_b": [
+        "186:99",
+        0
+      ]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": {
+      "title": "Compare 1st Pass and 2nd Pass"
+    }
+  },
+  "197": {
+    "inputs": {
+      "images": [
+        "186:99",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "2nd pass Preview"
+    }
+  },
+  "241": {
+    "inputs": {
+      "filename_prefix": "krea2/K2",
+      "images": [
+        "242",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "242": {
+    "inputs": {
+      "images": [
+        "288",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Final Image"
+    }
+  },
+  "247": {
+    "inputs": {
+      "text": "Loose Crosshatched Character Sketch: A lively, unfinished-feeling character-illustration style built on confident, visibly searching linework left intentionally raw rather than cleaned up, dense parallel crosshatching used sparingly to suggest volume and shadow without committing to full rendering, expressive, exaggerated facial modeling that prioritizes emotional intensity over anatomical polish, a loose, energetic looseness at the edges that keeps the whole piece feeling immediate and process-driven, and a spirited, illustrative rawness that reads as equal parts concept sketch and finished character study. Influenced by: contemporary character-design sketch practice, marker-and-pencil illustration technique, expressive digital-sketch rendering method, gesture-driven character-study tradition.\n\na high angle wide shot front view shot of a pretty caucasian girl looking up at the camera with a surprised wide-eyed expression, she is getting sucked down into a glowing portal deep in the water, spiraling iridescent vortex at her feet. she has one hand reaching out towards the camera desperately. murky dark underwater atmosphere, bubbles floating up from her face.\n\nshe has medium length messy wispy brown hair with side-swept bangs, light-purple irises, dark eyelashes, subtle freckling, slender face with plush lips. \nshe wears a witch hat that is crooked bent at the tip, with a brim that fades from dark purple to cerulean.\nshe has a slender body with medium breasts.\nshe wears black robes with dark purple hems, a white formal shirt underneath with frills, her collar sticking out of her robe. ",
+      "clip": [
+        "285",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "254": {
+    "inputs": {
+      "width": [
+        "302",
+        0
+      ],
+      "height": [
+        "303",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "255": {
+    "inputs": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "megapixels": 2,
+      "multiple": 16
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "256": {
+    "inputs": {
+      "seed": 691062404362393
+    },
+    "class_type": "easy seed",
+    "_meta": {
+      "title": "New Seed! Click the Button"
+    }
+  },
+  "259": {
+    "inputs": {
+      "unet_name": "Krea2_Turbo_convrot_int8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "263": {
+    "inputs": {
+      "seed": 191885284406823
+    },
+    "class_type": "easy seed",
+    "_meta": {
+      "title": "2nd Pass Seed"
+    }
+  },
+  "270": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Denoise"
+    }
+  },
+  "271": {
+    "inputs": {
+      "any_01": [
+        "254",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Latent"
+    }
+  },
+  "273": {
+    "inputs": {
+      "any_01": [
+        "270",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Denoise"
+    }
+  },
+  "275": {
+    "inputs": {
+      "Xi": 8,
+      "Xf": 8,
+      "isfloatX": 0
+    },
+    "class_type": "mxSlider",
+    "_meta": {
+      "title": "Step Count"
+    }
+  },
+  "279": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": false,
+        "lora": "KREA\\Krea2_Cinematic_Artstyle.safetensors",
+        "strength": 1
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "285",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "LoRAs"
+    }
+  },
+  "285": {
+    "inputs": {
+      "value_strength": 1.0,
+      "patch_txtfusion_refiners": false,
+      "block_start": 0,
+      "block_end": 27,
+      "block_stride": 1,
+      "model": [
+        "259",
+        0
+      ],
+      "clip": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "ApplyKrea2NegPiP",
+    "_meta": {
+      "title": "Apply Krea2 NegPiP"
+    }
+  },
+  "288": {
+    "inputs": {
+      "any_01": [
+        "197",
+        0
+      ],
+      "any_02": [
+        "103",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "297": {
+    "inputs": {
+      "value": 1,
+      "width": [
+        "302",
+        0
+      ],
+      "height": [
+        "303",
+        0
+      ]
+    },
+    "class_type": "SolidMask",
+    "_meta": {
+      "title": "Create Solid Mask"
+    }
+  },
+  "298": {
+    "inputs": {
+      "any_01": [
+        "297",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "MaskChoice"
+    }
+  },
+  "302": {
+    "inputs": {
+      "any_01": [
+        "255",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "303": {
+    "inputs": {
+      "any_01": [
+        "255",
+        1
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "307": {
+    "inputs": {
+      "seed": [
+        "256",
+        0
+      ],
+      "steps": [
+        "275",
+        0
+      ],
+      "cfg": 1,
+      "sampler_name": "exp_heun_2_x0_sde",
+      "scheduler": "simple",
+      "denoise": [
+        "273",
+        0
+      ],
+      "model": [
+        "279",
+        0
+      ],
+      "positive": [
+        "247",
+        0
+      ],
+      "negative": [
+        "9",
+        0
+      ],
+      "latent_image": [
+        "271",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "186:99": {
+    "inputs": {
+      "samples": [
+        "186:100",
+        1
+      ],
+      "vae": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "186:98": {
+    "inputs": {
+      "value": 0.25
+    },
+    "class_type": "easy float",
+    "_meta": {
+      "title": "DENOISE"
+    }
+  },
+  "186:106": {
+    "inputs": {
+      "value": "ceil(a*8)",
+      "a": [
+        "186:98",
+        0
+      ]
+    },
+    "class_type": "easy simpleMath",
+    "_meta": {
+      "title": "easy simpleMath"
+    }
+  },
+  "186:100": {
+    "inputs": {
+      "eta": 0.9,
+      "sampler_name": "exponential/res_2s",
+      "scheduler": "bong_tangent",
+      "steps": 8,
+      "steps_to_run": [
+        "186:106",
+        0
+      ],
+      "denoise": [
+        "186:98",
+        0
+      ],
+      "cfg": 1,
+      "seed": [
+        "263",
+        0
+      ],
+      "sampler_mode": "standard",
+      "bongmath": true,
+      "model": [
+        "279",
+        0
+      ],
+      "positive": [
+        "247",
+        0
+      ],
+      "negative": [
+        "9",
+        0
+      ],
+      "latent_image": [
+        "307",
+        0
+      ]
+    },
+    "class_type": "ClownsharKSampler_Beta",
+    "_meta": {
+      "title": "ClownsharKSampler"
+    }
+  }
+}

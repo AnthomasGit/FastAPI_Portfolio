@@ -23,8 +23,14 @@ async def generate_txt2img(
     db: AsyncSession,
     width: int | None = None,
     height: int | None = None,
+    workflow: str | None = None,
 ) -> str:
-    """Enqueue a txt2img job and return immediately; the worker submits it."""
+    """Enqueue a txt2img job and return immediately; the worker submits it.
+
+    ``workflow`` selects the ComfyUI graph from image_workflows.IMAGE_WORKFLOWS
+    (None -> default). It rides in the job payload and is resolved to a graph
+    name by build_asset_txt2img.
+    """
     asset = AssetImage(
         origin_project_id=project_id,
         entity_type=entity_type,
@@ -49,6 +55,7 @@ async def generate_txt2img(
             "prompt": prompt,
             "width": width,
             "height": height,
+            "workflow": workflow,
             "asset_image_id": asset_id,
         },
     )

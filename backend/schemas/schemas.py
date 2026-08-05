@@ -179,6 +179,9 @@ class AssetImageGenerateRequest(BaseModel):
     source_asset_image_id: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
+    # Which txt2img model/workflow to use (see image_workflows.IMAGE_WORKFLOWS);
+    # None falls back to the default. img2img ignores this.
+    workflow: Optional[str] = None
 
 
 class AssetImageResponse(BaseModel):
@@ -282,6 +285,15 @@ class DrivingVideoResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ImageWorkflowResponse(BaseModel):
+    """One selectable txt2img model/workflow for the asset-image generator."""
+    id: str
+    label: str
+    blurb: str
+    supports_size: bool = True
+    recommended: bool = False
 
 
 class ReferenceAudioResponse(BaseModel):

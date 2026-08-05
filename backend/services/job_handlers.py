@@ -31,6 +31,7 @@ from database import (
     AssetImage, GeneratedImage, Reference, Character, scene_characters,
 )
 from services.comfyui_client import load_workflow, load_node_map, inject
+from services.image_workflows import resolve_workflow_name, aspect_ratio_label
 
 logger = logging.getLogger("job_handlers")
 
@@ -142,20 +143,28 @@ async def build_asset_txt2img(payload: dict, db: AsyncSession) -> tuple[dict, di
     seed_val = _seed(payload)
     prefix = f"assets/{project_id}/{entity_type}s/{job_id}"
 
-    workflow = load_workflow(TXT2IMG_WORKFLOW)
-    node_map = load_node_map(TXT2IMG_WORKFLOW)
+    # The chosen txt2img model selects the graph; unknown/missing -> default.
+    workflow_name = resolve_workflow_name(payload.get("workflow"))
+    workflow = load_workflow(workflow_name)
+    node_map = load_node_map(workflow_name)
 
+    # Pass both explicit size (Z-Image) and a derived aspect ratio (Krea2's
+    # ResolutionSelector); inject() drops whichever this graph's map lacks.
     overrides = {"prompt": prompt, "seed": seed_val, "filename_prefix": prefix}
     if width is not None:
         overrides["width"] = width
     if height is not None:
         overrides["height"] = height
+    aspect = aspect_ratio_label(width, height)
+    if aspect is not None:
+        overrides["aspect_ratio"] = aspect
 
     workflow = inject(workflow, node_map, overrides)
     meta = {
         "job_id": job_id,
         "seed": seed_val,
         "prefix": prefix,
+        "workflow": workflow_name,
         "image_url": f"{prefix}_00001_.png",
     }
     return workflow, meta

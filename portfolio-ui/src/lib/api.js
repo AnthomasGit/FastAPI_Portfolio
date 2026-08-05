@@ -230,6 +230,8 @@ export const api = {
   restoreBackground: (id) => fetchJSON(`/references/${id}/remove-background`, { method: 'DELETE' }),
 
   generateAssetImage: (data) => fetchJSON('/asset-images/generate', { method: 'POST', body: JSON.stringify(data) }),
+  // Selectable txt2img models for the "set image" popup's model picker.
+  listImageWorkflows: () => fetchJSON('/image-workflows'),
 
   listAssetImages: (params = {}) => {
     const qs = new URLSearchParams();

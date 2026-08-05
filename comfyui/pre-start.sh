@@ -433,7 +433,7 @@ fi
 # RES4LYF (ClownsharKSampler_Beta) are already present in the base image.
 for spec in \
     "comfyui-mxtoolkit|https://github.com/Smirnov75/ComfyUI-mxToolkit.git|7f7a0e584f12078a1c589645d866ae96bad0cc35" \
-    "ComfyUI-krea2-negpip|https://github.com/blue-pen5805/ComfyUI-krea2-negpip.git|ad98c02334ca328d6e5c3faee3faae7c551851bb" \
+    "ComfyUI-krea2-negpip|https://github.com/blue-pen5805/ComfyUI-krea2-negpip.git|3740add9dbdc9f254a2befda30e95ba95e3b115d" \
     "ComfyUI-Krea2T-Enhancer|https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer.git|cf8895005540680306cd46e1faaf75f8902db794"; do
     K2_NAME="${spec%%|*}"; K2_REST="${spec#*|}"
     K2_URL="${K2_REST%%|*}"; K2_SHA="${K2_REST##*|}"
@@ -493,6 +493,34 @@ if [ -d "${PP_NODE_DIR}/.git" ] && [ -f "${PP_NODE_DIR}/requirements.txt" ]; the
     python3.13 -m pip install --user --no-cache-dir "${PP_CONSTRAINT_ARGS[@]}" \
         -r "${PP_NODE_DIR}/requirements.txt" \
         || log "WARNING: ProPost requirements install failed; film grain may not load."
+fi
+
+# --- ComfyUI-krea2-negpip compatibility patch --------------------------------
+# Its DIFFUSION_MODEL wrapper hardcodes 6 positional params, but ComfyUI 0.30.0's
+# Krea2 model forward passes a 7th ("krea2_negpip_wrapper() takes from 4 to 6
+# positional arguments but 7 were given"). Add a *extra passthrough to the
+# wrapper signature and its inline executor() forwards. Guarded on the unpatched
+# signature so it's a one-time idempotent edit that also survives a future
+# upstream SHA bump.
+NEGPIP_SRC=/root/ComfyUI/custom_nodes/ComfyUI-krea2-negpip/krea2_negpip.py
+if [ -f "${NEGPIP_SRC}" ] && \
+   grep -q 'transformer_options=None, \*\*kwargs):' "${NEGPIP_SRC}"; then
+    log "Patching ComfyUI-krea2-negpip wrapper for ComfyUI 0.30.0 (7th positional arg)..."
+    if python3.13 - "${NEGPIP_SRC}" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace(
+    "def krea2_negpip_wrapper(executor, x, timesteps, context, attention_mask=None, transformer_options=None, **kwargs):",
+    "def krea2_negpip_wrapper(executor, x, timesteps, context, attention_mask=None, transformer_options=None, *extra, **kwargs):")
+s = re.sub(r"return executor\(([^\n]*?), \*\*kwargs\)", r"return executor(\1, *extra, **kwargs)", s)
+open(p, "w").write(s)
+PYEOF
+    then
+        log "krea2-negpip wrapper patched."
+    else
+        log "WARNING: krea2-negpip wrapper patch failed; NegPiP node may error at sample time."
+    fi
 fi
 
 log "pre-start finished."

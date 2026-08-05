@@ -9,6 +9,7 @@ from schemas.schemas import (
     AssetImageGenerateRequest,
     AssetImageResponse,
     AssetImageAssignRequest,
+    ImageWorkflowResponse,
     ReferenceResponse,
 )
 from services.asset_image_service import (
@@ -17,8 +18,15 @@ from services.asset_image_service import (
     poll_asset_image_status,
     get_asset_image_file,
 )
+from services.image_workflows import list_image_workflows
 
 router = APIRouter()
+
+
+@router.get("/api/image-workflows", response_model=List[ImageWorkflowResponse])
+async def get_image_workflows():
+    """Selectable txt2img models for the asset-image generator's model picker."""
+    return list_image_workflows()
 
 VALID_ENTITY_TYPES = {"characters", "locations", "props"}
 ENTITY_TABLE_MAP = {
@@ -67,6 +75,7 @@ async def trigger_asset_image_generation(
             db=db,
             width=data.width,
             height=data.height,
+            workflow=data.workflow,
         )
 
     return {"asset_image_id": asset_id}

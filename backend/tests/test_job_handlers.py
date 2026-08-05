@@ -128,3 +128,38 @@ async def test_on_complete_scene_marks_completed(db_session, scene):
     await db_session.refresh(gen)
     assert gen.status == "completed"
     assert gen.image_url == "SCENEJOB_00001_.png"
+
+
+@pytest.mark.asyncio
+async def test_asset_txt2img_selects_krea2_workflow_and_aspect(db_session):
+    """A workflow key routes to the Krea2 graph; size becomes an aspect ratio."""
+    payload = {
+        "project_id": "proj1",
+        "entity_type": "character",
+        "prompt": "a knight",
+        "job_id": "JOBK2",
+        "seed": 999,
+        "width": 768,
+        "height": 1024,
+        "workflow": "krea2_turbo",
+    }
+    workflow, meta = await HANDLERS["asset_txt2img"].build_workflow(payload, db_session)
+
+    assert meta["workflow"] == "image_krea2_turbo"
+    # Krea2 map: prompt 247, seed 256 (easy seed), output 241 (SaveImage),
+    # aspect_ratio 255. Portrait 768×1024 -> nearest 3:4.
+    assert _node_text(workflow, "247", "text") == "a knight"
+    assert _node_text(workflow, "256", "seed") == 999
+    assert _node_text(workflow, "241", "filename_prefix") == "assets/proj1/characters/JOBK2"
+    assert workflow["241"]["class_type"] == "SaveImage"
+    assert _node_text(workflow, "255", "aspect_ratio") == "3:4 (Portrait Standard)"
+
+
+@pytest.mark.asyncio
+async def test_asset_txt2img_unknown_workflow_falls_back_to_default(db_session):
+    payload = {
+        "project_id": "p", "entity_type": "prop", "prompt": "x",
+        "job_id": "J", "seed": 1, "workflow": "nope",
+    }
+    _workflow, meta = await HANDLERS["asset_txt2img"].build_workflow(payload, db_session)
+    assert meta["workflow"] == "image_z_image_turbo"

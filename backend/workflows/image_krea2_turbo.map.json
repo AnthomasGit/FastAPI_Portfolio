@@ -1,0 +1,8 @@
+{
+  "_comment": "Krea2 Turbo 2-pass txt2img (Krea2_Turbo_convrot_int8mixed + qwen3vl_4b_fp8 CLIP + krea2RealVae). The exported API graph shipped two nodes malformed (mxSlider step-count 275, ApplyKrea2NegPiP 285) because those custom nodes weren't installed at export time; image_krea2_turbo.json repairs them from the live ComfyUI schema and swaps the date-named Image Saver Simple for a core SaveImage (241) so the worker's {prefix}_00001_.png output detection works. Resolution is driven by ResolutionSelector 255 (aspect_ratio), not width/height — build_asset_txt2img derives the aspect_ratio label from the popup's size preset.",
+
+  "prompt_node": "247",
+  "seed_node": "256",
+  "output_node": "241",
+  "aspect_ratio_node": "255"
+}

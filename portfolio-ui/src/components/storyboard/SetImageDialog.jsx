@@ -16,6 +16,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   const [sourceAssetImageId, setSourceAssetImageId] = useState('');
   const [pendingAssetId, setPendingAssetId] = useState(null);
   const [imageSize, setImageSize] = useState('768x1024');
+  const [workflowId, setWorkflowId] = useState(null);
   // Only one Select may be open at a time. Radix's item-aligned dropdown can
   // visually overlap the field below it, so a click meant for the second
   // trigger can land while the first Select is still closing — a race that
@@ -27,6 +28,18 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
   const [sizeWidth, sizeHeight] = imageSize.split('x').map(Number);
 
   const pluralType = `${entityType}s`;
+
+  const { data: imageWorkflows = [] } = useQuery({
+    queryKey: ['image-workflows'],
+    queryFn: () => api.listImageWorkflows(),
+    enabled: open,
+  });
+
+  // Default to the backend's recommended model once the registry lands.
+  const selectedWorkflow =
+    imageWorkflows.find((w) => w.id === workflowId) ||
+    imageWorkflows.find((w) => w.recommended) ||
+    imageWorkflows[0];
 
   const { data: references } = useQuery({
     queryKey: ['references', pluralType, entityId],
@@ -89,6 +102,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
       prompt,
       width: sizeWidth,
       height: sizeHeight,
+      workflow: selectedWorkflow?.id,
     });
   };
 
@@ -123,6 +137,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
       setSourceAssetImageId('');
       setActiveTab('generate-text');
       setImageSize('768x1024');
+      setWorkflowId(null);
       setOpenSelect(null);
     }
     onOpenChange(open);
@@ -162,8 +177,35 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
                 onChange={(e) => setPrompt(e.target.value)}
               />
 
+              {imageWorkflows.length > 1 && (
+                <div className="space-y-2">
+                  <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Model</label>
+                  <Select
+                    value={selectedWorkflow?.id ?? ''}
+                    onValueChange={setWorkflowId}
+                    modal={false}
+                    open={openSelect === 'workflow'}
+                    onOpenChange={(v) => setOpenSelect(v ? 'workflow' : null)}
+                  >
+                    <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
+                      {imageWorkflows.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedWorkflow?.blurb && (
+                    <p className="text-[10px] text-fg-faint leading-snug">{selectedWorkflow.blurb}</p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
-                <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Image size</label>
+                <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">
+                  {selectedWorkflow && selectedWorkflow.supports_size === false ? 'Aspect ratio' : 'Image size'}
+                </label>
                 <Select
                   value={imageSize}
                   onValueChange={setImageSize}
