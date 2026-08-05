@@ -106,7 +106,9 @@ async def test_claim_respects_priority_and_scheduling(session_factory):
 
 @pytest.mark.asyncio
 async def test_failed_submit_marks_job_failed(session_factory):
-    job_id = await _enqueue(session_factory)
+    # max_attempts=1 -> a single submit failure is terminal (retry logic is
+    # exercised separately in test_job_retry.py).
+    job_id = await _enqueue(session_factory, max_attempts=1)
     worker = JobWorker(session_factory=session_factory, max_inflight=1)
     with respx.mock:
         respx.post(f"{COMFY_API_URL}/prompt").mock(return_value=Response(500, text="boom"))

@@ -14,7 +14,7 @@ this task keeps the loop minimal — claim, run, finalize, mark failed on error.
 import os
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,8 @@ JOB_POLL_INTERVAL = float(os.environ.get("JOB_POLL_INTERVAL", "2.0"))
 # KAN-21 formalises this; the loop already needs a ceiling so a job that never
 # appears in /history is not polled forever.
 JOB_POLL_TIMEOUT = float(os.environ.get("JOB_POLL_TIMEOUT", "600"))
+# Exponential backoff base (seconds): a job's Nth retry waits base * 2**(N-1).
+JOB_RETRY_BACKOFF_BASE = float(os.environ.get("JOB_RETRY_BACKOFF_BASE", "10"))
 
 TERMINAL = ("completed", "failed", "cancelled")
 
@@ -90,9 +92,13 @@ async def _poll_until_done(prompt_id: str) -> dict:
 
 
 class JobWorker:
-    def __init__(self, session_factory=SessionLocal, max_inflight: int | None = None):
+    def __init__(self, session_factory=SessionLocal, max_inflight: int | None = None,
+                 retry_backoff_base: float | None = None):
         self.session_factory = session_factory
         self.max_inflight = MAX_INFLIGHT if max_inflight is None else max_inflight
+        self.retry_backoff_base = (
+            JOB_RETRY_BACKOFF_BASE if retry_backoff_base is None else retry_backoff_base
+        )
         self._inflight: set[str] = set()
         self._task: asyncio.Task | None = None
         self._stopping = False
@@ -153,10 +159,14 @@ class JobWorker:
                     logger.error("job %s failed: %s", job_id, job.error)
                     return
 
+                # Note: payload deliberately carries no job_id, so build_workflow
+                # mints a fresh output prefix on every attempt (idempotent retry).
                 payload = dict(job.payload or {})
                 try:
                     workflow, meta = await handler.build_workflow(payload, db)
                     prompt_id = await submit(workflow)
+                    # Rewrite the winning path on the job row each attempt so a
+                    # successful retry's output — not the first attempt's — wins.
                     job.prompt_id = prompt_id
                     job.image_url = meta.get("image_url")
                     await db.commit()
@@ -173,20 +183,37 @@ class JobWorker:
                         await db.commit()
                         logger.info("job %s (%s) completed", job_id, job.kind)
                     else:
-                        job.status = "failed"
-                        job.error = result.get("reason") or "ComfyUI reported an error"
-                        job.finished_at = datetime.utcnow()
-                        await db.commit()
-                        logger.warning("job %s (%s) failed: %s",
-                                       job_id, job.kind, job.error)
+                        await self._handle_failure(
+                            db, job, result.get("reason") or "ComfyUI reported an error"
+                        )
                 except Exception as e:
-                    job.status = "failed"
-                    job.error = str(e)
-                    job.finished_at = datetime.utcnow()
-                    await db.commit()
-                    logger.exception("job %s (%s) raised", job_id, job.kind)
+                    await self._handle_failure(db, job, str(e))
         finally:
             self._inflight.discard(job_id)
+
+    async def _handle_failure(self, db: AsyncSession, job: JobRecord, error: str) -> None:
+        """Requeue with exponential backoff until max_attempts, then fail.
+
+        `attempts` was already incremented at claim time, so it equals the number
+        of attempts made so far.
+        """
+        attempts = job.attempts or 0
+        max_attempts = job.max_attempts or 1
+        job.error = error
+        job.prompt_id = None
+        job.started_at = None
+        if attempts < max_attempts:
+            delay = self.retry_backoff_base * (2 ** (attempts - 1)) if attempts > 0 else 0
+            job.status = "queued"
+            job.scheduled_after = datetime.utcnow() + timedelta(seconds=delay)
+            logger.warning("job %s (%s) attempt %s/%s failed (%s); retry in %.0fs",
+                           job.job_id, job.kind, attempts, max_attempts, error, delay)
+        else:
+            job.status = "failed"
+            job.finished_at = datetime.utcnow()
+            logger.error("job %s (%s) failed permanently after %s attempts: %s",
+                         job.job_id, job.kind, attempts, error)
+        await db.commit()
 
     async def _requeue_inflight(self) -> None:
         if not self._inflight:
