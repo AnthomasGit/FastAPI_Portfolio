@@ -419,6 +419,31 @@ class StagingSave(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Batch(Base):
+    """A named group of jobs produced from one request (Phase 1, KAN-25).
+
+    A batch owns N JobRecord rows via JobRecord.batch_id. `spec` stores the
+    request that produced it (scope/targets/workflow/variants/…) so a batch can
+    be described, re-run or retried.
+    """
+    __tablename__ = "batches"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=True)
+    kind = Column(String, nullable=True)
+    spec = Column(JSON, nullable=True)
+    params = Column(JSON, nullable=True)
+    # pending | running | completed | failed | cancelled
+    status = Column(String, nullable=False, default="pending")
+    # Overnight scheduling: propagated to child jobs' scheduled_after (KAN-29).
+    run_after = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    jobs = relationship("JobRecord", back_populates="batch")
+
+
 class JobRecord(Base):
     __tablename__ = "jobs"
 
@@ -447,8 +472,7 @@ class JobRecord(Base):
     attempts = Column(Integer, nullable=False, default=0)
     max_attempts = Column(Integer, nullable=False, default=3)
     priority = Column(Integer, nullable=False, default=0)
-    # No FK yet — the Batch table arrives in Phase 1 (KAN-25).
-    batch_id = Column(String, nullable=True)
+    batch_id = Column(String, ForeignKey("batches.id", ondelete="SET NULL"), nullable=True)
     depends_on_job_id = Column(String, ForeignKey("jobs.job_id", ondelete="SET NULL"),
                                nullable=True)
     # Worker skips a job until this time has passed (backoff / overnight start).
@@ -457,6 +481,8 @@ class JobRecord(Base):
     finished_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    batch = relationship("Batch", back_populates="jobs")
 
     # Worker claim query scans by status, then priority, then readiness.
     __table_args__ = (
