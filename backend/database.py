@@ -46,6 +46,9 @@ class Project(Base):
     idea = Column(Text, nullable=False)
     clarifications = Column(JSON, nullable=True)
     story_summary = Column(Text, nullable=True)
+    # Project-level look, appended to every prompt (Phase 2, KAN-32).
+    # Shape: {film_stock, lens, grade, lighting, extra: [tokens]}.
+    style_profile = Column(JSON, nullable=True)
     status = Column(String, default="draft")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -95,6 +98,13 @@ class Character(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     traits = Column(JSON, nullable=True)
+    # Structured, repeatable visual tokens for consistent generation (KAN-32).
+    # Shape: {appearance, wardrobe, palette, negative: [tokens], locked_seed, notes}.
+    prompt_profile = Column(JSON, nullable=True)
+    # The entity's "hero" image, fed in as an identity reference (KAN-36).
+    canonical_asset_image_id = Column(
+        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="characters")
@@ -114,6 +124,10 @@ class Location(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     shot_notes = Column(Text, nullable=True)
+    prompt_profile = Column(JSON, nullable=True)  # see Character (KAN-32)
+    canonical_asset_image_id = Column(
+        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="locations")
@@ -132,6 +146,10 @@ class Prop(Base):
     project_id = Column(String, ForeignKey('projects.id', ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    prompt_profile = Column(JSON, nullable=True)  # see Character (KAN-32)
+    canonical_asset_image_id = Column(
+        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="props")
