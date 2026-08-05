@@ -3,7 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Scene, GeneratedImage, Project, Character, Location, Prop, scene_characters, scene_locations, scene_props
-from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
+from services.comfyui_client import submit, poll
+from services.job_handlers import HANDLERS
 
 WORKFLOW_NAME = "image_z_image_turbo"
 
@@ -62,24 +63,20 @@ async def generate_scene_image(scene_id: str, db: AsyncSession) -> str:
     gen_id = gen.id
 
     try:
-        workflow = load_workflow(WORKFLOW_NAME)
-        node_map = load_node_map(WORKFLOW_NAME)
-
         job_id = str(uuid.uuid4())
         seed_val = random.randint(1, 1000000000000000)
 
-        workflow = inject(workflow, node_map, {
-            "prompt": prompt_text,
-            "seed": seed_val,
-            "filename_prefix": job_id,
-        })
+        workflow, meta = await HANDLERS["scene_image"].build_workflow(
+            {"prompt": prompt_text, "job_id": job_id, "seed": seed_val},
+            db,
+        )
 
         prompt_id = await submit(workflow)
 
         gen.status = "processing"
         gen.job_id = job_id
         gen.prompt_id = prompt_id
-        gen.image_url = f"{job_id}_00001_.png"
+        gen.image_url = meta["image_url"]
         await db.commit()
 
     except Exception as e:

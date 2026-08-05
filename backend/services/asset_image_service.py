@@ -1,13 +1,16 @@
 import os
 import uuid
 import random
-import shutil
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import AssetImage, Reference
-from services.comfyui_client import load_workflow, load_node_map, inject, submit, poll
+from database import AssetImage
+from services.comfyui_client import submit, poll
+from services.job_handlers import (
+    HANDLERS,
+    _resolve_source_image,  # re-exported for backward compatibility
+)
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
 COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
@@ -26,7 +29,6 @@ async def generate_txt2img(
 ) -> str:
     job_id = str(uuid.uuid4())
     seed_val = random.randint(1, 1000000000000000)
-    prefix = f"assets/{project_id}/{entity_type}s/{job_id}"
 
     asset = AssetImage(
         origin_project_id=project_id,
@@ -41,26 +43,24 @@ async def generate_txt2img(
     asset_id = asset.id
 
     try:
-        workflow = load_workflow(TXT2IMG_WORKFLOW)
-        node_map = load_node_map(TXT2IMG_WORKFLOW)
-
-        overrides = {
-            "prompt": prompt,
-            "seed": seed_val,
-            "filename_prefix": prefix,
-        }
-        if width is not None:
-            overrides["width"] = width
-        if height is not None:
-            overrides["height"] = height
-
-        workflow = inject(workflow, node_map, overrides)
+        workflow, meta = await HANDLERS["asset_txt2img"].build_workflow(
+            {
+                "project_id": project_id,
+                "entity_type": entity_type,
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "job_id": job_id,
+                "seed": seed_val,
+            },
+            db,
+        )
 
         prompt_id = await submit(workflow)
 
         asset.status = "processing"
         asset.prompt_id = prompt_id
-        asset.image_url = f"assets/{project_id}/{entity_type}s/{job_id}_00001_.png"
+        asset.image_url = meta["image_url"]
         await db.commit()
 
     except Exception as e:
@@ -81,7 +81,6 @@ async def generate_img2img(
 ) -> str:
     job_id = str(uuid.uuid4())
     seed_val = random.randint(1, 1000000000000000)
-    prefix = f"assets/{project_id}/{entity_type}s/{job_id}"
 
     asset = AssetImage(
         origin_project_id=project_id,
@@ -98,27 +97,24 @@ async def generate_img2img(
     asset_id = asset.id
 
     try:
-        source_filename = await _resolve_source_image(
-            db, source_reference_id, source_asset_image_id, job_id
+        workflow, meta = await HANDLERS["asset_img2img"].build_workflow(
+            {
+                "project_id": project_id,
+                "entity_type": entity_type,
+                "prompt": prompt,
+                "source_reference_id": source_reference_id,
+                "source_asset_image_id": source_asset_image_id,
+                "job_id": job_id,
+                "seed": seed_val,
+            },
+            db,
         )
-        if not source_filename:
-            raise ValueError("No source image provided for img2img")
-
-        workflow = load_workflow(IMG2IMG_WORKFLOW)
-        node_map = load_node_map(IMG2IMG_WORKFLOW)
-
-        workflow = inject(workflow, node_map, {
-            "prompt": prompt,
-            "seed": seed_val,
-            "image": source_filename,
-            "filename_prefix": prefix,
-        })
 
         prompt_id = await submit(workflow)
 
         asset.status = "processing"
         asset.prompt_id = prompt_id
-        asset.image_url = f"assets/{project_id}/{entity_type}s/{job_id}_00001_.png"
+        asset.image_url = meta["image_url"]
         await db.commit()
 
     except Exception as e:
@@ -127,40 +123,6 @@ async def generate_img2img(
         await db.commit()
 
     return asset_id
-
-
-async def _resolve_source_image(
-    db: AsyncSession,
-    source_reference_id: str | None,
-    source_asset_image_id: str | None,
-    job_id: str,
-) -> str | None:
-    if source_reference_id:
-        result = await db.execute(select(Reference).where(Reference.id == source_reference_id))
-        ref = result.scalars().first()
-        if not ref:
-            raise ValueError("Source reference not found")
-        source_filename = ref.processed_url or ref.url
-        if ref.asset_image_id and source_filename and "/" in source_filename:
-            src_path = os.path.join(COMFY_OUTPUT_DIR, source_filename)
-            input_filename = f"{job_id}_source.png"
-            dst_path = os.path.join(COMFY_INPUT_DIR, input_filename)
-            shutil.copy2(src_path, dst_path)
-            return input_filename
-        return source_filename
-
-    if source_asset_image_id:
-        result = await db.execute(select(AssetImage).where(AssetImage.id == source_asset_image_id))
-        asset = result.scalars().first()
-        if not asset or not asset.image_url:
-            raise ValueError("Source asset image not found or not ready")
-        src_path = os.path.join(COMFY_OUTPUT_DIR, asset.image_url)
-        input_filename = f"{job_id}_source.png"
-        dst_path = os.path.join(COMFY_INPUT_DIR, input_filename)
-        shutil.copy2(src_path, dst_path)
-        return input_filename
-
-    return None
 
 
 async def poll_asset_image_status(asset_id: str, db: AsyncSession) -> dict:
