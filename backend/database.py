@@ -424,9 +424,12 @@ class JobRecord(Base):
 
     job_id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     prompt_id = Column(String, nullable=True)
+    # queued | running | completed | failed | cancelled
     status = Column(String, default="queued")
-    model_name = Column(String, nullable=False)
-    query = Column(Text, nullable=False)
+    # model_name/query are legacy image-job fields; new job kinds carry their
+    # inputs in `payload` and leave these null.
+    model_name = Column(String, nullable=True)
+    query = Column(Text, nullable=True)
     seed = Column(BigInteger, nullable=True)
     image_url = Column(String, nullable=True)
     image_info = Column(JSON, nullable=True)
@@ -435,8 +438,30 @@ class JobRecord(Base):
     entity_type = Column(String, nullable=True)
     entity_id = Column(String, nullable=True)
     error = Column(Text, nullable=True)
+
+    # --- Job queue backbone (Phase 0) ---
+    # Dispatch key into the handler registry (services/job_handlers.py).
+    kind = Column(String, nullable=True)
+    # Handler-specific inputs (prompt, seed policy, source ids, $from_parent refs).
+    payload = Column(JSON, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    priority = Column(Integer, nullable=False, default=0)
+    # No FK yet — the Batch table arrives in Phase 1 (KAN-25).
+    batch_id = Column(String, nullable=True)
+    depends_on_job_id = Column(String, ForeignKey("jobs.job_id", ondelete="SET NULL"),
+                               nullable=True)
+    # Worker skips a job until this time has passed (backoff / overnight start).
+    scheduled_after = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Worker claim query scans by status, then priority, then readiness.
+    __table_args__ = (
+        Index("ix_jobs_claim", "status", "priority", "scheduled_after"),
+    )
 
 
 async def init_db():
