@@ -37,7 +37,11 @@ async def create_batch_endpoint(
     if not (await db.execute(select(Project).where(Project.id == data.project_id))).scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")
 
-    batch, jobs = await create_batch(data.model_dump(), db)
+    try:
+        batch, jobs = await create_batch(data.model_dump(), db)
+    except ValueError as e:
+        # e.g. an unparseable run_after.
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return {"batch_id": batch.id, "job_count": len(jobs)}
 
 

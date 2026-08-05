@@ -9,8 +9,9 @@ Seed policy is a placeholder here (random per variant) — KAN-35 replaces
 `_resolve_seed`. `run_after` propagation to child jobs is KAN-29; this task only
 records it on the batch.
 """
+import re
 import random
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,6 +95,7 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
         raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
 
     variants = max(1, int(spec.get("variants") or 1))
+    run_after = parse_run_after(spec.get("run_after"))  # raises ValueError -> router 422
     # project scope defaults to the batch's own project when no targets given.
     target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
     targets = await _resolve_targets(scope, target_ids, db)
@@ -105,7 +107,7 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
         spec=spec,
         params=spec.get("params"),
         status="pending",
-        run_after=_parse_run_after(spec.get("run_after")),
+        run_after=run_after,
     )
     db.add(batch)
     await db.flush()
@@ -116,6 +118,8 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
             seed = _resolve_seed(spec, v)
             job = await _materialize_job(target_type, target_id, spec, seed, db)
             job.batch_id = batch.id
+            # Overnight start: the worker skips a job until scheduled_after passes.
+            job.scheduled_after = run_after
             db.add(job)
             jobs.append(job)
 
@@ -123,16 +127,48 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     return batch, jobs
 
 
-def _parse_run_after(value):
-    """Accept an ISO8601 string (or None) for now; relative forms land in KAN-29."""
+_REL_UNITS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
+_TONIGHT_HOUR = 23  # naive-UTC hour for "tonight"
+
+
+def parse_run_after(value, now: datetime | None = None) -> datetime | None:
+    """Parse a batch start time. Explicit forms only — ambiguity is rejected.
+
+    Accepts: None/"" -> now (immediate); an ISO8601 timestamp; a relative
+    offset ``+<N><s|m|h|d>`` (e.g. ``+4h``); or the literal ``tonight`` (the
+    next ``23:00`` UTC). Anything else raises ValueError so the router can 422.
+    Results are normalized to naive UTC to match the worker's clock.
+    """
+    now = now or datetime.utcnow()
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
-        return value
+        return _to_naive_utc(value)
+
+    s = str(value).strip()
+    low = s.lower()
+
+    if low == "tonight":
+        t = now.replace(hour=_TONIGHT_HOUR, minute=0, second=0, microsecond=0)
+        return t if t > now else t + timedelta(days=1)
+
+    m = re.fullmatch(r"\+\s*(\d+)\s*([smhd])", low)
+    if m:
+        return now + timedelta(**{_REL_UNITS[m.group(2)]: int(m.group(1))})
+
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return _to_naive_utc(datetime.fromisoformat(s.replace("Z", "+00:00")))
     except ValueError:
-        return None
+        raise ValueError(
+            f"Unparseable run_after '{value}'. Use an ISO8601 timestamp, "
+            f"a relative offset like '+4h', or 'tonight'."
+        )
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 # ── progress / cancel / retry (KAN-27) ─────────────────────────────────────
@@ -170,11 +206,23 @@ def derive_status(counts: dict) -> str:
     return "pending"
 
 
+def _not_started(counts: dict) -> bool:
+    return (counts["total"] > 0
+            and counts["running"] == 0 and counts["completed"] == 0
+            and counts["failed"] == 0 and counts["cancelled"] == 0)
+
+
 async def batch_summary(batch: Batch, db: AsyncSession) -> dict:
     counts = await batch_counts(batch.id, db)
     # An explicit cancel is a deliberate terminal state — honour it even if a
     # job happened to complete before cancellation landed.
-    status = "cancelled" if batch.status == "cancelled" else derive_status(counts)
+    if batch.status == "cancelled":
+        status = "cancelled"
+    elif batch.run_after and batch.run_after > datetime.utcnow() and _not_started(counts):
+        # Queued but waiting for its overnight start time.
+        status = "scheduled"
+    else:
+        status = derive_status(counts)
     return {
         "id": batch.id,
         "project_id": batch.project_id,
