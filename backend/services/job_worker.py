@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import JobRecord, SessionLocal
 from services.comfyui_client import submit, poll
-from services.job_handlers import HANDLERS
+from services.job_handlers import HANDLERS, LOCAL_HANDLERS
 
 logger = logging.getLogger("job_worker")
 
@@ -178,7 +178,8 @@ class JobWorker:
                 if job is None:
                     return
                 handler = HANDLERS.get(job.kind)
-                if handler is None:
+                local = LOCAL_HANDLERS.get(job.kind)
+                if handler is None and local is None:
                     job.status = "failed"
                     job.error = f"no handler for kind {job.kind!r}"
                     job.finished_at = datetime.utcnow()
@@ -191,6 +192,21 @@ class JobWorker:
                 payload = dict(job.payload or {})
                 if job.depends_on_job_id:
                     payload = await resolve_parent_refs(db, payload, job.depends_on_job_id)
+
+                # Local job kinds (e.g. the PIL contact sheet) run in-process
+                # with no ComfyUI submit/poll.
+                if local is not None:
+                    try:
+                        meta = await local.run(payload, db)
+                        job.image_url = (meta or {}).get("image_url")
+                        job.status = "completed"
+                        job.finished_at = datetime.utcnow()
+                        await db.commit()
+                        logger.info("job %s (%s) completed (local)", job_id, job.kind)
+                    except Exception as e:
+                        await self._handle_failure(db, job, str(e))
+                    return
+
                 try:
                     workflow, meta = await handler.build_workflow(payload, db)
                     prompt_id = await submit(workflow)

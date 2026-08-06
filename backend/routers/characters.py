@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -7,6 +10,7 @@ from typing import List
 from database import get_db, Character, Project, Reference
 from schemas.schemas import CharacterCreate, CharacterUpdate, CharacterResponse
 from services.reference_service import delete_entity_references
+from services import sheet_service
 
 router = APIRouter()
 
@@ -89,6 +93,55 @@ async def update_character(character_id: str, data: CharacterUpdate, db: AsyncSe
         select(Character).options(*CHAR_LOAD_OPTS).where(Character.id == character_id)
     )
     return result.scalars().first()
+
+
+@router.post("/api/characters/{character_id}/sheet", status_code=202)
+async def create_character_sheet(character_id: str, data: dict = Body(default={}),
+                                 db: AsyncSession = Depends(get_db)):
+    """Generate a character sheet: a batch of consistent angles/expressions/
+    wardrobe cells sharing a locked seed (KAN-38). Optional body ``cells`` (list
+    of {slot, suffix}) overrides the default grid."""
+    char = (await db.execute(
+        select(Character).where(Character.id == character_id)
+    )).scalars().first()
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    try:
+        batch, jobs = await sheet_service.create_character_sheet(
+            char, db, cells=data.get("cells"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"batch_id": batch.id, "job_count": len(jobs)}
+
+
+@router.get("/api/characters/{character_id}/dataset.zip")
+async def download_character_dataset(character_id: str, db: AsyncSession = Depends(get_db)):
+    """Stream a LoRA-ready dataset zip (images + caption txts + metadata.json)
+    of the character's sheet images (KAN-40). 404 when there are none."""
+    char = (await db.execute(
+        select(Character).where(Character.id == character_id)
+    )).scalars().first()
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    tmp_path = await sheet_service.build_dataset_zip(char, db)
+    if tmp_path is None:
+        raise HTTPException(status_code=404, detail="Character has no sheet images")
+
+    def _iter():
+        try:
+            with open(tmp_path, "rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+        finally:
+            os.unlink(tmp_path)
+
+    filename = f"{char.name or 'character'}_dataset.zip".replace(" ", "_")
+    return StreamingResponse(
+        _iter(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/api/characters/{character_id}", status_code=204)

@@ -317,6 +317,41 @@ def _stage_output_to_input(output_rel: str, dest_name: str) -> str:
     return dest_name
 
 
+async def build_character_sheet(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """One cell of a character sheet (KAN-38): img2img off the character's
+    canonical reference when it has one, else txt2img. Prompt and seed come from
+    the batch expansion; only the per-cell suffix (already baked into the prompt)
+    differs between cells."""
+    project_id = payload["project_id"]
+    entity_type = payload["entity_type"]
+    prompt = payload["prompt"]
+
+    job_id = _job_id(payload)
+    seed_val = _seed(payload)
+    prefix = f"assets/{project_id}/{entity_type}s/{job_id}"
+
+    source_filename = await _resolve_source_image(
+        db, None, payload.get("source_asset_image_id"), job_id,
+    )
+    if source_filename:
+        workflow = load_workflow(IMG2IMG_WORKFLOW)
+        node_map = load_node_map(IMG2IMG_WORKFLOW)
+        workflow = inject(workflow, node_map, {
+            "prompt": prompt, "seed": seed_val,
+            "image": source_filename, "filename_prefix": prefix,
+        })
+    else:
+        workflow_name = resolve_workflow_name(payload.get("workflow"))
+        workflow = load_workflow(workflow_name)
+        node_map = load_node_map(workflow_name)
+        workflow = inject(workflow, node_map, {
+            "prompt": prompt, "seed": seed_val, "filename_prefix": prefix,
+        })
+    meta = {"job_id": job_id, "seed": seed_val, "prefix": prefix,
+            "image_url": f"{prefix}_00001_.png"}
+    return workflow, meta
+
+
 async def build_color_match(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
     """Match a generated still's colours to an approved key frame (KAN-37).
 
@@ -388,7 +423,22 @@ class JobHandler:
     on_complete: Callable[[dict, dict, AsyncSession], Awaitable[None]]
 
 
+@dataclass(frozen=True)
+class LocalHandler:
+    """A job kind the worker runs in-process, with no ComfyUI round-trip (e.g.
+    the PIL contact-sheet composite, KAN-39). ``run(payload, db) -> meta``
+    performs the work and finalizes its own owning row; ``meta`` may carry an
+    ``image_url`` the worker records on the JobRecord."""
+    kind: str
+    run: Callable[[dict, AsyncSession], Awaitable[dict]]
+
+
 HANDLERS: dict[str, JobHandler] = {}
+LOCAL_HANDLERS: dict[str, LocalHandler] = {}
+
+
+def register_local(kind, run) -> None:
+    LOCAL_HANDLERS[kind] = LocalHandler(kind, run)
 
 
 def register(kind, build_workflow, on_complete) -> None:
@@ -405,5 +455,7 @@ def register(kind, build_workflow, on_complete) -> None:
 register("asset_txt2img", build_asset_txt2img, on_complete_asset_image)
 register("asset_img2img", build_asset_img2img, on_complete_asset_image)
 register("scene_image", build_scene_image, on_complete_scene_image)
+# Sheet cells finalize like any asset image; the composite is a local job.
+register("character_sheet", build_character_sheet, on_complete_asset_image)
 # Colour-match result is a GeneratedImage row, finalized like a scene image.
 register("color_match", build_color_match, on_complete_scene_image)

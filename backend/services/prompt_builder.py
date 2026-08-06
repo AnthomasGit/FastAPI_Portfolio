@@ -36,6 +36,13 @@ def _entity_tokens(entity) -> str:
     return entity.name
 
 
+def entity_prompt(entity) -> str:
+    """Public single-entity prompt line (profile tokens, else description, else
+    name). Used by the character-sheet builder (KAN-38) to compose per-cell
+    prompts from a character's structured profile."""
+    return _entity_tokens(entity)
+
+
 def _style_tokens(project) -> str:
     sp = getattr(project, "style_profile", None) if project else None
     if sp:
