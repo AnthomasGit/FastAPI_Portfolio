@@ -128,6 +128,12 @@ class Location(Base):
     canonical_asset_image_id = Column(
         String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
     )
+    # A wide, character-free establishing render of this location, reused as the
+    # background across every scene set here (KAN-41). Distinct from the hero
+    # canonical image above: the plate is deliberately empty scenery.
+    plate_asset_image_id = Column(
+        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="locations")

@@ -6,9 +6,50 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database import SceneStaging, SceneCapture, StagingSave, Asset3D, Scene
+from database import (
+    SceneStaging, SceneCapture, StagingSave, Asset3D, Scene,
+    Location, AssetImage, Reference, scene_locations,
+)
 
 COMFY_INPUT_DIR = os.environ.get("COMFY_INPUT_DIR", "/opt/ComfyUI/input")
+
+
+async def _default_backdrop_reference_id(scene_id: str, db: AsyncSession) -> str | None:
+    """A Reference wrapping the scene's Location plate, find-or-created, to seed
+    a new staging's backdrop (KAN-44). None when no linked location has a plate.
+
+    So the 3D blockout, the depth/edge capture, and the flat 2D generation all
+    agree on one environment. Only used to *default* a fresh staging — an
+    explicit user backdrop is never overwritten (see get_or_create_staging).
+    """
+    locs = (await db.execute(
+        select(Location).join(scene_locations)
+        .where(scene_locations.c.scene_id == scene_id)
+        .order_by(Location.name)
+    )).scalars().all()
+    plated = [l for l in locs if l.plate_asset_image_id]
+    if not plated:
+        return None
+    loc = plated[0]
+    asset = await db.get(AssetImage, loc.plate_asset_image_id)
+    if not asset or not asset.image_url:
+        return None
+
+    existing = (await db.execute(
+        select(Reference).where(
+            Reference.entity_type == "location",
+            Reference.entity_id == loc.id,
+            Reference.asset_image_id == asset.id,
+            Reference.role == "backdrop",
+        )
+    )).scalars().first()
+    if existing:
+        return existing.id
+    ref = Reference(entity_type="location", entity_id=loc.id, role="backdrop",
+                    url=asset.image_url, asset_image_id=asset.id)
+    db.add(ref)
+    await db.flush()
+    return ref.id
 
 
 async def get_or_create_staging(scene_id: str, db: AsyncSession) -> SceneStaging:
@@ -24,6 +65,8 @@ async def get_or_create_staging(scene_id: str, db: AsyncSession) -> SceneStaging
         raise ValueError("Scene not found")
 
     staging = SceneStaging(scene_id=scene_id)
+    # Default (never override) the backdrop to the location plate on first create.
+    staging.backdrop_reference_id = await _default_backdrop_reference_id(scene_id, db)
     db.add(staging)
     await db.commit()
     await db.refresh(staging)

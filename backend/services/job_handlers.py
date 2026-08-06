@@ -28,7 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from database import (
-    AssetImage, GeneratedImage, Reference, Character, scene_characters,
+    AssetImage, GeneratedImage, Reference, Character, Location,
+    scene_characters, scene_locations,
 )
 from services.comfyui_client import load_workflow, load_node_map, inject
 from services.image_workflows import resolve_workflow_name, aspect_ratio_label
@@ -253,6 +254,39 @@ async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
     return staged
 
 
+async def resolve_scene_plate(scene_id: str, db: AsyncSession) -> str | None:
+    """Stage the establishing plate of a scene's linked Location as a
+    COMFY_INPUT_DIR-relative filename, or None (KAN-42).
+
+    A scene with several locations uses the first by name (deterministic) that
+    has a plate, logging the choice. Locations without a plate are skipped; a
+    missing file on disk is treated as no plate rather than an error.
+    """
+    locs = (await db.execute(
+        select(Location).join(scene_locations)
+        .where(scene_locations.c.scene_id == scene_id)
+        .order_by(Location.name)
+    )).scalars().all()
+    plated = [l for l in locs if l.plate_asset_image_id]
+    if not plated:
+        return None
+    loc = plated[0]
+    if len(plated) > 1:
+        logger.info("scene %s has %d plated locations; using '%s'",
+                    scene_id, len(plated), loc.name)
+    asset = await db.get(AssetImage, loc.plate_asset_image_id)
+    if not asset or not asset.image_url:
+        return None
+    input_filename = f"{loc.id}_plate.png"
+    try:
+        _stage_output_to_input(asset.image_url, input_filename)
+    except OSError:
+        logger.warning("plate for location %s missing on disk (%s) — skipped",
+                       loc.name, asset.image_url)
+        return None
+    return input_filename
+
+
 async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
     prompt = payload["prompt"]
     job_id = _job_id(payload)
@@ -290,6 +324,16 @@ async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict
         node_map = load_node_map(workflow_name)
         overrides = {"prompt": prompt, "seed": seed_val, "filename_prefix": job_id}
 
+    # Location background plate (KAN-42): feed the scene's location plate as the
+    # fixed establishing background when the chosen workflow exposes a background
+    # node. inject() no-ops on graphs without one, so this is safe everywhere; a
+    # batch can opt out via use_plate=False.
+    plate_file = None
+    if scene_id and payload.get("use_plate", True) and "background_node" in node_map:
+        plate_file = await resolve_scene_plate(scene_id, db)
+        if plate_file:
+            overrides["background_image"] = plate_file
+
     # Separate negative prompt (KAN-34) — inject() no-ops on workflows whose map
     # has no negative_node, so this is safe for every graph.
     if payload.get("negative_prompt"):
@@ -303,6 +347,7 @@ async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict
         "image_url": f"{job_id}_00001_.png",
         "workflow": workflow_name,
         "ref_count": len(ref_files),
+        "plate": bool(plate_file),
     }
     return workflow, meta
 
@@ -414,6 +459,19 @@ async def on_complete_scene_image(payload: dict, outputs: dict, db: AsyncSession
     await _finalize_row(GeneratedImage, payload.get("generation_id"), payload, db)
 
 
+async def on_complete_location_plate(payload: dict, outputs: dict, db: AsyncSession) -> None:
+    """Finalize the plate's AssetImage, then point the Location at it (KAN-41).
+    The plate becomes the location's current establishing background."""
+    await _finalize_row(AssetImage, payload.get("asset_image_id"), payload, db)
+    location_id = payload.get("location_id")
+    if not location_id:
+        return
+    loc = await db.get(Location, location_id)
+    if loc is not None:
+        loc.plate_asset_image_id = payload.get("asset_image_id")
+        await db.commit()
+
+
 # ── registry ────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -457,5 +515,7 @@ register("asset_img2img", build_asset_img2img, on_complete_asset_image)
 register("scene_image", build_scene_image, on_complete_scene_image)
 # Sheet cells finalize like any asset image; the composite is a local job.
 register("character_sheet", build_character_sheet, on_complete_asset_image)
+# Location plate: a wide txt2img whose completion also sets Location.plate (KAN-41).
+register("location_plate", build_asset_txt2img, on_complete_location_plate)
 # Colour-match result is a GeneratedImage row, finalized like a scene image.
 register("color_match", build_color_match, on_complete_scene_image)

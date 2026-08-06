@@ -17,6 +17,7 @@ class BatchCreateRequest(BaseModel):
     params: dict = {}
     name: Optional[str] = None
     identity_refs: bool = False
+    use_plate: bool = True  # feed the scene's location plate as background (KAN-42)
     color_match: bool = False
     color_match_reference: Optional[str] = None
     film_grain: bool = False
@@ -117,6 +118,8 @@ class LocationResponse(BaseModel):
     name: str
     description: Optional[str] = None
     shot_notes: Optional[str] = None
+    canonical_asset_image_id: Optional[str] = None
+    plate_asset_image_id: Optional[str] = None
 
     class Config:
         from_attributes = True

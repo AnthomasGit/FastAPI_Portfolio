@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -6,6 +6,7 @@ from typing import List
 from database import get_db, Location, Project
 from schemas.schemas import LocationCreate, LocationUpdate, LocationResponse
 from services.reference_service import delete_entity_references
+from services import plate_service
 
 router = APIRouter()
 
@@ -55,6 +56,24 @@ async def update_location(location_id: str, data: LocationUpdate, db: AsyncSessi
     await db.commit()
     await db.refresh(loc)
     return loc
+
+
+@router.post("/api/locations/{location_id}/plate", status_code=202)
+async def generate_plate(location_id: str, data: dict = Body(default={}),
+                         db: AsyncSession = Depends(get_db)):
+    """Generate a wide, character-free establishing plate for this location
+    (KAN-41). Optional body: width, height, workflow. On completion the job
+    sets the location's plate_asset_image_id."""
+    loc = (await db.execute(select(Location).where(Location.id == location_id))).scalars().first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    asset_id = await plate_service.generate_location_plate(
+        loc, db,
+        width=data.get("width"),
+        height=data.get("height"),
+        workflow=data.get("workflow"),
+    )
+    return {"asset_image_id": asset_id}
 
 
 @router.delete("/api/locations/{location_id}", status_code=204)
