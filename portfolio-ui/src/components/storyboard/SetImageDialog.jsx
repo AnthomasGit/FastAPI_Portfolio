@@ -159,14 +159,43 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} orientation="vertical" className="w-full gap-4">
-          <TabsList className="flex-col bg-bay-800 border border-line shrink-0 min-w-[88px] self-start">
-            <TabsTrigger value="generate-text" className="w-full justify-start text-xs data-active:bg-bay-700 data-active:text-fg text-fg-muted">
-              <Sparkles className="w-3 h-3" />Text
-            </TabsTrigger>
-            <TabsTrigger value="generate-image" className="w-full justify-start text-xs data-active:bg-bay-700 data-active:text-fg text-fg-muted">
-              <ImageIcon className="w-3 h-3" />From image
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex flex-col gap-3 shrink-0 w-36 self-start">
+            <TabsList className="flex-col bg-bay-800 border border-line w-full">
+              <TabsTrigger value="generate-text" className="w-full justify-start text-xs data-active:bg-bay-700 data-active:text-fg text-fg-muted">
+                <Sparkles className="w-3 h-3" />Text
+              </TabsTrigger>
+              <TabsTrigger value="generate-image" className="w-full justify-start text-xs data-active:bg-bay-700 data-active:text-fg text-fg-muted">
+                <ImageIcon className="w-3 h-3" />From image
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Model picker lives in the left rail (txt2img only; "From image"
+                uses a fixed edit graph and ignores it). */}
+            {imageWorkflows.length > 1 && (
+              <div className="rounded-frame border border-line bg-bay-800 p-2.5 space-y-2">
+                <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Model</label>
+                <Select
+                  value={selectedWorkflow?.id ?? ''}
+                  onValueChange={setWorkflowId}
+                  modal={false}
+                  open={openSelect === 'workflow'}
+                  onOpenChange={(v) => setOpenSelect(v ? 'workflow' : null)}
+                >
+                  <SelectTrigger className="bg-bay-850 border-line text-fg h-8 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
+                    {imageWorkflows.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedWorkflow?.blurb && (
+                  <p className="text-[10px] text-fg-faint leading-snug">{selectedWorkflow.blurb}</p>
+                )}
+              </div>
+            )}
+          </div>
 
           <TabsContent value="generate-text" className="space-y-4 mt-0">
             <div className="space-y-3">
@@ -176,31 +205,6 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
-
-              {imageWorkflows.length > 1 && (
-                <div className="space-y-2">
-                  <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">Model</label>
-                  <Select
-                    value={selectedWorkflow?.id ?? ''}
-                    onValueChange={setWorkflowId}
-                    modal={false}
-                    open={openSelect === 'workflow'}
-                    onOpenChange={(v) => setOpenSelect(v ? 'workflow' : null)}
-                  >
-                    <SelectTrigger className="bg-bay-800 border-line text-fg h-8 text-xs w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
-                      {imageWorkflows.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedWorkflow?.blurb && (
-                    <p className="text-[10px] text-fg-faint leading-snug">{selectedWorkflow.blurb}</p>
-                  )}
-                </div>
-              )}
 
               <div className="space-y-2">
                 <label className="text-[11px] text-fg-muted font-medium tracking-wide uppercase">
