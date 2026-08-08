@@ -20,20 +20,39 @@ from database import (
 
 LEGACY_STYLE_TAIL = "cinematic, film still, professional lighting, high detail, 4K"
 _PROFILE_POSITIVE_KEYS = ("appearance", "wardrobe", "palette")
+# Locations carry environment-shaped profile keys, not the character wardrobe/
+# face ones (KAN-41).
+_LOCATION_POSITIVE_KEYS = ("environment", "architecture", "materials", "lighting", "palette")
 
 
-def _entity_tokens(entity) -> str:
-    """One line for an entity: profile tokens if present, else description, else
-    just its name (so the subject is always referenced)."""
+def _tokens_from(entity, keys) -> str:
+    """One line for an entity: profile tokens (from `keys`) if present, else
+    description, else just its name (so the subject is always referenced)."""
     profile = entity.prompt_profile or {}
     tokens = []
-    for key in _PROFILE_POSITIVE_KEYS:
+    for key in keys:
         tokens += [t for t in (profile.get(key) or []) if t]
     if tokens:
         return f"{entity.name}: " + ", ".join(tokens)
     if entity.description:
         return f"{entity.name}: {entity.description}"
     return entity.name
+
+
+def _entity_tokens(entity) -> str:
+    """Character/prop token line (appearance/wardrobe/palette)."""
+    return _tokens_from(entity, _PROFILE_POSITIVE_KEYS)
+
+
+def _location_tokens(location) -> str:
+    """Location token line (environment/architecture/materials/lighting/palette)."""
+    return _tokens_from(location, _LOCATION_POSITIVE_KEYS)
+
+
+def location_prompt(location) -> str:
+    """Public location token line, used when attaching a location's fixed tokens
+    to image generation (scene prompts and the location asset generator, KAN-41)."""
+    return _location_tokens(location)
 
 
 def entity_prompt(entity) -> str:
@@ -82,7 +101,7 @@ def build_prompt(scene, characters, locations, props, project) -> tuple[str, str
     if chars:
         lines.append("Characters: " + "; ".join(_entity_tokens(c) for c in chars))
     if locs:
-        lines.append("Location: " + "; ".join(_entity_tokens(l) for l in locs))
+        lines.append("Location: " + "; ".join(_location_tokens(l) for l in locs))
     if prps:
         lines.append("Props: " + "; ".join(_entity_tokens(p) for p in prps))
     lines.append("Style: " + _style_tokens(project))

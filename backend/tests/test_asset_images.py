@@ -331,3 +331,30 @@ async def test_poll_status_transitions(client, project, db_session):
 async def test_get_nonexistent_asset_returns_404(client):
     resp = await client.get(f"/api/asset-images/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_location_generation_attaches_profile_tokens(client, project, db_session, location):
+    """Generating a location image with entity_id prepends the location's fixed
+    profile tokens to the prompt (KAN-41)."""
+    from sqlalchemy import select
+    from database import JobRecord
+    location.prompt_profile = {"environment": ["gothic stone hall"], "lighting": ["torchlight"]}
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/asset-images/generate",
+        json={
+            "project_id": project.id,
+            "entity_type": "locations",
+            "entity_id": location.id,
+            "prompt": "empty wide shot",
+        },
+    )
+    assert resp.status_code == 202
+    asset_id = resp.json()["asset_image_id"]
+    job = (await db_session.execute(
+        select(JobRecord).where(JobRecord.entity_id == asset_id))).scalars().first()
+    prompt = job.payload["prompt"]
+    assert "gothic stone hall" in prompt and "torchlight" in prompt  # tokens attached
+    assert "empty wide shot" in prompt                                # user prompt kept

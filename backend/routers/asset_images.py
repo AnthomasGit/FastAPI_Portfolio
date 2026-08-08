@@ -19,6 +19,7 @@ from services.asset_image_service import (
     get_asset_image_file,
 )
 from services.image_workflows import list_image_workflows
+from services.prompt_builder import location_prompt
 
 router = APIRouter()
 
@@ -56,22 +57,32 @@ async def trigger_asset_image_generation(
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Attach the location's fixed profile tokens to the prompt so location
+    # renders stay consistent (KAN-41). Only for locations, only when the
+    # generator names which one (entity_id).
+    prompt = data.prompt
+    if data.entity_type == "locations" and data.entity_id:
+        loc = await db.get(Location, data.entity_id)
+        if loc is not None:
+            tokens = location_prompt(loc)
+            prompt = f"{tokens}. {prompt}" if prompt else tokens
+
     if data.source_reference_id or data.source_asset_image_id:
         asset_id = await generate_img2img(
             project_id=data.project_id,
             entity_type=PLURAL_TO_SINGULAR[data.entity_type],
-            prompt=data.prompt or "",
+            prompt=prompt or "",
             db=db,
             source_reference_id=data.source_reference_id,
             source_asset_image_id=data.source_asset_image_id,
         )
     else:
-        if not data.prompt:
+        if not prompt:
             raise HTTPException(status_code=422, detail="prompt is required for txt2img generation")
         asset_id = await generate_txt2img(
             project_id=data.project_id,
             entity_type=PLURAL_TO_SINGULAR[data.entity_type],
-            prompt=data.prompt,
+            prompt=prompt,
             db=db,
             width=data.width,
             height=data.height,

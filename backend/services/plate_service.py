@@ -10,7 +10,7 @@ job's completion points ``Location.plate_asset_image_id`` at the result.
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AssetImage, JobRecord, Location
-from services.prompt_builder import entity_prompt
+from services.prompt_builder import location_prompt
 
 # Wide establishing default (16:9-ish); the z-image workflow exposes width/height.
 DEFAULT_PLATE_WIDTH = 1344
@@ -23,7 +23,7 @@ PLATE_FRAMING = ("wide establishing shot, empty environment, scenery only, "
 
 
 def build_plate_prompt(location: Location) -> str:
-    return f"{entity_prompt(location)}, {PLATE_FRAMING}"
+    return f"{location_prompt(location)}, {PLATE_FRAMING}"
 
 
 async def generate_location_plate(

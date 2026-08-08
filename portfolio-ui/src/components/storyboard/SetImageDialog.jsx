@@ -99,6 +99,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
     generateMutation.mutate({
       project_id: projectId,
       entity_type: pluralType,
+      entity_id: entityId,
       prompt,
       width: sizeWidth,
       height: sizeHeight,
@@ -110,6 +111,7 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
     generateMutation.mutate({
       project_id: projectId,
       entity_type: pluralType,
+      entity_id: entityId,
       prompt,
       source_reference_id: sourceRefId || undefined,
       source_asset_image_id: sourceAssetImageId || undefined,

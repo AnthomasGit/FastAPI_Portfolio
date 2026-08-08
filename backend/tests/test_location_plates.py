@@ -11,7 +11,7 @@ from services.job_handlers import on_complete_location_plate
 @pytest.mark.asyncio
 async def test_generate_plate_enqueues_wide_character_free_job(db_session, project):
     loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Throne Room",
-                   prompt_profile={"appearance": ["gothic stone hall"]})
+                   prompt_profile={"environment": ["gothic stone hall"]})
     db_session.add(loc)
     await db_session.commit()
 

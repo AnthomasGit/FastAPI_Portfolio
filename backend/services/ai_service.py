@@ -171,10 +171,25 @@ async def generate_prompt_profile(
     Emphasises FIXED, unchanging visual tokens (so the subject reads as the same
     across many generated frames) over narrative description.
     """
-    system_prompt = """You are a subject designer for film production. Given a character, location or prop and its description, produce a STRUCTURED, REPEATABLE visual profile — fixed tokens that keep this subject looking identical across many generated frames. Emphasise concrete, unchanging physical attributes (hair, build, face, distinguishing features, materials, wardrobe), NOT narrative, mood, or one-off action.
+    if entity_type == "location":
+        # Locations get environment-shaped keys, not the character wardrobe/face
+        # ones — a location has no wardrobe (KAN-41).
+        system_prompt = """You are a production designer for film. Given a location and its description, produce a STRUCTURED, REPEATABLE visual profile — fixed tokens that keep this environment looking identical across many generated frames. Emphasise concrete, unchanging attributes of the PLACE (architecture, materials, fixed set dressing, time-of-day lighting), NOT people, narrative, or one-off action.
+Return ONLY valid JSON with these keys:
+- environment: array of short tokens for the setting/space (e.g. "gothic stone hall", "vaulted ceiling")
+- architecture: array of structural/form tokens
+- materials: array of surface/material tokens (e.g. "worn flagstone", "iron sconces")
+- lighting: array of fixed lighting tokens (e.g. "torchlight", "cold north window light")
+- palette: array of colour tokens
+- negative: array of things to avoid (include "people", "characters" so plates stay empty)
+- locked_seed: an integer, or null
+- notes: a short string
+Pure JSON only, no markdown."""
+    else:
+        system_prompt = """You are a subject designer for film production. Given a character or prop and its description, produce a STRUCTURED, REPEATABLE visual profile — fixed tokens that keep this subject looking identical across many generated frames. Emphasise concrete, unchanging physical attributes (hair, build, face, distinguishing features, materials, wardrobe), NOT narrative, mood, or one-off action.
 Return ONLY valid JSON with these keys:
 - appearance: array of short visual tokens (the fixed look)
-- wardrobe: array of clothing/covering tokens (empty for locations/props if N/A)
+- wardrobe: array of clothing/covering tokens (empty for props if N/A)
 - palette: array of colour tokens
 - negative: array of things to avoid
 - locked_seed: an integer, or null

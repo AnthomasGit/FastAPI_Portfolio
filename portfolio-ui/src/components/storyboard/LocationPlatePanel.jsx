@@ -1,13 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ImageIcon, Sparkles, Expand, Check } from 'lucide-react';
+import { Loader2, ImageIcon, Expand, Check, Images } from 'lucide-react';
 import { api } from '../../lib/api';
 
 // A location's wide, character-free establishing "plate" (Phase 4): the fixed
-// background reused across every scene set here. Lives in the Storyboard
-// Locations tab alongside EntityAssetLibrary. Generate is async (the worker
-// sets Location.plate on completion); Expand produces a NEW variant linked to
-// the source that the user explicitly promotes with "Use as plate".
+// background reused across every scene set here. The plate is CHOSEN from the
+// location's asset library (generate new images via the (+) below); Expand
+// outpaints the current plate into a new variant the user then promotes.
 const EXPAND_PRESETS = [
   { key: 'widen_21_9', label: 'Widen 21:9' },
   { key: 'pan_left', label: 'Pan left' },
@@ -17,59 +16,58 @@ const EXPAND_PRESETS = [
 export function LocationPlatePanel({ location, projectId }) {
   const queryClient = useQueryClient();
   const plateId = location.plate_asset_image_id;
-  // The in-flight job: { id, kind: 'generate' | 'expand' }.
-  const [pending, setPending] = useState(null);
+  const [picking, setPicking] = useState(false);
   const [showExpand, setShowExpand] = useState(false);
+  const [expandJobId, setExpandJobId] = useState(null);
 
   const invalidateProject = () =>
     queryClient.invalidateQueries({ queryKey: ['project', projectId] });
 
-  // Poll the in-flight job until it terminates (mirrors SetImageDialog).
+  // The location's library: references backed by a generated asset image (only
+  // those can be a plate — the FK points at an AssetImage).
+  const { data: refs } = useQuery({
+    queryKey: ['references', 'locations', location.id],
+    queryFn: () => api.listReferences('locations', location.id),
+  });
+  const library = (refs || []).filter((r) => r.asset_image_id);
+
+  // Expand is the one async path left — poll its job to completion.
   const { data: job } = useQuery({
-    queryKey: ['asset-image', pending?.id],
-    queryFn: () => api.getAssetImage(pending.id),
-    enabled: !!pending,
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
+    queryKey: ['asset-image', expandJobId],
+    queryFn: () => api.getAssetImage(expandJobId),
+    enabled: !!expandJobId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
       return s === 'completed' || s === 'failed' ? false : 2000;
     },
   });
+  const expandDone = job?.status === 'completed';
+  const expandFailed = job?.status === 'failed';
+  const variantId = expandDone ? expandJobId : null;
+  const expanding = !!expandJobId && !expandDone && !expandFailed;
 
-  const done = job?.status === 'completed';
-  const failed = job?.status === 'failed';
-  // A completed expand is a variant awaiting promotion (derived, not stored).
-  const variantId = pending?.kind === 'expand' && done ? pending.id : null;
-
-  // When a *generate* completes, the worker has set Location.plate — refresh the
-  // project so the new plate renders. Side-effect only (no setState in effect).
-  useEffect(() => {
-    if (pending?.kind === 'generate' && done) invalidateProject();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [done, pending?.kind, projectId]);
-
-  const generate = useMutation({
-    mutationFn: () => api.generatePlate(location.id),
-    onSuccess: (r) => setPending({ id: r.asset_image_id, kind: 'generate' }),
+  const choose = useMutation({
+    mutationFn: (assetImageId) => api.setLocationPlate(location.id, assetImageId),
+    onSuccess: () => { setPicking(false); invalidateProject(); },
   });
   const expand = useMutation({
     mutationFn: (preset) => api.expandPlate(location.id, { preset }),
-    onSuccess: (r) => { setShowExpand(false); setPending({ id: r.asset_image_id, kind: 'expand' }); },
+    onSuccess: (r) => { setShowExpand(false); setExpandJobId(r.asset_image_id); },
   });
   const promote = useMutation({
     mutationFn: (assetImageId) => api.setLocationPlate(location.id, assetImageId),
-    onSuccess: () => { setPending(null); invalidateProject(); },
+    onSuccess: () => { setExpandJobId(null); invalidateProject(); },
   });
 
-  const busy = (!!pending && !done && !failed)
-    || generate.isPending || expand.isPending || promote.isPending;
-  const busyLabel = pending?.kind === 'expand' ? 'Expanding…' : 'Generating…';
+  const busy = expanding || choose.isPending || expand.isPending || promote.isPending;
+  const showPicker = picking || !plateId;
 
   return (
     <div className="mt-2.5 pt-2.5 border-t border-line/60">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] uppercase tracking-wide text-fg-faint">Background plate</span>
-        <div className="flex items-center gap-1">
-          {plateId && !busy && (
+        {plateId && !busy && (
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setShowExpand((v) => !v)}
@@ -78,17 +76,16 @@ export function LocationPlatePanel({ location, projectId }) {
             >
               <Expand className="w-3 h-3" /> Expand
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => generate.mutate()}
-            disabled={busy}
-            title={plateId ? 'Regenerate plate' : 'Generate plate'}
-            className="flex items-center gap-1 h-5 px-1.5 rounded-frame border border-line text-[10px] text-fg-faint hover:text-lead-400 hover:border-lead-600 transition-colors disabled:opacity-50"
-          >
-            <Sparkles className="w-3 h-3" /> {plateId ? 'Regenerate' : 'Generate'}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setPicking((v) => !v)}
+              title="Choose a different plate from the library"
+              className="flex items-center gap-1 h-5 px-1.5 rounded-frame border border-line text-[10px] text-fg-faint hover:text-fg hover:border-set transition-colors"
+            >
+              <Images className="w-3 h-3" /> Change
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Preview: the wide plate matte (inset on bay-900). */}
@@ -102,10 +99,48 @@ export function LocationPlatePanel({ location, projectId }) {
         )}
         {busy && (
           <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-bay-950/70 text-[11px] text-fg-muted">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {busyLabel}
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {expanding ? 'Expanding…' : 'Saving…'}
           </div>
         )}
       </div>
+
+      {/* Library picker: choose the plate from existing location images. */}
+      {showPicker && !busy && (
+        <div className="mt-1.5">
+          {library.length === 0 ? (
+            <p className="text-[11px] text-fg-faint">
+              No images in the library yet — use the <span className="text-fg-muted">+</span> below to generate one.
+            </p>
+          ) : (
+            <>
+              <span className="text-[10px] uppercase tracking-wide text-fg-faint">Select from library</span>
+              <div className="grid grid-cols-3 gap-1.5 mt-1">
+                {library.map((ref) => {
+                  const isCurrent = ref.asset_image_id === plateId;
+                  return (
+                    <button
+                      key={ref.id}
+                      type="button"
+                      onClick={() => choose.mutate(ref.asset_image_id)}
+                      title={isCurrent ? 'Current plate' : 'Use as plate'}
+                      className={`group relative aspect-video rounded-frame border overflow-hidden transition-colors ${
+                        isCurrent ? 'border-set' : 'border-line hover:border-set/60'
+                      }`}
+                    >
+                      <img src={api.getAssetImageFile(ref.asset_image_id)} alt="" className="w-full h-full object-cover" />
+                      {isCurrent && (
+                        <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded flex items-center justify-center text-set">
+                          <Check className="w-3 h-3" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Expand presets. */}
       {showExpand && plateId && !busy && (
@@ -143,7 +178,7 @@ export function LocationPlatePanel({ location, projectId }) {
         </div>
       )}
 
-      {(generate.isError || expand.isError || promote.isError || failed) && (
+      {(choose.isError || expand.isError || promote.isError || expandFailed) && (
         <p className="text-[10px] text-stop mt-1.5">Plate operation failed.</p>
       )}
     </div>

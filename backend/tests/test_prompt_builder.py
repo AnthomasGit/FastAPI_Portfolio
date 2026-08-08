@@ -90,3 +90,29 @@ async def test_build_scene_prompt_and_construct_prompt_delegate(db_session, proj
     # construct_prompt returns just the positive (signature preserved).
     from services.comfyui_service import construct_prompt
     assert await construct_prompt(scene.id, db_session) == positive
+
+
+def test_location_tokens_use_location_keys_not_wardrobe():
+    """A location's environment/architecture/lighting tokens feed the prompt;
+    the character-shaped wardrobe key is ignored (KAN-41)."""
+    from services.prompt_builder import location_prompt
+    loc = _ent("Throne Room", prompt_profile={
+        "environment": ["gothic stone hall"],
+        "architecture": ["vaulted ceiling"],
+        "lighting": ["torchlight"],
+        "palette": ["cold blue"],
+        "wardrobe": ["should be ignored"],
+    })
+    line = location_prompt(loc)
+    assert "gothic stone hall" in line
+    assert "vaulted ceiling" in line and "torchlight" in line
+    assert "should be ignored" not in line
+
+
+def test_scene_prompt_location_line_uses_location_tokens():
+    scene = _scene()
+    loc = _ent("Throne Room", prompt_profile={"environment": ["gothic stone hall"],
+                                              "wardrobe": ["nope"]})
+    positive, _ = build_prompt(scene, [], [loc], [], None)
+    assert "gothic stone hall" in positive
+    assert "nope" not in positive

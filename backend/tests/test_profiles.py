@@ -99,3 +99,27 @@ async def test_invalid_entity_type_404(client):
 async def test_missing_entity_404(client):
     resp = await client.post(f"/api/characters/{uuid.uuid4()}/prompt-profile")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_location_profile_uses_location_schema(client, db_session, project):
+    """A location's prompt-profile generation asks for environment-shaped keys,
+    not the character wardrobe/face ones (KAN-41)."""
+    from database import Location
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Throne Room",
+                   description="a cold gothic hall")
+    db_session.add(loc)
+    await db_session.commit()
+
+    mock = AsyncMock(return_value=_fake_completion(
+        '{"environment": ["gothic stone hall"], "architecture": ["vaulted ceiling"], '
+        '"materials": ["flagstone"], "lighting": ["torchlight"], "palette": ["cold blue"], '
+        '"negative": ["people"], "locked_seed": null, "notes": ""}'))
+    with patch("services.ai_service.client.chat.completions.create", new=mock):
+        resp = await client.post(f"/api/locations/{loc.id}/prompt-profile")
+    assert resp.status_code == 200
+    assert resp.json()["prompt_profile"]["environment"] == ["gothic stone hall"]
+    # The system prompt sent to the LLM must request location-specific keys.
+    system_msg = mock.await_args.kwargs["messages"][0]["content"].lower()
+    assert "environment" in system_msg and "architecture" in system_msg
+    assert "wardrobe" not in system_msg
