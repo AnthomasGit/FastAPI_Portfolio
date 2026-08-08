@@ -1,5 +1,5 @@
 {
-  "_comment": "Plate expansion / outpaint pass (KAN-43), extend-only subset of comfyui/workflows/full_pipeline_hires.json. image_node = LoadImage source plate; expand_*_node all point at the single ImagePadForOutpaint (node 6), each writing its own pixel-amount field; prompt_node = the extend instruction; seed_node/steps_node = the extend KSampler; output_node = SaveImage on the decoded widened plate. The multi-angle LoRA stage is intentionally omitted — that is a separate capability. UNVALIDATED against a live ComfyUI (requires the Qwen-Image-Edit 2511 + DiffSynth inpaint ControlNet nodes in the engine image).",
+  "_comment": "Plate expansion / outpaint pass (KAN-43), extend-only subset of backend/workflows/full_pipeline_hires.json. image_node = LoadImage source plate; expand_*_node all point at the single ImagePadForOutpaint (node 6), each writing its own pixel-amount field; prompt_node = the extend instruction; seed_node/steps_node = the extend KSampler; output_node = SaveImage on the decoded widened plate. The multi-angle LoRA stage is intentionally omitted — that is a separate capability. UNVALIDATED against a live ComfyUI (requires the Qwen-Image-Edit 2511 + DiffSynth inpaint ControlNet nodes in the engine image).",
   "image_node": "5",
   "expand_left_node": "6",
   "expand_right_node": "6",

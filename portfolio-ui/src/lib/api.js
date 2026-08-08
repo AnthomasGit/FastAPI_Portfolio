@@ -90,6 +90,17 @@ export const api = {
   // Canonical "hero" image → fed into scene generation as an identity reference.
   setCanonicalImage: (entityType, id, assetImageId) =>
     fetchJSON(`/${entityType}/${id}/canonical-image`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
+
+  // Location background plates (Phase 4). generate/expand return { asset_image_id }
+  // for an async job — poll getAssetImage(id) until completed, same as asset gen.
+  generatePlate: (locationId, opts = {}) =>
+    fetchJSON(`/locations/${locationId}/plate`, { method: 'POST', body: JSON.stringify(opts) }),
+  // body: { preset: 'widen_21_9'|'pan_left'|'pan_right' } and/or expand_left/right/top/bottom px.
+  expandPlate: (locationId, body) =>
+    fetchJSON(`/locations/${locationId}/plate/expand`, { method: 'POST', body: JSON.stringify(body) }),
+  // Promote a plate variant (e.g. an expanded one) to the location's active plate.
+  setLocationPlate: (locationId, assetImageId) =>
+    fetchJSON(`/locations/${locationId}/plate`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
   listProjectBatches: (projectId) => fetchJSON(`/projects/${projectId}/batches`),
   cancelBatch: (batchId) => fetchJSON(`/batches/${batchId}/cancel`, { method: 'POST' }),
   retryFailedBatch: (batchId) => fetchJSON(`/batches/${batchId}/retry-failed`, { method: 'POST' }),

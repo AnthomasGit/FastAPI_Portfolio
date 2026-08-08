@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { Play, GitBranch, Loader2 } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 import { EntityAssetLibrary } from '../components/storyboard/EntityAssetLibrary';
+import { LocationPlatePanel } from '../components/storyboard/LocationPlatePanel';
 import { PooledAssetGallery } from '../components/storyboard/PooledAssetGallery';
 import { QueuePanel } from '../components/queue/QueuePanel';
 
@@ -147,6 +148,7 @@ export function Storyboard() {
                   <div key={loc.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-set">{loc.name}</h3>
                     {loc.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{loc.description}</p>}
+                    <LocationPlatePanel location={loc} projectId={id} />
                     <EntityAssetLibrary entityType="location" entityId={loc.id} entityName={loc.name} projectId={id} />
                   </div>
                 ))}

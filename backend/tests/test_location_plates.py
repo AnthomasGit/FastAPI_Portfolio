@@ -77,3 +77,31 @@ async def test_plate_endpoint(client, db_session, project):
 
     missing = await client.post(f"/api/locations/{uuid.uuid4()}/plate", json={})
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_set_plate_endpoint(client, db_session, project):
+    from database import AssetImage
+    asset = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed",
+                       image_url="p.png")
+    db_session.add(asset)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Cliff")
+    db_session.add(loc)
+    await db_session.commit()
+
+    # Promote an asset to be the active plate.
+    resp = await client.put(f"/api/locations/{loc.id}/plate", json={"asset_image_id": asset.id})
+    assert resp.status_code == 200
+    assert (await db_session.get(Location, loc.id)).plate_asset_image_id == asset.id
+
+    # Clear it.
+    cleared = await client.put(f"/api/locations/{loc.id}/plate", json={"asset_image_id": None})
+    assert cleared.status_code == 200
+    assert (await db_session.get(Location, loc.id)).plate_asset_image_id is None
+
+    # Unknown asset → 404; unknown location → 404.
+    assert (await client.put(f"/api/locations/{loc.id}/plate",
+                             json={"asset_image_id": "nope"})).status_code == 404
+    assert (await client.put(f"/api/locations/{uuid.uuid4()}/plate",
+                             json={"asset_image_id": asset.id})).status_code == 404
