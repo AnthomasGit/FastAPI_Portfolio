@@ -56,6 +56,9 @@ COLOR_MATCH_WORKFLOW = "image_color_match"
 # pixel amounts. Extend-only subset of the Qwen-Image-Edit multi-angle pipeline.
 PLATE_OUTPAINT_WORKFLOW = "image_plate_outpaint"
 _EXPAND_KEYS = ("expand_left", "expand_right", "expand_top", "expand_bottom")
+# Multi-angle 360 (KAN-16 follow-on): fixed base graph; angle branches are
+# appended per-request so count/prompts/double-ref are dynamic.
+PLATE_ANGLES_WORKFLOW = "image_plate_angles_base"
 
 # Map internal job status to the status strings the frontend already expects on
 # the owning row (queued/processing/completed/failed). Keeps the polling flow
@@ -442,6 +445,111 @@ async def build_plate_expand(payload: dict, db: AsyncSession) -> tuple[dict, dic
     return workflow, meta
 
 
+def _safe_slot(name: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in (name or "angle"))
+
+
+def _append_angle_branch(workflow: dict, nid: int, *, prompt: str, prefix: str,
+                         double_ref: bool, seed: int, steps: int, node_map: dict) -> int:
+    """Append one camera-angle branch (8 nodes) to the graph, wired to the shared
+    CLIP/VAE/LoRA-model/expanded-plate-latent. Returns the next free node id.
+
+    Mirrors a branch of full_pipeline_360.json: text → multi-ref method → two
+    chained ReferenceLatents → zero-out negative → KSampler → decode → save. The
+    double-ref toggle points the sampler's positive at ref #2 (on) or ref #1
+    (off) — on keeps the source strongly; off gives the angle model more freedom.
+    """
+    clip = node_map["clip_node"]
+    vae = node_map["vae_node"]
+    model = node_map["angles_model_node"]
+    latent = node_map["shared_ref_latent_node"]
+
+    t, m, r1, r2, z, k, v, s = (str(nid + i) for i in range(8))
+    workflow[t] = {"inputs": {"text": prompt, "clip": [clip, 0]}, "class_type": "CLIPTextEncode"}
+    workflow[m] = {"inputs": {"conditioning": [t, 0], "reference_latents_method": "index_timestep_zero"},
+                   "class_type": "FluxKontextMultiReferenceLatentMethod"}
+    workflow[r1] = {"inputs": {"conditioning": [m, 0], "latent": [latent, 0]}, "class_type": "ReferenceLatent"}
+    workflow[r2] = {"inputs": {"conditioning": [r1, 0], "latent": [latent, 0]}, "class_type": "ReferenceLatent"}
+    workflow[z] = {"inputs": {"conditioning": [r1, 0]}, "class_type": "ConditioningZeroOut"}
+    positive = r2 if double_ref else r1
+    workflow[k] = {"inputs": {"seed": seed, "steps": steps, "cfg": 2.5, "sampler_name": "euler",
+                              "scheduler": "simple", "denoise": 1, "model": [model, 0],
+                              "positive": [positive, 0], "negative": [z, 0], "latent_image": [latent, 0]},
+                   "class_type": "KSampler"}
+    workflow[v] = {"inputs": {"samples": [k, 0], "vae": [vae, 0]}, "class_type": "VAEDecode"}
+    workflow[s] = {"inputs": {"filename_prefix": prefix, "images": [v, 0]}, "class_type": "SaveImage"}
+    return nid + 8
+
+
+async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """Multi-angle 360 fan-out (KAN-16 follow-on): from one source plate, extend
+    it (front / 0deg) and render N camera angles off the same widened
+    environment, as a single ComfyUI graph producing one image per angle.
+
+    Angle count/prompts are dynamic (branches appended here); ``double_ref`` and
+    ``steps`` apply to every sampler; one shared ``seed`` keeps the environment
+    consistent across angles. Returns meta.angle_results = [{asset_image_id,
+    image_url, slot}] so on_complete can finalize each output.
+    """
+    project_id = payload["project_id"]
+    angles = payload["angles"]                # [{slot, prompt, asset_image_id}]
+    double_ref = payload.get("double_ref", True)
+    steps = int(payload.get("steps") or 20)
+
+    job_id = _job_id(payload)
+    seed_val = _seed(payload)
+    base_prefix = f"assets/{project_id}/locations/{job_id}"
+
+    source_filename = await _resolve_source_image(
+        db, None, payload.get("source_asset_image_id"), job_id,
+    )
+    if not source_filename:
+        raise ValueError("No source plate provided for plate_angles")
+
+    workflow = load_workflow(PLATE_ANGLES_WORKFLOW)
+    node_map = load_node_map(PLATE_ANGLES_WORKFLOW)
+
+    overrides = {"image": source_filename}
+    for key in _EXPAND_KEYS:
+        if payload.get(key) is not None:
+            overrides[key] = int(payload[key])
+    workflow = inject(workflow, node_map, overrides)
+
+    # Front (0deg) = the extended plate itself (node 13 → its SaveImage).
+    front_prefix = f"{base_prefix}_front"
+    workflow[node_map["front_output_node"]]["inputs"]["filename_prefix"] = front_prefix
+
+    # Extend sampler: shared seed/steps, and honour the double-ref toggle.
+    extend_k = workflow[node_map["extend_sampler_node"]]["inputs"]
+    extend_k["seed"] = seed_val
+    extend_k["steps"] = steps
+    if not double_ref:
+        extend_k["positive"] = [node_map["extend_single_ref_node"], 0]
+
+    results = [{"asset_image_id": payload.get("front_asset_image_id"),
+                "image_url": f"{front_prefix}_00001_.png", "slot": "front"}]
+
+    nid = max(int(k) for k in workflow) + 1
+    for angle in angles:
+        slot = _safe_slot(angle.get("slot"))
+        prefix = f"{base_prefix}_{slot}"
+        nid = _append_angle_branch(
+            workflow, nid, prompt=angle.get("prompt") or "", prefix=prefix,
+            double_ref=double_ref, seed=seed_val, steps=steps, node_map=node_map,
+        )
+        results.append({"asset_image_id": angle.get("asset_image_id"),
+                        "image_url": f"{prefix}_00001_.png", "slot": slot})
+
+    meta = {
+        "job_id": job_id,
+        "seed": seed_val,
+        "prefix": base_prefix,
+        "image_url": f"{front_prefix}_00001_.png",  # queue-UI representative
+        "angle_results": results,
+    }
+    return workflow, meta
+
+
 async def build_color_match(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
     """Match a generated still's colours to an approved key frame (KAN-37).
 
@@ -504,6 +612,13 @@ async def on_complete_scene_image(payload: dict, outputs: dict, db: AsyncSession
     await _finalize_row(GeneratedImage, payload.get("generation_id"), payload, db)
 
 
+async def on_complete_plate_angles(payload: dict, outputs: dict, db: AsyncSession) -> None:
+    """Finalize every angle output of a plate_angles job — one AssetImage per
+    branch, each at its predicted per-branch filename (KAN-16 follow-on)."""
+    for r in payload.get("angle_results") or []:
+        await _finalize_row(AssetImage, r.get("asset_image_id"), {"image_url": r.get("image_url")}, db)
+
+
 async def on_complete_location_plate(payload: dict, outputs: dict, db: AsyncSession) -> None:
     """Finalize the plate's AssetImage, then point the Location at it (KAN-41).
     The plate becomes the location's current establishing background."""
@@ -564,5 +679,7 @@ register("character_sheet", build_character_sheet, on_complete_asset_image)
 register("location_plate", build_asset_txt2img, on_complete_location_plate)
 # Plate expansion / outpaint: result is a new AssetImage linked to the source (KAN-43).
 register("plate_expand", build_plate_expand, on_complete_asset_image)
+# Multi-angle 360: one job, many AssetImages (front + N angles).
+register("plate_angles", build_plate_angles, on_complete_plate_angles)
 # Colour-match result is a GeneratedImage row, finalized like a scene image.
 register("color_match", build_color_match, on_complete_scene_image)

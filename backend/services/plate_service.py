@@ -70,6 +70,74 @@ async def generate_location_plate(
     return asset.id
 
 
+# ── multi-angle 360 (KAN-16 follow-on) ──────────────────────────────────────
+
+# Default camera fan-out off the front (0deg) plate. Prompts are the fal
+# multiple-angles LoRA's instruction style.
+DEFAULT_ANGLES = [
+    {"slot": "left45", "prompt": "Rotate the camera 45 degrees to the left."},
+    {"slot": "right45", "prompt": "Rotate the camera 45 degrees to the right."},
+    {"slot": "rear", "prompt": "Rotate the camera to the rear view."},
+]
+
+
+async def create_plate_angles(
+    location: Location,
+    db: AsyncSession,
+    angles: list[dict] | None = None,
+    double_ref: bool = True,
+    steps: int | None = None,
+) -> dict:
+    """Enqueue a multi-angle 360 render off the location's current plate: one job
+    that produces the front (0deg) plate plus one image per requested angle, each
+    a new AssetImage linked to the source plate. Returns
+    {front_asset_image_id, asset_image_ids}. Raises ValueError (router → 404/422)
+    if there is no plate or no angles.
+    """
+    if not location.plate_asset_image_id:
+        raise ValueError("Location has no plate to render angles from")
+    angles = angles if angles is not None else [dict(a) for a in DEFAULT_ANGLES]
+    angles = [a for a in angles if a and a.get("slot")]
+    if not angles:
+        raise ValueError("Need at least one angle")
+
+    source_id = location.plate_asset_image_id
+
+    def _asset(slot, prompt):
+        a = AssetImage(
+            origin_project_id=location.project_id, entity_type="location",
+            kind="plate", prompt=prompt, status="queued",
+            source_asset_image_id=source_id,
+            params={"location_id": location.id, "angle_slot": slot, "angle_of": source_id},
+        )
+        db.add(a)
+        return a
+
+    front = _asset("front", "Front / 0deg (extended plate)")
+    angle_rows = [(a, _asset(a["slot"], a.get("prompt"))) for a in angles]
+    await db.flush()
+
+    job = JobRecord(
+        kind="plate_angles", status="queued",
+        entity_type="asset_image", entity_id=front.id,
+        payload={
+            "project_id": location.project_id,
+            "source_asset_image_id": source_id,
+            "front_asset_image_id": front.id,
+            "angles": [{"slot": spec["slot"], "prompt": spec.get("prompt"),
+                        "asset_image_id": row.id} for spec, row in angle_rows],
+            "double_ref": bool(double_ref),
+            "steps": steps,
+        },
+    )
+    db.add(job)
+    await db.commit()
+    return {
+        "front_asset_image_id": front.id,
+        "asset_image_ids": [front.id] + [row.id for _spec, row in angle_rows],
+    }
+
+
 # ── plate expansion / outpaint (KAN-43) ─────────────────────────────────────
 
 # Named expansion presets → per-side pixel amounts. "widen_21_9" pads both

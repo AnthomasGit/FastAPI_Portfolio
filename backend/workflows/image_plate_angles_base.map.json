@@ -1,0 +1,16 @@
+{
+  "_comment": "Multi-angle 360 base (KAN-16 follow-on): the fixed part of backend/workflows/full_pipeline_360.json — loaders + extend/outpaint stage + front (0deg) save + shared LoRA/encode. The angle branches are appended per-request in Python (job_handlers.build_plate_angles), so angle count/prompts and the double-ref toggle are code, not map keys. image_node = source plate; expand_* = ImagePadForOutpaint; front_output_node = the front SaveImage. Shared wiring targets referenced by the branch templater: clip=2, vae=3, angles_model=54, shared_ref_latent=18, extend KSampler=12. UNVALIDATED against a live ComfyUI.",
+  "image_node": "5",
+  "expand_left_node": "6",
+  "expand_right_node": "6",
+  "expand_top_node": "6",
+  "expand_bottom_node": "6",
+  "front_output_node": "60",
+  "extend_sampler_node": "12",
+  "extend_double_ref_node": "42",
+  "extend_single_ref_node": "41",
+  "clip_node": "2",
+  "vae_node": "3",
+  "angles_model_node": "54",
+  "shared_ref_latent_node": "18"
+}

@@ -120,6 +120,30 @@ async def expand_plate(location_id: str, data: dict = Body(default={}),
     return {"asset_image_id": asset_id}
 
 
+@router.post("/api/locations/{location_id}/plate/angles", status_code=202)
+async def render_plate_angles(location_id: str, data: dict = Body(default={}),
+                             db: AsyncSession = Depends(get_db)):
+    """Render a multi-angle 360 set off this location's plate (KAN-16 follow-on):
+    the front (0deg) plate plus one image per angle, from one job. Body:
+    ``angles`` (list of {slot, prompt}), ``double_ref`` (default true),
+    ``steps``. Returns the created AssetImage ids to poll."""
+    loc = (await db.execute(select(Location).where(Location.id == location_id))).scalars().first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    try:
+        result = await plate_service.create_plate_angles(
+            loc, db,
+            angles=data.get("angles"),
+            double_ref=data.get("double_ref", True),
+            steps=data.get("steps"),
+        )
+    except ValueError as e:
+        if "no plate" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return result
+
+
 @router.delete("/api/locations/{location_id}", status_code=204)
 async def delete_location(location_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Location).where(Location.id == location_id))

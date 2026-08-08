@@ -101,6 +101,10 @@ export const api = {
   // Promote a plate variant (e.g. an expanded one) to the location's active plate.
   setLocationPlate: (locationId, assetImageId) =>
     fetchJSON(`/locations/${locationId}/plate`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
+  // Multi-angle 360 off the plate → { front_asset_image_id, asset_image_ids }.
+  // body: { angles?: [{slot, prompt}], double_ref?, steps? }.
+  renderPlateAngles: (locationId, body = {}) =>
+    fetchJSON(`/locations/${locationId}/plate/angles`, { method: 'POST', body: JSON.stringify(body) }),
   listProjectBatches: (projectId) => fetchJSON(`/projects/${projectId}/batches`),
   cancelBatch: (batchId) => fetchJSON(`/batches/${batchId}/cancel`, { method: 'POST' }),
   retryFailedBatch: (batchId) => fetchJSON(`/batches/${batchId}/retry-failed`, { method: 'POST' }),
