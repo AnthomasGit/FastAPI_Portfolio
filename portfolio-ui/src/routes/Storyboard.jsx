@@ -149,7 +149,7 @@ export function Storyboard() {
                     <h3 className="font-mono text-sm font-bold text-set">{loc.name}</h3>
                     {loc.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{loc.description}</p>}
                     <LocationPlatePanel location={loc} projectId={id} />
-                    <EntityAssetLibrary entityType="location" entityId={loc.id} entityName={loc.name} projectId={id} />
+                    <EntityAssetLibrary entityType="location" entityId={loc.id} entityName={loc.name} projectId={id} plateAssetImageId={loc.plate_asset_image_id} />
                   </div>
                 ))}
               </div>

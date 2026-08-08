@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ImageIcon, Plus, Star } from 'lucide-react';
+import { ImageIcon, Plus, Star, Frame } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SetImageDialog } from './SetImageDialog';
 
@@ -8,7 +8,7 @@ import { SetImageDialog } from './SetImageDialog';
 // assign a new one via the existing SetImageDialog flow. SetImageDialog's own
 // mutations invalidate the ['references', pluralType, entityId] query, so this
 // grid refreshes itself with no extra plumbing.
-export function EntityAssetLibrary({ entityType, entityId, entityName, projectId, canonicalAssetImageId }) {
+export function EntityAssetLibrary({ entityType, entityId, entityName, projectId, canonicalAssetImageId, plateAssetImageId }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const pluralType = `${entityType}s`;
   const queryClient = useQueryClient();
@@ -18,11 +18,20 @@ export function EntityAssetLibrary({ entityType, entityId, entityName, projectId
     queryFn: () => api.listReferences(pluralType, entityId),
   });
 
+  const invalidateProject = () =>
+    queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+
   // Setting the canonical ("hero") image feeds it into scene generation as an
-  // identity reference (KAN-36). Only meaningful for characters today.
+  // identity reference (KAN-36). Characters only.
   const setCanonical = useMutation({
     mutationFn: (assetImageId) => api.setCanonicalImage(pluralType, entityId, assetImageId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', projectId] }),
+    onSuccess: invalidateProject,
+  });
+  // Setting the background plate — the fixed establishing background reused
+  // across scenes here (KAN-41). Locations only.
+  const setPlate = useMutation({
+    mutationFn: (assetImageId) => api.setLocationPlate(entityId, assetImageId),
+    onSuccess: invalidateProject,
   });
 
   const items = (refs || []).filter((r) => r.url || r.asset_image_id);
@@ -48,6 +57,7 @@ export function EntityAssetLibrary({ entityType, entityId, entityName, projectId
           {items.map((ref) => {
             const thumb = api.getReferenceFileUrl(ref);
             const isCanonical = ref.asset_image_id && ref.asset_image_id === canonicalAssetImageId;
+            const isPlate = ref.asset_image_id && ref.asset_image_id === plateAssetImageId;
             return (
               <div key={ref.id} className="group relative aspect-square rounded border border-line bg-bay-900 overflow-hidden">
                 {thumb ? (
@@ -57,7 +67,8 @@ export function EntityAssetLibrary({ entityType, entityId, entityName, projectId
                     <ImageIcon className="w-4 h-4 text-fg-faint" />
                   </div>
                 )}
-                {ref.asset_image_id && (
+                {/* Characters: canonical identity image (KAN-36). */}
+                {entityType === 'character' && ref.asset_image_id && (
                   <button
                     type="button"
                     onClick={() => setCanonical.mutate(isCanonical ? null : ref.asset_image_id)}
@@ -69,6 +80,21 @@ export function EntityAssetLibrary({ entityType, entityId, entityName, projectId
                     }`}
                   >
                     <Star className={`w-3.5 h-3.5 ${isCanonical ? 'fill-lead-500' : ''}`} />
+                  </button>
+                )}
+                {/* Locations: background plate (KAN-41). */}
+                {entityType === 'location' && ref.asset_image_id && (
+                  <button
+                    type="button"
+                    onClick={() => setPlate.mutate(isPlate ? null : ref.asset_image_id)}
+                    title={isPlate ? 'Background plate (click to unset)' : 'Set as background plate'}
+                    className={`absolute top-0.5 right-0.5 w-5 h-5 rounded flex items-center justify-center transition-opacity ${
+                      isPlate
+                        ? 'text-set opacity-100 bg-bay-950/60'
+                        : 'text-fg-faint opacity-0 group-hover:opacity-100 hover:text-set bg-bay-950/40'
+                    }`}
+                  >
+                    <Frame className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
