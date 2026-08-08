@@ -98,6 +98,13 @@ INJECTION_MAP = {
     # conflate the two, they drive completely different parts of the graph.
     "reference_frame_count": ("reference_frame_count_node", ("frame_count", "value")),
     "controlnet_strength": ("controlnet_node", ("strength",)),
+    # Plate expansion / outpaint (KAN-43): per-side pixel amounts the plate is
+    # widened by. All four map keys point at the same ImagePadForOutpaint node,
+    # each writing its own side's field.
+    "expand_left": ("expand_left_node", ("left",)),
+    "expand_right": ("expand_right_node", ("right",)),
+    "expand_top": ("expand_top_node", ("top",)),
+    "expand_bottom": ("expand_bottom_node", ("bottom",)),
     # Driving-video pose transfer (SCAIL-2): a VHS_LoadVideo source, how many of
     # its frames to load (must match "length"), the sampler's output length, and
     # how strictly the character follows the driving motion.

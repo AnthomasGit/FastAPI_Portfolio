@@ -52,6 +52,10 @@ SCENE_REF_WORKFLOW = "image_msr_ref"
 _REF_SLOT_KEYS = ["image_node", "image2_node", "image3_node", "image4_node",
                   "image5_node", "image6_node", "image7_node", "image8_node", "image9_node"]
 COLOR_MATCH_WORKFLOW = "image_color_match"
+# Plate expansion / outpaint pass (KAN-43): widen a location plate by per-side
+# pixel amounts. Extend-only subset of the Qwen-Image-Edit multi-angle pipeline.
+PLATE_OUTPAINT_WORKFLOW = "image_plate_outpaint"
+_EXPAND_KEYS = ("expand_left", "expand_right", "expand_top", "expand_bottom")
 
 # Map internal job status to the status strings the frontend already expects on
 # the owning row (queued/processing/completed/failed). Keeps the polling flow
@@ -397,6 +401,47 @@ async def build_character_sheet(payload: dict, db: AsyncSession) -> tuple[dict, 
     return workflow, meta
 
 
+async def build_plate_expand(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """Widen a source plate by per-side pixel amounts (KAN-43).
+
+    The source (``source_asset_image_id``, an existing plate AssetImage) is
+    staged OUTPUT→INPUT, then fed through the outpaint graph with the requested
+    ``expand_*`` amounts. Result is a new, wider plate image.
+    """
+    project_id = payload["project_id"]
+    job_id = _job_id(payload)
+    seed_val = _seed(payload)
+    prefix = f"assets/{project_id}/locations/{job_id}"
+
+    source_filename = await _resolve_source_image(
+        db, None, payload.get("source_asset_image_id"), job_id,
+    )
+    if not source_filename:
+        raise ValueError("No source plate provided for plate_expand")
+
+    workflow = load_workflow(PLATE_OUTPAINT_WORKFLOW)
+    node_map = load_node_map(PLATE_OUTPAINT_WORKFLOW)
+
+    overrides = {"image": source_filename, "seed": seed_val, "filename_prefix": prefix}
+    for key in _EXPAND_KEYS:
+        if payload.get(key) is not None:
+            overrides[key] = int(payload[key])
+    if payload.get("prompt"):
+        overrides["prompt"] = payload["prompt"]
+    if payload.get("steps") is not None:
+        overrides["steps"] = int(payload["steps"])
+
+    workflow = inject(workflow, node_map, overrides)
+    meta = {
+        "job_id": job_id,
+        "seed": seed_val,
+        "prefix": prefix,
+        "source_filename": source_filename,
+        "image_url": f"{prefix}_00001_.png",
+    }
+    return workflow, meta
+
+
 async def build_color_match(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
     """Match a generated still's colours to an approved key frame (KAN-37).
 
@@ -517,5 +562,7 @@ register("scene_image", build_scene_image, on_complete_scene_image)
 register("character_sheet", build_character_sheet, on_complete_asset_image)
 # Location plate: a wide txt2img whose completion also sets Location.plate (KAN-41).
 register("location_plate", build_asset_txt2img, on_complete_location_plate)
+# Plate expansion / outpaint: result is a new AssetImage linked to the source (KAN-43).
+register("plate_expand", build_plate_expand, on_complete_asset_image)
 # Colour-match result is a GeneratedImage row, finalized like a scene image.
 register("color_match", build_color_match, on_complete_scene_image)

@@ -76,6 +76,31 @@ async def generate_plate(location_id: str, data: dict = Body(default={}),
     return {"asset_image_id": asset_id}
 
 
+@router.post("/api/locations/{location_id}/plate/expand", status_code=202)
+async def expand_plate(location_id: str, data: dict = Body(default={}),
+                       db: AsyncSession = Depends(get_db)):
+    """Widen this location's plate via an outpaint pass (KAN-43). Body: a
+    ``preset`` ("widen_21_9" | "pan_left" | "pan_right") and/or explicit
+    ``expand_left|right|top|bottom`` pixel amounts, optional ``prompt``. The
+    result is a new AssetImage linked back to the source plate."""
+    loc = (await db.execute(select(Location).where(Location.id == location_id))).scalars().first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    try:
+        asset_id = await plate_service.expand_location_plate(
+            loc, db,
+            preset=data.get("preset"),
+            amounts=data,
+            prompt=data.get("prompt"),
+        )
+    except ValueError as e:
+        # No plate → 404; bad/empty expansion → 422.
+        if "no plate" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"asset_image_id": asset_id}
+
+
 @router.delete("/api/locations/{location_id}", status_code=204)
 async def delete_location(location_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Location).where(Location.id == location_id))
