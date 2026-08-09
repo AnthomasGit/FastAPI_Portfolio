@@ -114,7 +114,7 @@ async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
         db.add(gen)
         await db.flush()
         return JobRecord(
-            kind=kind, status="queued", seed=seed, priority=priority,
+            kind=kind, status="queued", seed=seed, priority=priority, max_attempts=1,
             entity_type="generated_image", entity_id=gen.id,
             payload={**base, "prompt": prompt, "generation_id": gen.id,
                      "scene_id": target_id,

@@ -139,6 +139,7 @@ async def test_create_plate_angles_default_set(db_session, project):
     job = (await db_session.execute(
         JobRecord.__table__.select().where(JobRecord.kind == "plate_angles"))).first()
     assert {a["slot"] for a in job.payload["angles"]} == {"left45", "right45", "rear"}
+    assert job.max_attempts == 1  # never auto-resubmit a multi-image render
     # Every output AssetImage links back to the source plate.
     for aid in out["asset_image_ids"]:
         a = await db_session.get(AssetImage, aid)

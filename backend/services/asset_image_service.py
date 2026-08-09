@@ -47,6 +47,7 @@ async def generate_txt2img(
     job = JobRecord(
         kind="asset_txt2img",
         status="queued",
+        max_attempts=1,
         entity_type="asset_image",
         entity_id=asset_id,
         payload={
@@ -90,6 +91,7 @@ async def generate_img2img(
     job = JobRecord(
         kind="asset_img2img",
         status="queued",
+        max_attempts=1,
         entity_type="asset_image",
         entity_id=asset_id,
         payload={

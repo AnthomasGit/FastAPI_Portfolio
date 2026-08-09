@@ -25,6 +25,7 @@ async def test_generate_plate_enqueues_wide_character_free_job(db_session, proje
         JobRecord.__table__.select().where(JobRecord.entity_id == asset_id)
     )).first()
     assert job.kind == "location_plate"
+    assert job.max_attempts == 1
     # Wide establishing dimensions...
     assert job.payload["width"] == plate_service.DEFAULT_PLATE_WIDTH
     assert job.payload["height"] == plate_service.DEFAULT_PLATE_HEIGHT

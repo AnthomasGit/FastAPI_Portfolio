@@ -176,6 +176,20 @@ async def submit(workflow: dict) -> str:
         return data["prompt_id"]
 
 
+def _extract_error(history: dict) -> str:
+    """Pull ComfyUI's execution error (node + message) out of a /history entry so
+    a failure records *why* it failed instead of a generic string."""
+    for msg in history.get("status", {}).get("messages", []):
+        # messages are [event_name, data]; execution_error carries the detail.
+        if isinstance(msg, (list, tuple)) and len(msg) == 2 and msg[0] == "execution_error":
+            d = msg[1] or {}
+            node = d.get("node_type") or d.get("node_id")
+            exc = d.get("exception_message") or d.get("exception_type")
+            if node or exc:
+                return f"ComfyUI error in {node}: {exc}".strip()
+    return "ComfyUI reported an error"
+
+
 async def poll(prompt_id: str) -> dict:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -186,11 +200,29 @@ async def poll(prompt_id: str) -> dict:
 
             status_str = history.get("status", {}).get("status_str", "completed")
             if status_str == "error":
-                return {"status": "error", "outputs": history.get("outputs", {})}
+                return {"status": "error", "outputs": history.get("outputs", {}),
+                        "reason": _extract_error(history)}
 
             return {"status": "completed", "outputs": history.get("outputs", {})}
     except (httpx.TimeoutException, httpx.RequestError):
         return {"status": "not_found", "outputs": None}
+
+
+async def queue_contains(prompt_id: str) -> bool:
+    """True if ComfyUI still has this prompt queued or running. Lets the worker
+    distinguish a slow-but-healthy render (keep waiting) from a lost one (time
+    out). On any error, returns False (caller treats as "not progressing")."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            data = (await client.get(f"{COMFY_API_URL}/queue")).json()
+        for section in ("queue_running", "queue_pending"):
+            for item in data.get(section, []):
+                # ComfyUI queue item: [number, prompt_id, prompt, extra, outputs].
+                if isinstance(item, (list, tuple)) and len(item) > 1 and item[1] == prompt_id:
+                    return True
+        return False
+    except (httpx.TimeoutException, httpx.RequestError, ValueError):
+        return False
 
 
 async def view_file(filename: str, subfolder: str | None = None) -> bytes:

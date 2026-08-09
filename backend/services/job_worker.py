@@ -20,7 +20,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import JobRecord, SessionLocal
-from services.comfyui_client import submit, poll
+from services.comfyui_client import submit, poll, queue_contains
 from services.job_handlers import HANDLERS, LOCAL_HANDLERS
 
 logger = logging.getLogger("job_worker")
@@ -107,15 +107,25 @@ async def resolve_parent_refs(db: AsyncSession, payload: dict, parent_job_id: st
 
 
 async def _poll_until_done(prompt_id: str) -> dict:
-    waited = 0.0
+    """Poll /history until the prompt is done, treating time spent *actively
+    queued/running in ComfyUI* as healthy rather than counting it toward the
+    timeout. A big multi-image render can legitimately run far longer than
+    JOB_POLL_TIMEOUT; only a prompt that has vanished from BOTH /history and
+    /queue for the timeout window is declared lost (prevents the resubmit storm
+    where a slow render was falsely timed out and re-run)."""
+    missing = 0.0
     while True:
         result = await poll(prompt_id)
         if result["status"] in ("completed", "error"):
             return result
-        if waited >= JOB_POLL_TIMEOUT:
-            return {"status": "error", "outputs": None, "reason": "poll_timeout"}
+        # Not in /history yet — still working if ComfyUI has it queued/running.
+        if await queue_contains(prompt_id):
+            missing = 0.0
+        else:
+            missing += JOB_POLL_INTERVAL
+            if missing >= JOB_POLL_TIMEOUT:
+                return {"status": "error", "outputs": None, "reason": "poll_timeout"}
         await asyncio.sleep(JOB_POLL_INTERVAL)
-        waited += JOB_POLL_INTERVAL
 
 
 class JobWorker:

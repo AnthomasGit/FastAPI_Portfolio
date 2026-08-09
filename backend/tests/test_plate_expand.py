@@ -97,6 +97,7 @@ async def test_expand_links_result_to_source(db_session, project):
     job = (await db_session.execute(
         JobRecord.__table__.select().where(JobRecord.entity_id == new_id))).first()
     assert job.kind == "plate_expand"
+    assert job.max_attempts == 1
     assert job.payload["expand_left"] == 256 and job.payload["expand_right"] == 256
 
 

@@ -61,6 +61,7 @@ async def test_generate_txt2img_applies_custom_width_height(client, project, cha
     ).scalars().first()
     assert job is not None
     assert job.kind == "asset_txt2img"
+    assert job.max_attempts == 1
     assert job.payload["width"] == 1280
     assert job.payload["height"] == 720
 

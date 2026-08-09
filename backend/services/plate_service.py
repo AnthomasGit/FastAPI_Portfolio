@@ -52,7 +52,7 @@ async def generate_location_plate(
     await db.flush()
 
     job = JobRecord(
-        kind="location_plate", status="queued",
+        kind="location_plate", status="queued", max_attempts=1,
         entity_type="asset_image", entity_id=asset.id,
         payload={
             "project_id": location.project_id,
@@ -121,7 +121,7 @@ async def create_plate_angles(
     await db.flush()
 
     job = JobRecord(
-        kind="plate_angles", status="queued",
+        kind="plate_angles", status="queued", max_attempts=1,
         entity_type="asset_image", entity_id=front.id,
         payload={
             "project_id": location.project_id,
@@ -156,7 +156,7 @@ async def regenerate_plate_angle(asset_image_id: str, db: AsyncSession) -> str:
     asset.status = "queued"
     asset.image_url = None
     job = JobRecord(
-        kind="plate_angles", status="queued",
+        kind="plate_angles", status="queued", max_attempts=1,
         entity_type="asset_image", entity_id=asset.id,
         payload={
             "project_id": asset.origin_project_id,
@@ -233,7 +233,7 @@ async def expand_location_plate(
     await db.flush()
 
     job = JobRecord(
-        kind="plate_expand", status="queued",
+        kind="plate_expand", status="queued", max_attempts=1,
         entity_type="asset_image", entity_id=asset.id,
         payload={
             "project_id": location.project_id,
