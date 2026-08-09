@@ -178,3 +178,77 @@ async def test_angles_endpoint_empty_422(client, db_session, project):
     loc, _ = await _plated_location(db_session, project)
     assert (await client.post(f"/api/locations/{loc.id}/plate/angles",
                               json={"angles": []})).status_code == 422
+
+
+# ── single-angle regenerate (front-optional build) ──────────────────────────
+
+@pytest.mark.asyncio
+async def test_build_without_front_omits_front_save(db_session, project, staged_source):
+    await db_session.commit()
+    payload = _payload(project.id, staged_source.id)
+    payload["front_asset_image_id"] = None
+    payload["angles"] = [{"slot": "rear", "prompt": "rear", "asset_image_id": "a-rear"}]
+    workflow, meta = await build_plate_angles(payload, db_session)
+
+    assert "60" not in workflow  # front SaveImage removed
+    slots = [r["slot"] for r in meta["angle_results"]]
+    assert slots == ["rear"]  # no front result
+    # The extend stage still runs (node 18 consumes node 13).
+    assert "13" in workflow and "18" in workflow
+
+
+@pytest.mark.asyncio
+async def test_regenerate_plate_angle_reuses_row(db_session, project):
+    plate = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed", image_url="p.png")
+    db_session.add(plate)
+    await db_session.flush()
+    angle = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed",
+                       image_url="old.png", source_asset_image_id=plate.id,
+                       params={"angle_slot": "rear", "angle_prompt": "rear view",
+                               "angle_of": plate.id, "double_ref": False, "steps": 24})
+    db_session.add(angle)
+    await db_session.commit()
+
+    returned = await plate_service.regenerate_plate_angle(angle.id, db_session)
+    assert returned == angle.id
+    refreshed = await db_session.get(AssetImage, angle.id)
+    assert refreshed.status == "queued" and refreshed.image_url is None
+
+    job = (await db_session.execute(
+        JobRecord.__table__.select().where(JobRecord.entity_id == angle.id))).first()
+    assert job.kind == "plate_angles"
+    assert job.payload["front_asset_image_id"] is None
+    assert job.payload["angles"] == [{"slot": "rear", "prompt": "rear view", "asset_image_id": angle.id}]
+    assert job.payload["double_ref"] is False and job.payload["steps"] == 24
+
+
+@pytest.mark.asyncio
+async def test_regenerate_missing_and_no_source_raise(db_session, project):
+    with pytest.raises(ValueError):
+        await plate_service.regenerate_plate_angle("nope", db_session)
+    orphan = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                        entity_type="location", kind="plate", status="completed")
+    db_session.add(orphan)
+    await db_session.commit()
+    with pytest.raises(ValueError):
+        await plate_service.regenerate_plate_angle(orphan.id, db_session)
+
+
+@pytest.mark.asyncio
+async def test_regenerate_angle_endpoint(client, db_session, project):
+    plate = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed", image_url="p.png")
+    db_session.add(plate)
+    await db_session.flush()
+    angle = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed",
+                       image_url="old.png", source_asset_image_id=plate.id,
+                       params={"angle_slot": "rear", "angle_prompt": "rear", "angle_of": plate.id})
+    db_session.add(angle)
+    await db_session.commit()
+
+    ok = await client.post(f"/api/asset-images/{angle.id}/regenerate-angle")
+    assert ok.status_code == 202
+    assert (await client.post(f"/api/asset-images/{uuid.uuid4()}/regenerate-angle")).status_code == 404

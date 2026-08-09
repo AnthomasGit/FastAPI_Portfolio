@@ -495,6 +495,62 @@ if [ -d "${PP_NODE_DIR}/.git" ] && [ -f "${PP_NODE_DIR}/requirements.txt" ]; the
         || log "WARNING: ProPost requirements install failed; film grain may not load."
 fi
 
+# --- Remove the base-image's duplicate lowercase ProPost copy ----------------
+# The megapak base bundle ships a second copy at custom_nodes/comfyui-propost
+# in addition to the ComfyUI-ProPost we manage above. Both register the SAME
+# node class names (ProPostFilmGrain, ProPostVignette, ...). Custom nodes load
+# alphabetically with uppercase before lowercase, so the load order is:
+#   1. ComfyUI-ProPost   -> binds its own bundled `filmgrainer` package (correct)
+#   2. ComfyUI_LayerStyle -> also vendors a top-level `filmgrainer` package,
+#                            which now shadows sys.modules['filmgrainer']
+#   3. comfyui-propost   -> re-imports `filmgrainer` (now LayerStyle's, whose
+#                            process() expects a PIL Image not a numpy array) and
+#                            OVERWRITES the good ProPostFilmGrain registration.
+# Net effect: ProPostFilmGrain crashes with "'int' object is not subscriptable".
+# Deleting the redundant lowercase copy leaves only ComfyUI-ProPost, which loads
+# before LayerStyle and binds its own filmgrainer correctly. Guarded so it's a
+# one-time no-op on steady-state boots.
+PP_DUP_DIR=/root/ComfyUI/custom_nodes/comfyui-propost
+if [ -e "${PP_DUP_DIR}" ]; then
+    log "Removing duplicate base-image ProPost copy at ${PP_DUP_DIR} (shadows filmgrainer, breaks ProPostFilmGrain)."
+    rm -rf "${PP_DUP_DIR}" || log "WARNING: could not remove ${PP_DUP_DIR}; ProPostFilmGrain may crash."
+fi
+
+# --- ComfyUI-ProPost filmgrainer-shadowing patch -----------------------------
+# Even with the lowercase duplicate gone, ComfyUI_LayerStyle vendors its OWN
+# top-level package named `filmgrainer` (at ComfyUI_LayerStyle/py/filmgrainer)
+# and gets it into sys.modules first. ProPost's `nodes.py` does a bare
+# `import filmgrainer.filmgrainer` after only `sys.path.append(...)`, so it
+# binds LayerStyle's copy -- whose process() expects a PIL Image and dies on
+# ProPost's numpy array with "'int' object is not subscriptable", crashing
+# ProPostFilmGrain. Patch nodes.py to insert its own dir at the FRONT of
+# sys.path and drop any cached `filmgrainer*` modules immediately before the
+# import, so it always binds its own bundled copy. Guarded/idempotent; survives
+# an upstream re-clone.
+PP_NODES=/root/ComfyUI/custom_nodes/ComfyUI-ProPost/nodes.py
+if [ -f "${PP_NODES}" ] && ! grep -q "Force ProPost's own bundled" "${PP_NODES}"; then
+    log "Patching ComfyUI-ProPost/nodes.py to force its own filmgrainer (avoid LayerStyle shadow)..."
+    python3.13 - "${PP_NODES}" <<'PYEOF' && log "ProPost filmgrainer patched." || log "WARNING: ProPost filmgrainer patch failed; ProPostFilmGrain may crash."
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "sys.path.append(current_file_directory)\n\nimport filmgrainer.filmgrainer as filmgrainer"
+new = (
+    "sys.path.insert(0, current_file_directory)\n\n"
+    "# Force ProPost's own bundled filmgrainer, not the same-named package\n"
+    "# vendored by ComfyUI_LayerStyle (whose process() expects a PIL Image and\n"
+    "# crashes on ProPost's numpy input with 'int' object is not subscriptable).\n"
+    "for _m in [m for m in list(sys.modules) if m == 'filmgrainer' or m.startswith('filmgrainer.')]:\n"
+    "    del sys.modules[_m]\n"
+    "import filmgrainer.filmgrainer as filmgrainer"
+)
+if old in s:
+    open(p, "w").write(s.replace(old, new, 1))
+else:
+    sys.exit(1)
+PYEOF
+fi
+
 # --- ComfyUI-krea2-negpip compatibility patch --------------------------------
 # Its DIFFUSION_MODEL wrapper hardcodes 6 positional params, but ComfyUI 0.30.0's
 # Krea2 model forward passes a 7th ("krea2_negpip_wrapper() takes from 4 to 6

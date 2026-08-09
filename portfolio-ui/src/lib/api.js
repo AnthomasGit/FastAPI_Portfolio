@@ -257,6 +257,9 @@ export const api = {
   },
 
   getAssetImage: (id) => fetchJSON(`/asset-images/${id}`),
+  deleteAssetImage: (id) => fetchJSON(`/asset-images/${id}`, { method: 'DELETE' }),
+  // Re-render a single plate angle in place (reuses the row + its settings).
+  regeneratePlateAngle: (id) => fetchJSON(`/asset-images/${id}/regenerate-angle`, { method: 'POST' }),
 
   getAssetImageFile: (id) => `${API_BASE}/asset-images/${id}/file`,
   getReferenceFileUrl: (ref, { processed = true } = {}) =>

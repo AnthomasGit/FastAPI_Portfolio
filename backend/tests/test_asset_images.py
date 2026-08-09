@@ -358,3 +358,20 @@ async def test_location_generation_attaches_profile_tokens(client, project, db_s
     prompt = job.payload["prompt"]
     assert "gothic stone hall" in prompt and "torchlight" in prompt  # tokens attached
     assert "empty wide shot" in prompt                                # user prompt kept
+
+
+@pytest.mark.asyncio
+async def test_delete_asset_image(client, db_session, project):
+    from sqlalchemy import select
+    asset = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
+                       entity_type="location", kind="plate", status="completed")
+    db_session.add(asset)
+    await db_session.commit()
+
+    resp = await client.delete(f"/api/asset-images/{asset.id}")
+    assert resp.status_code == 204
+    gone = (await db_session.execute(
+        select(AssetImage).where(AssetImage.id == asset.id))).scalars().first()
+    assert gone is None
+
+    assert (await client.delete(f"/api/asset-images/{uuid.uuid4()}")).status_code == 404

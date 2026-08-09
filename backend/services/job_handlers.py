@@ -515,10 +515,6 @@ async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dic
             overrides[key] = int(payload[key])
     workflow = inject(workflow, node_map, overrides)
 
-    # Front (0deg) = the extended plate itself (node 13 → its SaveImage).
-    front_prefix = f"{base_prefix}_front"
-    workflow[node_map["front_output_node"]]["inputs"]["filename_prefix"] = front_prefix
-
     # Extend sampler: shared seed/steps, and honour the double-ref toggle.
     extend_k = workflow[node_map["extend_sampler_node"]]["inputs"]
     extend_k["seed"] = seed_val
@@ -526,10 +522,24 @@ async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dic
     if not double_ref:
         extend_k["positive"] = [node_map["extend_single_ref_node"], 0]
 
-    results = [{"asset_image_id": payload.get("front_asset_image_id"),
-                "image_url": f"{front_prefix}_00001_.png", "slot": "front"}]
-
+    # Allocate branch ids above the base graph's max BEFORE optionally removing
+    # the front node — otherwise the pop lowers the max and a branch reuses id 60.
     nid = max(int(k) for k in workflow) + 1
+
+    # Front (0deg) = the extended plate itself (node 13 → its SaveImage). Optional:
+    # a single-angle *regenerate* omits it (front_asset_image_id=None) so it does
+    # not spawn a throwaway front image. Node 18 still consumes node 13, so the
+    # extend stage runs regardless.
+    results = []
+    front_id = payload.get("front_asset_image_id")
+    front_node = node_map["front_output_node"]
+    if front_id:
+        front_prefix = f"{base_prefix}_front"
+        workflow[front_node]["inputs"]["filename_prefix"] = front_prefix
+        results.append({"asset_image_id": front_id,
+                        "image_url": f"{front_prefix}_00001_.png", "slot": "front"})
+    else:
+        workflow.pop(front_node, None)
     for angle in angles:
         slot = _safe_slot(angle.get("slot"))
         prefix = f"{base_prefix}_{slot}"
@@ -544,7 +554,8 @@ async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dic
         "job_id": job_id,
         "seed": seed_val,
         "prefix": base_prefix,
-        "image_url": f"{front_prefix}_00001_.png",  # queue-UI representative
+        # Queue-UI representative: the front if present, else the first angle.
+        "image_url": results[0]["image_url"] if results else None,
         "angle_results": results,
     }
     return workflow, meta

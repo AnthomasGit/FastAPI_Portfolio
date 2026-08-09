@@ -20,6 +20,11 @@ from services.asset_image_service import (
 )
 from services.image_workflows import list_image_workflows
 from services.prompt_builder import location_prompt
+from services import plate_service
+
+import os
+
+COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 
 router = APIRouter()
 
@@ -126,6 +131,36 @@ async def get_asset_image(asset_image_id: str, db: AsyncSession = Depends(get_db
     )
     asset = asset_result.scalars().first()
     return asset
+
+
+@router.delete("/api/asset-images/{asset_image_id}", status_code=204)
+async def delete_asset_image(asset_image_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a generated asset image (its row; best-effort its file). FKs that
+    referenced it (canonical/plate/source/reference) are SET NULL by the schema."""
+    asset = await db.get(AssetImage, asset_image_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset image not found")
+    file_rel = asset.image_url
+    await db.delete(asset)
+    await db.commit()
+    if file_rel:
+        try:
+            os.unlink(os.path.join(COMFY_OUTPUT_DIR, file_rel))
+        except OSError:
+            pass  # file already gone / never written — the row is what matters
+
+
+@router.post("/api/asset-images/{asset_image_id}/regenerate-angle", status_code=202)
+async def regenerate_angle(asset_image_id: str, db: AsyncSession = Depends(get_db)):
+    """Re-render a single plate angle in place (KAN-16). Reuses the row's source
+    plate / slot / prompt / settings."""
+    try:
+        await plate_service.regenerate_plate_angle(asset_image_id, db)
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"asset_image_id": asset_image_id}
 
 
 @router.get("/api/asset-images/{asset_image_id}/file")

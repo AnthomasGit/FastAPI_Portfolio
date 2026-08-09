@@ -108,7 +108,10 @@ async def create_plate_angles(
             origin_project_id=location.project_id, entity_type="location",
             kind="plate", prompt=prompt, status="queued",
             source_asset_image_id=source_id,
-            params={"location_id": location.id, "angle_slot": slot, "angle_of": source_id},
+            # angle_prompt / double_ref / steps are recorded so a single angle
+            # can be regenerated later with the same settings.
+            params={"location_id": location.id, "angle_slot": slot, "angle_of": source_id,
+                    "angle_prompt": prompt, "double_ref": bool(double_ref), "steps": steps},
         )
         db.add(a)
         return a
@@ -136,6 +139,38 @@ async def create_plate_angles(
         "front_asset_image_id": front.id,
         "asset_image_ids": [front.id] + [row.id for _spec, row in angle_rows],
     }
+
+
+async def regenerate_plate_angle(asset_image_id: str, db: AsyncSession) -> str:
+    """Re-render a single angle in place (reusing its AssetImage row), from the
+    same source plate / slot / prompt / settings recorded on the row. No new
+    front image is produced. Raises ValueError (router → 404/422)."""
+    asset = await db.get(AssetImage, asset_image_id)
+    if not asset:
+        raise ValueError("Asset image not found")
+    p = asset.params or {}
+    source_id = asset.source_asset_image_id or p.get("angle_of")
+    if not source_id:
+        raise ValueError("This image is not a plate angle (no source plate)")
+
+    asset.status = "queued"
+    asset.image_url = None
+    job = JobRecord(
+        kind="plate_angles", status="queued",
+        entity_type="asset_image", entity_id=asset.id,
+        payload={
+            "project_id": asset.origin_project_id,
+            "source_asset_image_id": source_id,
+            "front_asset_image_id": None,  # single-angle: no front output
+            "angles": [{"slot": p.get("angle_slot", "angle"),
+                        "prompt": p.get("angle_prompt"), "asset_image_id": asset.id}],
+            "double_ref": p.get("double_ref", True),
+            "steps": p.get("steps"),
+        },
+    )
+    db.add(job)
+    await db.commit()
+    return asset.id
 
 
 # ── plate expansion / outpaint (KAN-43) ─────────────────────────────────────

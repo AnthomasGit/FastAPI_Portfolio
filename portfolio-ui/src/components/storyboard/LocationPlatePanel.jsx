@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ImageIcon, Expand, Check, Orbit } from 'lucide-react';
+import { Loader2, ImageIcon, Expand, Check, Orbit, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 
 // A location's wide, character-free establishing "plate" (Phase 4): the fixed
@@ -51,6 +51,7 @@ export function LocationPlatePanel({ location, projectId }) {
   });
   const anglesRendering = !!angleIds && !(angleAssets || []).every(
     (a) => a.status === 'completed' || a.status === 'failed');
+  const completedAngles = (angleAssets || []).filter((a) => a.status === 'completed' && a.image_url);
 
   const expand = useMutation({
     mutationFn: (preset) => api.expandPlate(location.id, { preset }),
@@ -64,10 +65,26 @@ export function LocationPlatePanel({ location, projectId }) {
     mutationFn: (assetImageId) => api.setLocationPlate(location.id, assetImageId),
     onSuccess: () => { setExpandJobId(null); invalidateProject(); },
   });
+  const regenAngle = useMutation({
+    mutationFn: (assetImageId) => api.regeneratePlateAngle(assetImageId),
+    // Re-render in place → resume polling the set (the row goes back to queued).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['asset-images', 'angles', angleIds] }),
+  });
+  const deleteAngle = useMutation({
+    mutationFn: (assetImageId) => api.deleteAssetImage(assetImageId),
+    onSuccess: (_r, assetImageId) => setAngleIds((ids) => (ids || []).filter((i) => i !== assetImageId)),
+  });
+  const keepAll = useMutation({
+    mutationFn: () => Promise.all(
+      completedAngles.map((a) => api.assignAssetImage('locations', location.id, a.id))),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['references', 'locations', location.id] });
+      setAngleIds(null);
+    },
+  });
 
   const busy = expanding || expand.isPending || promote.isPending
     || angles.isPending || anglesRendering;
-  const completedAngles = (angleAssets || []).filter((a) => a.status === 'completed' && a.image_url);
 
   return (
     <div className="mt-2.5 pt-2.5 border-t border-line/60">
@@ -150,25 +167,83 @@ export function LocationPlatePanel({ location, projectId }) {
         </div>
       )}
 
-      {/* Multi-angle 360 results: pick any to promote to the active plate. */}
-      {completedAngles.length > 0 && (
+      {/* Multi-angle 360 results: promote / regenerate / delete each; keep all
+          adds the set to the asset library. */}
+      {angleIds && (angleAssets || []).length > 0 && (
         <div className="mt-1.5">
-          <span className="text-[10px] uppercase tracking-wide text-fg-faint">360 angles</span>
-          <div className="grid grid-cols-3 gap-1.5 mt-1">
-            {completedAngles.map((a) => (
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] uppercase tracking-wide text-fg-faint">360 angles</span>
+            <div className="flex items-center gap-1">
               <button
-                key={a.id}
                 type="button"
-                onClick={() => promote.mutate(a.id)}
-                title={`${a.params?.angle_slot || 'angle'} — use as plate`}
-                className="group relative aspect-video rounded-frame border border-line hover:border-set overflow-hidden transition-colors"
+                onClick={() => keepAll.mutate()}
+                disabled={completedAngles.length === 0 || keepAll.isPending}
+                title="Add all of these to the asset library"
+                className="flex items-center gap-1 h-5 px-1.5 rounded-frame border border-lead-600 text-[10px] text-lead-400 hover:bg-lead-600/10 transition-colors disabled:opacity-40"
               >
-                <img src={api.getAssetImageFile(a.id)} alt="" className="w-full h-full object-cover" />
-                <span className="absolute inset-x-0 bottom-0 bg-bay-950/70 text-[9px] text-fg-muted px-1 py-0.5 truncate">
-                  {a.params?.angle_slot || 'angle'}
-                </span>
+                <Check className="w-3 h-3" /> Keep all
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => setAngleIds(null)}
+                title="Discard these (does not delete the images)"
+                className="h-5 px-1.5 rounded-frame border border-line text-[10px] text-fg-faint hover:text-fg transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(angleAssets || []).map((a) => {
+              const isDone = a.status === 'completed' && a.image_url;
+              const isFailed = a.status === 'failed';
+              return (
+                <div key={a.id} className="group relative aspect-video rounded-frame border border-line bg-bay-900 overflow-hidden">
+                  {isDone ? (
+                    <img src={api.getAssetImageFile(a.id)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      {isFailed
+                        ? <span className="text-[10px] text-stop">failed</span>
+                        : <Loader2 className="w-3.5 h-3.5 animate-spin text-fg-faint" />}
+                    </div>
+                  )}
+                  {/* Hover actions: regenerate + delete. */}
+                  <div className="absolute top-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => regenAngle.mutate(a.id)}
+                      title="Regenerate this angle"
+                      className="w-4 h-4 rounded flex items-center justify-center bg-bay-950/70 text-fg-faint hover:text-fg"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteAngle.mutate(a.id)}
+                      title="Delete this angle"
+                      className="w-4 h-4 rounded flex items-center justify-center bg-bay-950/70 text-fg-faint hover:text-stop"
+                    >
+                      <Trash2 className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                  {/* Slot label + promote. */}
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-bay-950/70 px-1 py-0.5">
+                    <span className="text-[9px] text-fg-muted truncate">{a.params?.angle_slot || 'angle'}</span>
+                    {isDone && (
+                      <button
+                        type="button"
+                        onClick={() => promote.mutate(a.id)}
+                        title="Use as plate"
+                        className="text-[9px] text-set hover:text-set/80 shrink-0"
+                      >
+                        set plate
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
