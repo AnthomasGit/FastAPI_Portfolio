@@ -3,6 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ShotStillCell } from './ShotStillCell';
+import { ShotRefsCell } from './ShotRefsCell';
+import { ShotAudioCell } from './ShotAudioCell';
+import { ShotPromptCell } from './ShotPromptCell';
 import { BadgeSelectCell } from './BadgeSelectCell';
 import { SHOT_SIZE, ANGLE, MOVEMENT, EQUIPMENT } from './shotOptions';
 import { shotReadiness } from './shotReadiness';
@@ -40,7 +43,7 @@ function EditCell({ value, field, shotId, sceneId, placeholder, wide, mono }) {
   );
 }
 
-export function ShotRow({ shot, sceneId, availableStills }) {
+export function ShotRow({ shot, sceneId, availableStills, scene }) {
   const queryClient = useQueryClient();
   const delMut = useMutation({
     mutationFn: () => api.deleteShot(shot.id),
@@ -87,6 +90,15 @@ export function ShotRow({ shot, sceneId, availableStills }) {
         <BadgeSelectCell value={shot.equipment} field="equipment" fieldConfig={EQUIPMENT} shotId={shot.id} sceneId={sceneId} />
       </td>
       <td className="px-2 py-2 min-w-[160px]">{cell('audio_notes', 'Audio / notes…', true)}</td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <ShotRefsCell shot={shot} sceneId={sceneId} scene={scene} />
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <ShotAudioCell shot={shot} sceneId={sceneId} />
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <ShotPromptCell shot={shot} sceneId={sceneId} />
+      </td>
       <td className="px-2 py-2 w-44">
         <ShotStillCell shot={shot} sceneId={sceneId} availableStills={availableStills} />
       </td>

@@ -6,7 +6,7 @@ import { sceneClipProgress } from './shotReadiness';
 
 const COLUMNS = [
   'Shot', 'State', 'Size', 'Angle', 'Move',
-  'Action', 'Rig', 'Audio / notes', 'Still · clip', '',
+  'Action', 'Rig', 'Audio / notes', 'Refs', 'Clip audio', 'Prompt', 'Still · clip', '',
 ];
 
 export function ShotList({ scene }) {
@@ -106,6 +106,7 @@ export function ShotList({ scene }) {
                     shot={shot}
                     sceneId={sceneId}
                     availableStills={availableStills}
+                    scene={scene}
                   />
                 ))
               )}

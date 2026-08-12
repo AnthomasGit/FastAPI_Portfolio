@@ -211,3 +211,22 @@ async def test_scene_entities_ordered_characters_locations_props(db_session, pro
     resolved = await resolve_scene_entities(scene.id, db_session)
     assert [t for t, _ in resolved] == ["character", "character", "location", "prop"]
     assert [e.name for _, e in resolved] == ["Ada", "Zed", "Bar", "Knife"]
+
+
+@pytest.mark.asyncio
+async def test_ordering_is_case_insensitive(db_session, project, scene):
+    """The shot list mirrors this order to show which SLOT each asset occupies,
+    and it sorts case-insensitively. Postgres' default collation puts uppercase
+    first ("TV" before "couch"), so a case-sensitive order here would make the
+    UI display slot numbers that disagree with the ones actually rendered.
+    """
+    for name in ("TV", "couch", "Remote", "table"):
+        p = Prop(id=str(uuid.uuid4()), project_id=project.id, name=name)
+        db_session.add(p)
+        await db_session.flush()
+        await db_session.execute(scene_props.insert().values(
+            scene_id=scene.id, prop_id=p.id))
+    await db_session.commit()
+
+    names = [e.name for _t, e in await resolve_scene_entities(scene.id, db_session)]
+    assert names == ["couch", "Remote", "table", "TV"]

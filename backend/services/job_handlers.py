@@ -22,7 +22,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
@@ -321,7 +321,11 @@ async def resolve_scene_entities(scene_id: str, db: AsyncSession) -> list[tuple[
         rows = (await db.execute(
             select(model).join(join)
             .where(join.c.scene_id == scene_id)
-            .order_by(model.name)
+            # lower(): the UI mirrors this ordering to show which slot each
+            # asset occupies, and it sorts case-insensitively. Postgres' default
+            # collation puts uppercase first ("TV" before "couch"), so without
+            # this the displayed slot numbers disagree with the real ones.
+            .order_by(func.lower(model.name))
         )).scalars().all()
         out += [(etype, r) for r in rows]
     return out
