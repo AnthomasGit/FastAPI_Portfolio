@@ -97,7 +97,19 @@ services:
     # Bumping this tag is then just `docker compose pull && docker compose up -d`.
     # megapak-pt211 (not slim) specifically: ships flash-attn prebuilt and
     # Torch 2.11.0+cu130, an exact match for Trellis2's prebuilt wheels.
-    image: yanwk/comfyui-boot:cu130-megapak-pt211
+    # DATED tag, not the floating one. The floating tag moves whenever upstream
+    # rebuilds, and a `docker compose pull` then silently changes the bundled
+    # ComfyUI underneath you — which is exactly how MiniMaxH3ReferenceToVideo
+    # disappeared: the container was recreated and re-seeded /root/ComfyUI from
+    # an older bundle (v0.29.2), which predates that core node.
+    #
+    # This build: ComfyUI v0.32.0 · python3.13 (3.13.14) · Torch 2.11.0+cu130.
+    # python3.13 and Torch 2.11 both matter — Trellis2 ships PREBUILT CUDA
+    # wheels under wheels/Linux/Torch2110/ tagged cp313, and there is no cp312
+    # or other-torch set for that pair. Check both before bumping this tag.
+    # (Note /usr/bin/python3 in this image is the distro's 3.12; ComfyUI and
+    # every pre-start.sh install run under python3.13 — do not confuse them.)
+    image: yanwk/comfyui-boot:cu130-megapak-pt211-20260812
     container_name: comfyui-backend
     ports:
       - "8188:8188"
