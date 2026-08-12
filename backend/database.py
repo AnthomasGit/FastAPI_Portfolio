@@ -193,7 +193,10 @@ class AssetImage(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     origin_project_id = Column(String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     entity_type = Column(String, nullable=False)   # 'character' | 'location' | 'prop'
-    kind = Column(String, nullable=False, default="txt2img")  # 'txt2img' | 'img2img'
+    # What the image IS: 'txt2img' | 'img2img' | 'plate' | 'sheet' | 'contact_sheet'.
+    # Unrelated to JobRecord.kind (the worker's handler-dispatch key) — e.g. a
+    # kind='txt2img' AssetImage is produced by a kind='asset_txt2img' job.
+    kind = Column(String, nullable=False, default="txt2img")
     source_reference_id = Column(String, ForeignKey("references.id", ondelete="SET NULL"), nullable=True)
     source_asset_image_id = Column(String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True)
     prompt = Column(Text, nullable=True)
@@ -504,7 +507,9 @@ class JobRecord(Base):
     error = Column(Text, nullable=True)
 
     # --- Job queue backbone (Phase 0) ---
-    # Dispatch key into the handler registry (services/job_handlers.py).
+    # Dispatch key into the handler registry (services/job_handlers.py), e.g.
+    # 'asset_txt2img' | 'scene_image' | 'location_plate' | 'video'. Distinct from
+    # the image rows' own `kind` (AssetImage/GeneratedImage), which label content.
     kind = Column(String, nullable=True)
     # Handler-specific inputs (prompt, seed policy, source ids, $from_parent refs).
     payload = Column(JSON, nullable=True)
