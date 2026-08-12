@@ -629,35 +629,17 @@ async def generate_video(
     prompt_text = motion_prompt or (image.prompt if image is not None else "") or ""
 
     # Build the injection overrides now — every file is resolved and validated
-    # above. The worker's build_video adds the seed and a fresh filename_prefix
-    # per attempt; graph pruning (which needs the loaded workflow) also happens
-    # there, driven by the reference counts recorded on the payload.
-    overrides = dict(_settings_overrides(cfg, settings))
-    if cfg["dual_prompt"]:
-        # PromptRelayEncode: identities up top, the beat-by-beat script below.
-        overrides["global_prompt"] = global_prompt or ""
-        overrides["local_prompts"] = local_prompts or prompt_text
-    else:
-        overrides["prompt"] = prompt_text
-    if source_image:
-        overrides["image"] = source_image
-    # An explicit first-frame reference overrides the still as the input image.
-    if first_frame_file:
-        overrides["image"] = first_frame_file
-    # Reference slots fill positionally; slot 1 doubles as "image" for the MSR
-    # graph, whose first LoadImage is subject #1 rather than a still.
-    for idx, filename in enumerate(reference_files):
-        overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
-    if background_file:
-        overrides["background_image"] = background_file
-    if last_frame_file:
-        overrides["last_frame"] = last_frame_file
-    if driving_video_file:
-        overrides["driving_video"] = driving_video_file
-    for idx, filename in enumerate(ref_video_files):
-        overrides["ref_video" if idx == 0 else f"ref_video{idx + 1}"] = filename
-    for idx, filename in enumerate(ref_audio_files):
-        overrides["ref_audio" if idx == 0 else f"ref_audio{idx + 1}"] = filename
+    # above. assemble_video_workflow adds the seed and a fresh filename_prefix
+    # per attempt; graph pruning (which needs the loaded workflow) happens there
+    # too, driven by the reference counts recorded on the payload.
+    overrides = compose_video_overrides(
+        cfg, settings,
+        prompt=prompt_text, global_prompt=global_prompt, local_prompts=local_prompts,
+        source_image=source_image, first_frame_file=first_frame_file,
+        reference_files=reference_files, background_file=background_file,
+        last_frame_file=last_frame_file, driving_video_file=driving_video_file,
+        ref_video_files=ref_video_files, ref_audio_files=ref_audio_files,
+    )
 
     video = GeneratedVideo(
         project_id=image.project_id if image is not None else None,
@@ -701,10 +683,70 @@ async def generate_video(
     return video_id
 
 
-async def build_video(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
-    cfg = VIDEO_WORKFLOWS[payload["workflow_key"]]
-    workflow_name = cfg["workflow"]
+def compose_video_overrides(cfg: dict, settings: dict, *, prompt: str = "",
+                            global_prompt: str | None = None,
+                            local_prompts: str | None = None,
+                            source_image: str | None = None,
+                            first_frame_file: str | None = None,
+                            reference_files: list[str] = (),
+                            background_file: str | None = None,
+                            last_frame_file: str | None = None,
+                            driving_video_file: str | None = None,
+                            ref_video_files: list[str] = (),
+                            ref_audio_files: list[str] = ()) -> dict:
+    """Map validated settings + already-staged filenames onto injection keys.
 
+    Pure — takes staged filenames, does no IO. Shared by the request-time
+    `video` path (generate_video) and the build-time `shot_clip` path, so the
+    positional slot convention lives in exactly one place. inject() silently
+    ignores keys a given graph's map doesn't expose, so passing a superset is
+    safe.
+    """
+    overrides = dict(_settings_overrides(cfg, settings))
+    if cfg["dual_prompt"]:
+        # PromptRelayEncode: identities up top, the beat-by-beat script below.
+        overrides["global_prompt"] = global_prompt or ""
+        overrides["local_prompts"] = local_prompts or prompt
+    else:
+        overrides["prompt"] = prompt
+    if source_image:
+        overrides["image"] = source_image
+    # An explicit first-frame reference overrides the still as the input image.
+    if first_frame_file:
+        overrides["image"] = first_frame_file
+    # Reference slots fill positionally; slot 1 doubles as "image" for the MSR
+    # graph, whose first LoadImage is subject #1 rather than a still. This
+    # ordering is also what binds slot N to <Subject N> in the H3 prompt.
+    for idx, filename in enumerate(reference_files):
+        overrides["image" if idx == 0 else f"image{idx + 1}"] = filename
+    if background_file:
+        overrides["background_image"] = background_file
+    if last_frame_file:
+        overrides["last_frame"] = last_frame_file
+    if driving_video_file:
+        overrides["driving_video"] = driving_video_file
+    for idx, filename in enumerate(ref_video_files):
+        overrides["ref_video" if idx == 0 else f"ref_video{idx + 1}"] = filename
+    for idx, filename in enumerate(ref_audio_files):
+        overrides["ref_audio" if idx == 0 else f"ref_audio{idx + 1}"] = filename
+    return overrides
+
+
+def assemble_video_workflow(cfg: dict, overrides: dict, *, seed: int, job_id: str,
+                            n_images: int = 0, n_videos: int = 0, n_audios: int = 0,
+                            last_frame_present: bool = False) -> tuple[dict, dict]:
+    """Load a video graph, prune its unused slots, inject, and return it.
+
+    THE choke point for slot pruning. An autogrow graph (R2V) ships every
+    reference slot present, each pointing at a placeholder filename; leaving an
+    unfilled one in makes ComfyUI reject the ENTIRE graph at validation while
+    still reporting success, which only surfaces later as a phantom "no output
+    file" failure. Every caller that builds a video workflow must come through
+    here rather than calling inject() directly, so pruning cannot be forgotten.
+
+    Returns (workflow, meta) where meta carries job_id/prefix for on_complete.
+    """
+    workflow_name = cfg["workflow"]
     workflow = load_workflow(workflow_name)
     if workflow.get("_placeholder"):
         raise RuntimeError(
@@ -713,22 +755,32 @@ async def build_video(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
         )
     node_map = load_node_map(workflow_name)
 
-    # Autogrow graphs (R2V) ship every reference slot present; drop the ones we
-    # won't fill before injecting, or ComfyUI rejects the whole graph.
     if cfg.get("autogrow_slots"):
-        workflow = _prune_autogrow_slots(
-            workflow, node_map,
-            payload["n_images"], payload["n_videos"], payload["n_audios"],
-        )
+        workflow = _prune_autogrow_slots(workflow, node_map, n_images, n_videos, n_audios)
     # I2V's optional last-frame slot must be removed when unused.
-    if cfg.get("last_frame") and not payload.get("last_frame_present"):
+    if cfg.get("last_frame") and not last_frame_present:
         workflow = _prune_optional_last_frame(workflow, node_map)
 
-    job_id = payload.get("job_id") or str(uuid.uuid4())
-    overrides = {**payload["overrides"], "seed": payload["seed"],
-                 "filename_prefix": job_id}
-    workflow = inject(workflow, node_map, overrides)
+    workflow = inject(workflow, node_map, {
+        **overrides, "seed": seed, "filename_prefix": job_id,
+    })
     return workflow, {"job_id": job_id, "prefix": job_id}
+
+
+async def build_video(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """The `video` kind: overrides were fully resolved at request time by
+    generate_video, so this only assembles. Contrast `shot_clip`, which resolves
+    its references at build time because a batch may run hours later."""
+    return assemble_video_workflow(
+        VIDEO_WORKFLOWS[payload["workflow_key"]],
+        payload["overrides"],
+        seed=payload["seed"],
+        job_id=payload.get("job_id") or str(uuid.uuid4()),
+        n_images=payload["n_images"],
+        n_videos=payload["n_videos"],
+        n_audios=payload["n_audios"],
+        last_frame_present=payload.get("last_frame_present", False),
+    )
 
 
 async def on_complete_video(payload: dict, outputs: dict, db: AsyncSession) -> None:

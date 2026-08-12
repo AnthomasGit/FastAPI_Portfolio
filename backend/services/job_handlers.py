@@ -28,8 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from database import (
-    AssetImage, GeneratedImage, Reference, Character, Location,
-    scene_characters, scene_locations,
+    AssetImage, GeneratedImage, Reference, Character, Location, Prop,
+    scene_characters, scene_locations, scene_props,
 )
 from services.comfyui_client import load_workflow, load_node_map, inject
 from services.image_workflows import resolve_workflow_name, aspect_ratio_label
@@ -214,6 +214,74 @@ async def build_asset_img2img(payload: dict, db: AsyncSession) -> tuple[dict, di
     return workflow, meta
 
 
+# ── entity primary-image staging (shared by scene stills and shot clips) ────
+#
+# "Primary image" differs per entity type: a Location's is its establishing
+# plate (falling back to its hero canonical), everything else is its canonical.
+# Centralised here because three callers need it — scene identity refs, the
+# scene background plate, and the per-shot H3 reference slots.
+
+def primary_asset_image_id(entity, entity_type: str) -> str | None:
+    """The AssetImage id to feed into generation for this entity, or None."""
+    if entity_type == "location":
+        return entity.plate_asset_image_id or entity.canonical_asset_image_id
+    return getattr(entity, "canonical_asset_image_id", None)
+
+
+def _staged_name(entity, entity_type: str) -> str:
+    # Location plates and character canonicals keep their historical names —
+    # existing tests assert on them.
+    suffix = "plate" if entity_type == "location" else "canon"
+    return f"{entity.id}_{suffix}.png"
+
+
+async def stage_entity_primary_image(entity, entity_type: str, db: AsyncSession) -> str | None:
+    """Stage an entity's primary image into COMFY_INPUT_DIR, returning the flat
+    input-relative filename, or None when there is nothing usable.
+
+    Generated images live in COMFY_OUTPUT_DIR under a subfolder but LoadImage
+    only reads COMFY_INPUT_DIR, so a flat copy is made first. Missing rows and
+    missing files are *skipped with a warning*, never raised: one absent
+    reference should degrade a render, not fail a whole overnight batch.
+    """
+    asset_id = primary_asset_image_id(entity, entity_type)
+    if not asset_id:
+        return None
+    asset = await db.get(AssetImage, asset_id)
+    if not asset or not asset.image_url:
+        return None
+    dest = _staged_name(entity, entity_type)
+    try:
+        return _stage_output_to_input(asset.image_url, dest)
+    except OSError:
+        logger.warning("%s %s: primary image missing on disk (%s) — skipped",
+                       entity_type, getattr(entity, "name", entity.id), asset.image_url)
+        return None
+
+
+async def resolve_scene_entities(scene_id: str, db: AsyncSession) -> list[tuple[str, object]]:
+    """A scene's linked entities as (entity_type, entity), deterministically
+    ordered: characters by name, then locations, then props.
+
+    Identity first is deliberate — when there are more entities than reference
+    slots, the tail is dropped, and losing a character's likeness is far more
+    visible than losing a prop.
+    """
+    out: list[tuple[str, object]] = []
+    for model, join, etype in (
+        (Character, scene_characters, "character"),
+        (Location, scene_locations, "location"),
+        (Prop, scene_props, "prop"),
+    ):
+        rows = (await db.execute(
+            select(model).join(join)
+            .where(join.c.scene_id == scene_id)
+            .order_by(model.name)
+        )).scalars().all()
+        out += [(etype, r) for r in rows]
+    return out
+
+
 async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
                                       max_slots: int) -> list[str]:
     """Stage the canonical identity images of a scene's linked characters as
@@ -221,8 +289,7 @@ async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
 
     A character without a canonical image is skipped (not an error). If more
     characters have canonical images than the workflow has slots, the extras are
-    dropped with a warning. Reuses the OUTPUT→INPUT staging pattern from
-    asset_image_service._resolve_source_image.
+    dropped with a warning.
     """
     chars = (await db.execute(
         select(Character).join(scene_characters)
@@ -233,27 +300,16 @@ async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
     staged: list[str] = []
     dropped: list[str] = []
     for char in chars:
+        # Characters use the canonical image only — never a plate.
         if not char.canonical_asset_image_id:
-            continue
-        asset = await db.get(AssetImage, char.canonical_asset_image_id)
-        if not asset or not asset.image_url:
             continue
         if len(staged) >= max_slots:
             dropped.append(char.name)
             continue
-        # Canonical images live in COMFY_OUTPUT_DIR under a subfolder; LoadImage
-        # only reads COMFY_INPUT_DIR, so stage a flat copy in first.
-        input_filename = f"{char.id}_canon.png"
-        try:
-            shutil.copy2(
-                os.path.join(COMFY_OUTPUT_DIR, asset.image_url),
-                os.path.join(COMFY_INPUT_DIR, input_filename),
-            )
-        except OSError:
-            logger.warning("identity ref for %s missing on disk (%s) — skipped",
-                           char.name, asset.image_url)
+        filename = await stage_entity_primary_image(char, "character", db)
+        if filename is None:
             continue
-        staged.append(input_filename)
+        staged.append(filename)
 
     if dropped:
         logger.warning("scene %s has more identity refs than the workflow's %d slots; "
@@ -274,6 +330,8 @@ async def resolve_scene_plate(scene_id: str, db: AsyncSession) -> str | None:
         .where(scene_locations.c.scene_id == scene_id)
         .order_by(Location.name)
     )).scalars().all()
+    # Strictly the plate here, never the canonical fallback: this is the scene's
+    # *background*, and a hero location shot would be the wrong image entirely.
     plated = [l for l in locs if l.plate_asset_image_id]
     if not plated:
         return None
@@ -281,17 +339,7 @@ async def resolve_scene_plate(scene_id: str, db: AsyncSession) -> str | None:
     if len(plated) > 1:
         logger.info("scene %s has %d plated locations; using '%s'",
                     scene_id, len(plated), loc.name)
-    asset = await db.get(AssetImage, loc.plate_asset_image_id)
-    if not asset or not asset.image_url:
-        return None
-    input_filename = f"{loc.id}_plate.png"
-    try:
-        _stage_output_to_input(asset.image_url, input_filename)
-    except OSError:
-        logger.warning("plate for location %s missing on disk (%s) — skipped",
-                       loc.name, asset.image_url)
-        return None
-    return input_filename
+    return await stage_entity_primary_image(loc, "location", db)
 
 
 async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
