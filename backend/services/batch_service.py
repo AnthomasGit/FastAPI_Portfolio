@@ -71,6 +71,16 @@ def free_output_bytes() -> int:
         return 1 << 60
 
 
+# Some kinds operate on a finer grain than the scope names. A project-scope
+# `shot_clip` batch means "every shot in every scene", not "every scene" — the
+# scope says WHICH part of the project, the grain says what a job is ABOUT.
+TARGET_GRAIN = {"shot_clip": "shot"}
+
+
+def target_grain(kind: str | None) -> str:
+    return TARGET_GRAIN.get(kind or "", "scene")
+
+
 async def estimate_output_bytes(spec: dict, db: AsyncSession) -> tuple[int, int]:
     """Return (estimated_bytes, job_count) for a spec without creating anything."""
     scope = spec.get("scope")
@@ -78,20 +88,44 @@ async def estimate_output_bytes(spec: dict, db: AsyncSession) -> tuple[int, int]
         raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
     variants = max(1, int(spec.get("variants") or 1))
     target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
-    targets = await _resolve_targets(scope, target_ids, db)
+    # Grain must match what create_batch will use or the estimate counts scenes
+    # while the batch renders shots — off by the whole shot-list multiplier.
+    targets = await _resolve_targets(scope, target_ids, db, grain=target_grain(spec.get("kind")))
     job_count = len(targets) * variants
     return job_count * _avg_bytes(spec.get("kind")), job_count
 
 
-async def _resolve_targets(scope: str, target_ids: list[str], db: AsyncSession):
-    """Return an ordered list of (target_type, target_id, obj) for the scope."""
+async def _resolve_targets(scope: str, target_ids: list[str], db: AsyncSession,
+                           grain: str = "scene"):
+    """Return an ordered list of (target_type, target_id, obj) for the scope.
+
+    `grain` refines project/scene scopes down to shots for kinds whose unit of
+    work is a shot. NOTE: scope="shot" takes SCENE ids despite its name — it
+    means "the shots of these scenes", and predates the grain concept.
+    """
     target_ids = target_ids or []
     if scope == "project":
+        if grain == "shot":
+            # Story order across scenes: an overnight run should render the film
+            # front to back, so a partial result is still watchable in sequence.
+            rows = (await db.execute(
+                select(Shot).join(Scene, Shot.scene_id == Scene.id)
+                .where(Scene.project_id.in_(target_ids))
+                .order_by(Scene.sort_order, Shot.sort_order)
+            )).scalars().all()
+            return [("shot", s.id, s) for s in rows]
         rows = (await db.execute(
             select(Scene).where(Scene.project_id.in_(target_ids)).order_by(Scene.sort_order)
         )).scalars().all()
         return [("scene", s.id, s) for s in rows]
     if scope == "scene":
+        if grain == "shot":
+            rows = (await db.execute(
+                select(Shot).join(Scene, Shot.scene_id == Scene.id)
+                .where(Shot.scene_id.in_(target_ids))
+                .order_by(Scene.sort_order, Shot.sort_order)
+            )).scalars().all()
+            return [("shot", s.id, s) for s in rows]
         rows = (await db.execute(
             select(Scene).where(Scene.id.in_(target_ids)).order_by(Scene.sort_order)
         )).scalars().all()
@@ -145,6 +179,45 @@ async def _materialize_scene_image(target_type, target_id, spec, seed, base, pri
 
 
 register_materializer("scene_image", _materialize_scene_image)
+
+
+async def _materialize_shot_clip(target_type, target_id, spec, seed, base, priority, db):
+    """One H3 reference-to-video clip for one shot.
+
+    The payload deliberately carries ids and knobs only: references, prompt and
+    audio are resolved at BUILD time (see shot_clip_service), because a batch may
+    sit queued for hours and staged files or canonical picks can change in the
+    meantime. The owning GeneratedVideo is created here so the Queue shows a
+    placeholder immediately and a cancel has a row to reflect onto.
+    """
+    from services.shot_clip_service import create_shot_clip_rows, DEFAULT_SHOT_CLIP_WORKFLOW
+
+    shot = await db.get(Shot, target_id)
+    if shot is None:
+        raise ValueError(f"Shot {target_id} not found")
+
+    video = await create_shot_clip_rows(shot, spec, seed, db)
+    # The shot's own audio pick, unless the spec overrides it for the whole run.
+    audio_ids = spec.get("ref_audio_ids")
+    if audio_ids is None:
+        audio_ids = [shot.reference_audio_id] if shot.reference_audio_id else []
+
+    payload = {k: v for k, v in base.items() if k != "workflow"}
+    return [JobRecord(
+        kind="shot_clip", status="queued", seed=seed, priority=priority, max_attempts=1,
+        entity_type="generated_video", entity_id=video.id,
+        payload={
+            **payload,
+            "shot_id": shot.id,
+            "workflow_key": spec.get("workflow") or DEFAULT_SHOT_CLIP_WORKFLOW,
+            "generated_video_id": video.id,
+            "ref_audio_ids": audio_ids,
+            "params": spec.get("params") or {},
+        },
+    )]
+
+
+register_materializer("shot_clip", _materialize_shot_clip)
 
 
 async def _materialize_job(target_type, target_id, spec, seed, db) -> list[JobRecord]:
@@ -246,7 +319,8 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     run_after = parse_run_after(spec.get("run_after"))  # raises ValueError -> router 422
     # project scope defaults to the batch's own project when no targets given.
     target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
-    targets = await _resolve_targets(scope, target_ids, db)
+    targets = await _resolve_targets(scope, target_ids, db,
+                                     grain=target_grain(spec.get("kind")))
 
     batch = Batch(
         project_id=spec["project_id"],
@@ -327,13 +401,22 @@ async def assemble_batch(spec: dict, db: AsyncSession) -> dict:
     scope, unrunnable chain) propagate as 422 too."""
     from services.workflow_registry import validate_params
 
+    kind = spec.get("kind")
     if not spec.get("chain"):
-        unknown = validate_params(spec.get("kind"), spec.get("workflow"), spec.get("params") or {})
-        if unknown:
-            raise BatchValidationError(
-                f"Unknown workflow param(s) for kind '{spec.get('kind')}': "
-                f"{', '.join(sorted(unknown))}."
-            )
+        if kind == "shot_clip":
+            # Video workflows live in their OWN registry, keyed by workflow key
+            # (e.g. "minimax_h3_r2v"), whereas workflow_registry is keyed by
+            # ComfyUI graph name — validating against the wrong namespace would
+            # reject every valid spec. Validate here so a bad knob 422s before
+            # N jobs exist, as well as at build time where it runs again.
+            _validate_video_spec(spec)
+        else:
+            unknown = validate_params(kind, spec.get("workflow"), spec.get("params") or {})
+            if unknown:
+                raise BatchValidationError(
+                    f"Unknown workflow param(s) for kind '{kind}': "
+                    f"{', '.join(sorted(unknown))}."
+                )
     try:
         parse_run_after(spec.get("run_after"))
     except ValueError as e:
@@ -343,12 +426,66 @@ async def assemble_batch(spec: dict, db: AsyncSession) -> dict:
     if estimated_bytes * DISK_SAFETY_MARGIN > free_output_bytes():
         raise InsufficientDiskError(estimated_bytes, free_output_bytes())
 
+    # Resolve (without staging) what each target would render with, so the
+    # caller learns about unusable targets NOW rather than from a 3am failure.
+    warnings = await preflight(spec, db)
+
     batch, jobs = await create_batch(spec, db)
     return {
         "batch_id": batch.id,
         "job_count": len(jobs),
         "estimated_output_bytes": estimated_bytes,
+        "warnings": warnings,
     }
+
+
+def _validate_video_spec(spec: dict) -> None:
+    """Validate a shot-clip spec against the VIDEO_WORKFLOWS registry."""
+    from services.video_service import VIDEO_WORKFLOWS, _resolve_settings
+    from services.shot_clip_service import DEFAULT_SHOT_CLIP_WORKFLOW
+
+    key = spec.get("workflow") or DEFAULT_SHOT_CLIP_WORKFLOW
+    cfg = VIDEO_WORKFLOWS.get(key)
+    if cfg is None:
+        raise BatchValidationError(
+            f"Unknown video workflow '{key}' "
+            f"(known: {', '.join(sorted(VIDEO_WORKFLOWS))})."
+        )
+    try:
+        _resolve_settings(cfg, spec.get("params") or {})
+    except ValueError as e:
+        raise BatchValidationError(str(e)) from e
+
+
+async def preflight(spec: dict, db: AsyncSession) -> list[dict]:
+    """Per-target warnings for a spec, without creating or staging anything.
+
+    Only shot clips have a meaningful preflight today: a shot whose scene has no
+    asset with a primary image cannot render at all, and finding that out at
+    creation time (when the dialog can show it) is worth a cheap extra query.
+    """
+    if spec.get("kind") != "shot_clip" or spec.get("chain"):
+        return []
+    from services.job_handlers import resolve_scene_entities, select_shot_entities, primary_asset_image_id
+
+    scope = spec.get("scope")
+    target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
+    targets = await _resolve_targets(scope, target_ids, db, grain="shot")
+
+    warnings: list[dict] = []
+    entities_by_scene: dict[str, list] = {}
+    for _t, _id, shot in targets:
+        if shot.scene_id not in entities_by_scene:
+            entities_by_scene[shot.scene_id] = await resolve_scene_entities(shot.scene_id, db)
+        picked = await select_shot_entities(shot, entities_by_scene[shot.scene_id], db)
+        usable = [e for etype, e in picked if primary_asset_image_id(e, etype)]
+        if not usable:
+            warnings.append({
+                "shot_id": shot.id,
+                "shot_number": shot.shot_number,
+                "reason": "no referenced asset has a primary image",
+            })
+    return warnings
 
 
 async def _maybe_color_match_job(source_job, target_type, target_id, spec, batch, db):
