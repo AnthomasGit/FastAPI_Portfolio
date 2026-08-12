@@ -41,11 +41,12 @@ KIND_AVG_BYTES = {
     "controlled_image": 2_500_000,
     "video": 15_000_000,
     "mesh": 8_000_000,
-    # A 10s MiniMax H3 clip is far and away the heaviest artifact we produce, and
-    # a shot-clip batch is the *largest* batch (one per shot, not per scene) — so
-    # a wrong number here disables the disk guard exactly where it matters most.
-    # PROVISIONAL: measure a real clip and retune.
-    "shot_clip": 40_000_000,
+    # MEASURED: a real 10s H3 clip at the default 0.3 megapixels came out at
+    # 555 KB (h264 736x416 + aac). Padded ~7x because megapixels is user-facing
+    # (up to 1.0) and duration up to 15s, both of which scale the output. The
+    # earlier 40 MB placeholder over-estimated by ~70x, which would have
+    # rejected batches that fit comfortably.
+    "shot_clip": 4_000_000,
     # Sheet kinds fan out to ~10 cells per target, so the per-job average is one
     # cell; the job count already reflects the fan-out.
     "character_sheet": 2_000_000,
