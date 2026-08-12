@@ -248,6 +248,11 @@ export const api = {
   // Selectable txt2img models for the "set image" popup's model picker.
   listImageWorkflows: () => fetchJSON('/image-workflows'),
 
+  // Workflow registry (KAN-45): each entry carries the param schema the UI
+  // renders controls from (KAN-46). Optional kind filter: image|video|3d|post.
+  listWorkflows: (kind) => fetchJSON(`/workflows${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
+  listChains: () => fetchJSON('/chains'),
+
   listAssetImages: (params = {}) => {
     const qs = new URLSearchParams();
     if (params.entity_type) qs.set('entity_type', params.entity_type);

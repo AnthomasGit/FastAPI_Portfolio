@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ListPlus } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, ListPlus, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { WorkflowParams } from '../workflow/WorkflowParams';
 import { api } from '../../lib/api';
 
 // run_after presets map to the backend's parse_run_after vocabulary.
@@ -13,10 +14,28 @@ const START_OPTIONS = [
   { value: '+4h', label: 'In 4 hours' },
 ];
 
+// The plain scene-still graph a project batch renders through. Its registry
+// schema drives the advanced controls below.
+const SCENE_STILL_WORKFLOW = 'image_z_image_turbo';
+
 export function GenerateEverythingDialog({ projectId, open, onOpenChange, onCreated }) {
   const queryClient = useQueryClient();
   const [variants, setVariants] = useState('1');
   const [start, setStart] = useState('now');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [params, setParams] = useState({});
+  const [openSelect, setOpenSelect] = useState(null);
+
+  const { data: workflows = [] } = useQuery({
+    queryKey: ['workflows', 'image'],
+    queryFn: () => api.listWorkflows('image').then((r) => r.workflows),
+    enabled: open,
+  });
+  const stillWorkflow = workflows.find((w) => w.name === SCENE_STILL_WORKFLOW);
+  // A batch renders one prompt per scene (built server-side), so a single
+  // global prompt override makes no sense here — expose only the non-prompt
+  // knobs (size, etc.). Image slots/seed are already filtered by group.
+  const batchParams = (stillWorkflow?.params || []).filter((p) => p.type !== 'text');
 
   const create = useMutation({
     mutationFn: () =>
@@ -27,6 +46,7 @@ export function GenerateEverythingDialog({ projectId, open, onOpenChange, onCrea
         variants: Number(variants),
         seed_policy: 'random',
         run_after: start === 'now' ? null : start,
+        params: Object.keys(params).length ? params : undefined,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['project-batches', projectId] });
@@ -50,7 +70,8 @@ export function GenerateEverythingDialog({ projectId, open, onOpenChange, onCrea
         <div className="mt-4 grid grid-cols-2 gap-4">
           <label className="block">
             <span className="label-slug block mb-1.5">Variants / scene</span>
-            <Select value={variants} onValueChange={setVariants}>
+            <Select value={variants} onValueChange={setVariants} modal={false}
+              open={openSelect === 'variants'} onOpenChange={(v) => setOpenSelect(v ? 'variants' : null)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {['1', '2', '3', '4'].map((v) => (
@@ -62,7 +83,8 @@ export function GenerateEverythingDialog({ projectId, open, onOpenChange, onCrea
 
           <label className="block">
             <span className="label-slug block mb-1.5">Start</span>
-            <Select value={start} onValueChange={setStart}>
+            <Select value={start} onValueChange={setStart} modal={false}
+              open={openSelect === 'start'} onOpenChange={(v) => setOpenSelect(v ? 'start' : null)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {START_OPTIONS.map((o) => (
@@ -72,6 +94,31 @@ export function GenerateEverythingDialog({ projectId, open, onOpenChange, onCrea
             </Select>
           </label>
         </div>
+
+        {batchParams.length > 0 && (
+          <div className="mt-4 border-t border-line pt-3">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((s) => !s)}
+              className="flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg transition-colors"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              Advanced parameters
+              <ChevronDown className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            </button>
+            {showAdvanced && (
+              <div className="mt-3">
+                <WorkflowParams
+                  params={batchParams}
+                  values={params}
+                  onChange={setParams}
+                  openSelect={openSelect}
+                  setOpenSelect={setOpenSelect}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {create.isError && (
           <p role="alert" className="mt-3 rounded-frame border border-stop/40 bg-stop/10 px-3 py-2 text-xs text-stop">
