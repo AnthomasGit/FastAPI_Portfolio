@@ -2,9 +2,8 @@
 
 The two invariants worth protecting:
   * commit is idempotent (references dedupe, approvals only set once), and
-  * a deliberate canonical/plate pick is NEVER overwritten by a later batch —
-    a silently re-canonicalised character is invisible until a whole render
-    comes back wrong.
+  * committing only creates the pool Reference — there is no global canonical
+    to overwrite, so a scene that has picked keeps its choice untouched.
 """
 import uuid
 
@@ -115,7 +114,7 @@ async def test_deleted_artifact_disappears_from_the_grid(db_session, project):
 # ── commit ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_commit_links_references_and_fills_empty_canonical(db_session, project):
+async def test_commit_links_the_reference(db_session, project):
     batch = await _batch(db_session, project)
     prop = await _prop(db_session, project)
     asset = await _sheet_artifact(db_session, project, batch, prop, "prop")
@@ -123,34 +122,36 @@ async def test_commit_links_references_and_fills_empty_canonical(db_session, pro
 
     counts = await commit_batch(batch, db_session)
     assert counts["references_created"] == 1
-    assert counts["canonical_set"] == 1
 
+    # Creating the Reference IS the commit: a scene with no explicit pick
+    # inherits the entity's newest reference, so this is immediately usable.
     refs = (await db_session.execute(select(Reference).where(
         Reference.entity_id == prop.id))).scalars().all()
     assert len(refs) == 1 and refs[0].asset_image_id == asset.id
-    await db_session.refresh(prop)
-    assert prop.canonical_asset_image_id == asset.id
     assert batch.committed_at is not None
 
 
 @pytest.mark.asyncio
-async def test_commit_never_overwrites_an_existing_pick(db_session, project):
-    """The whole point: a deliberate choice must survive a later batch."""
-    chosen = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
-                        entity_type="prop", status="completed", image_url="chosen.png")
+async def test_commit_leaves_an_explicit_scene_pick_alone(db_session, project, scene):
+    """A deliberate per-scene choice must survive a later batch."""
+    from database import scene_props
+    prop = await _prop(db_session, project)
+    chosen = Reference(id=str(uuid.uuid4()), entity_type="prop", entity_id=prop.id,
+                       role="moodboard", url="chosen.png")
     db_session.add(chosen)
     await db_session.flush()
-    prop = await _prop(db_session, project, canonical_asset_image_id=chosen.id)
+    await db_session.execute(scene_props.insert().values(
+        scene_id=scene.id, prop_id=prop.id, reference_id=chosen.id))
     batch = await _batch(db_session, project)
     await _sheet_artifact(db_session, project, batch, prop, "prop")
     await db_session.commit()
 
     counts = await commit_batch(batch, db_session)
-    assert counts["canonical_set"] == 0
-    await db_session.refresh(prop)
-    assert prop.canonical_asset_image_id == chosen.id      # untouched
-    # …but it is still added to the pool.
-    assert counts["references_created"] == 1
+    assert counts["references_created"] == 1        # added to the pool…
+
+    from services.job_handlers import scene_primary_reference
+    still = await scene_primary_reference(scene.id, "prop", prop.id, db_session)
+    assert still.id == chosen.id                    # …but the scene keeps its pick
 
 
 @pytest.mark.asyncio
@@ -165,14 +166,13 @@ async def test_commit_is_idempotent(db_session, project, scene):
     assert first["references_created"] == 1 and first["clips_approved"] == 1
 
     second = await commit_batch(batch, db_session)
-    assert second == {"references_created": 0, "canonical_set": 0, "plates_set": 0,
-                      "clips_approved": 0, "skipped": 0}
+    assert second == {"references_created": 0, "clips_approved": 0, "skipped": 0}
     refs = (await db_session.execute(select(Reference))).scalars().all()
     assert len(refs) == 1          # no duplicate pool row
 
 
 @pytest.mark.asyncio
-async def test_location_plate_artifact_sets_the_plate_not_canonical(db_session, project):
+async def test_location_plate_artifact_becomes_a_reference(db_session, project):
     loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Bar")
     db_session.add(loc)
     await db_session.flush()
@@ -181,10 +181,10 @@ async def test_location_plate_artifact_sets_the_plate_not_canonical(db_session, 
     await db_session.commit()
 
     counts = await commit_batch(batch, db_session)
-    assert counts["plates_set"] == 1 and counts["canonical_set"] == 0
-    await db_session.refresh(loc)
-    assert loc.plate_asset_image_id == asset.id
-    assert loc.canonical_asset_image_id is None
+    assert counts["references_created"] == 1
+    refs = (await db_session.execute(select(Reference).where(
+        Reference.entity_id == loc.id))).scalars().all()
+    assert [r.asset_image_id for r in refs] == [asset.id]
 
 
 @pytest.mark.asyncio

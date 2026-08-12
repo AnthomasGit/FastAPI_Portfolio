@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from database import (
-    AssetImage, Character, Location, Prop, Shot, GeneratedVideo,
+    AssetImage, Character, Location, Prop, Reference, Shot, GeneratedVideo,
     scene_characters, scene_locations, scene_props,
 )
 import services.job_handlers as jh
@@ -38,20 +38,33 @@ def dirs(tmp_path, monkeypatch):
     return out_dir, in_dir
 
 
+_ETYPE = {Character: "character", Location: "location", Prop: "prop"}
+
+
 async def _with_image(db_session, project, out_dir, model, name, **kw):
+    """An entity plus a Reference holding its art.
+
+    Art reaches generation through References now, not a global canonical
+    column: the scene's own pick (scene_<type>.reference_id) wins, else the
+    entity's newest reference.
+    """
+    etype = _ETYPE[model]
     rel = f"assets/{project.id}/{name}.png"
     os.makedirs(os.path.join(out_dir, os.path.dirname(rel)), exist_ok=True)
     with open(os.path.join(out_dir, rel), "wb") as f:
         f.write(b"img")
     asset = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
-                       entity_type="character", status="completed", image_url=rel)
+                       entity_type=etype, status="completed", image_url=rel)
     db_session.add(asset)
     await db_session.flush()
-    field = "plate_asset_image_id" if model is Location else "canonical_asset_image_id"
-    entity = model(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                   **{field: asset.id}, **kw)
+    entity = model(id=str(uuid.uuid4()), project_id=project.id, name=name, **kw)
     db_session.add(entity)
     await db_session.flush()
+    ref = Reference(id=str(uuid.uuid4()), entity_type=etype, entity_id=entity.id,
+                    role="moodboard", url=rel, asset_image_id=asset.id)
+    db_session.add(ref)
+    await db_session.flush()
+    entity._ref_id = ref.id          # tests assert on the staged filename
     return entity
 
 
@@ -96,7 +109,7 @@ async def test_references_ordered_characters_location_props(db_session, project,
     assert [e.name for _, e in entities] == ["Ada", "Zed", "Bar", "Knife"]
     # index-aligned with the filenames that fill image1..image4
     assert len(files) == 4
-    assert files[2] == f"{bar.id}_plate.png"
+    assert files[2] == f"{bar._ref_id}_ref.png"
 
 
 @pytest.mark.asyncio
@@ -170,8 +183,8 @@ async def test_references_land_on_slots_in_order(db_session, project, scene, dir
     shot = await _shot(db_session, scene)
 
     workflow, _ = await build_shot_clip(_payload(shot), db_session)
-    assert workflow[MAP["image_node"]]["inputs"]["image"] == f"{ada.id}_canon.png"
-    assert workflow[MAP["image2_node"]]["inputs"]["image"] == f"{bar.id}_plate.png"
+    assert workflow[MAP["image_node"]]["inputs"]["image"] == f"{ada._ref_id}_ref.png"
+    assert workflow[MAP["image2_node"]]["inputs"]["image"] == f"{bar._ref_id}_ref.png"
 
 
 @pytest.mark.asyncio
@@ -204,8 +217,8 @@ async def test_clip_refs_override_limits_and_reorders_slots(db_session, project,
     ])
 
     workflow, _ = await build_shot_clip(_payload(shot), db_session)
-    assert workflow[MAP["image_node"]]["inputs"]["image"] == f"{bar.id}_plate.png"
-    assert workflow[MAP["image2_node"]]["inputs"]["image"] == f"{ada.id}_canon.png"
+    assert workflow[MAP["image_node"]]["inputs"]["image"] == f"{bar._ref_id}_ref.png"
+    assert workflow[MAP["image2_node"]]["inputs"]["image"] == f"{ada._ref_id}_ref.png"
     assert MAP["image_slots"][2] not in workflow      # prop excluded by the override
 
 

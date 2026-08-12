@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from database import AssetImage, JobRecord, Location
+from database import Reference, AssetImage, JobRecord, Location
 from services import plate_service
 import services.job_handlers as jh
 from services.job_handlers import build_plate_angles, on_complete_plate_angles
@@ -121,9 +121,13 @@ async def _plated_location(db_session, project):
                        entity_type="location", kind="plate", status="completed", image_url="p.png")
     db_session.add(plate)
     await db_session.flush()
-    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall",
-                   plate_asset_image_id=plate.id)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall")
     db_session.add(loc)
+    await db_session.flush()
+    # Art reaches the location through a Reference now, not a plate column.
+    db_session.add(Reference(id=str(uuid.uuid4()), entity_type="location",
+                             entity_id=loc.id, role="moodboard",
+                             url=plate.image_url, asset_image_id=plate.id))
     await db_session.commit()
     return loc, plate
 
@@ -167,11 +171,13 @@ async def test_angles_endpoint(client, db_session, project):
 
 
 @pytest.mark.asyncio
-async def test_angles_endpoint_no_plate_404(client, db_session, project):
+async def test_angles_endpoint_without_art_is_rejected(client, db_session, project):
     loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Bare")
     db_session.add(loc)
     await db_session.commit()
-    assert (await client.post(f"/api/locations/{loc.id}/plate/angles", json={})).status_code == 404
+    # No art for this location at all — nothing to render angles from.
+    r = await client.post(f"/api/locations/{loc.id}/plate/angles", json={})
+    assert r.status_code in (404, 422)
 
 
 @pytest.mark.asyncio

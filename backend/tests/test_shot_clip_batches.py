@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 
 from database import (
-    AssetImage, Batch, Character, GeneratedVideo, JobRecord, Scene, Shot,
+    AssetImage, Batch, Character, GeneratedVideo, JobRecord, Reference, Scene, Shot,
     scene_characters,
 )
 import services.job_handlers as jh
@@ -38,9 +38,12 @@ async def _character_with_image(db_session, project, scene, out_dir, name="Ada")
                        entity_type="character", status="completed", image_url=rel)
     db_session.add(asset)
     await db_session.flush()
-    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                     canonical_asset_image_id=asset.id)
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name)
     db_session.add(char)
+    await db_session.flush()
+    db_session.add(Reference(id=str(uuid.uuid4()), entity_type="character",
+                             entity_id=char.id, role="moodboard",
+                             url=rel, asset_image_id=asset.id))
     await db_session.flush()
     await db_session.execute(scene_characters.insert().values(
         scene_id=scene.id, character_id=char.id))

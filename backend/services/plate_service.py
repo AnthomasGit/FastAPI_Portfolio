@@ -5,12 +5,13 @@ once and reused as the background across every scene set there (KAN-42) instead
 of re-inventing the environment each time. It is a plain txt2img built from the
 location's ``prompt_profile`` plus explicit "empty environment" framing, at a
 wide aspect ratio, tagged ``AssetImage(kind="plate")``; the ``location_plate``
-job's completion points ``Location.plate_asset_image_id`` at the result.
+job's completion adds the result as a Reference on the location.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AssetImage, JobRecord, Location
 from services.prompt_builder import location_prompt
+from services.reference_service import newest_asset_image_id
 
 # Wide establishing default (16:9-ish); the z-image workflow exposes width/height.
 DEFAULT_PLATE_WIDTH = 1344
@@ -144,7 +145,7 @@ async def generate_location_plate(
 ) -> str:
     """Enqueue a wide, character-free plate render for a location. Returns the
     AssetImage id; the worker runs it and its completion sets the location's
-    ``plate_asset_image_id`` (see job_handlers.on_complete_location_plate)."""
+    reference (see job_handlers.on_complete_location_plate)."""
     prompt = build_plate_prompt(location)
     width = width or DEFAULT_PLATE_WIDTH
     height = height or DEFAULT_PLATE_HEIGHT
@@ -203,14 +204,14 @@ async def create_plate_angles(
     {front_asset_image_id, asset_image_ids}. Raises ValueError (router → 404/422)
     if there is no plate or no angles.
     """
-    if not location.plate_asset_image_id:
-        raise ValueError("Location has no plate to render angles from")
+    source_id = await newest_asset_image_id(db, "location", location.id)
+    if not source_id:
+        raise ValueError("Location has no image to render angles from")
     angles = angles if angles is not None else [dict(a) for a in DEFAULT_ANGLES]
     angles = [a for a in angles if a and a.get("slot")]
     if not angles:
         raise ValueError("Need at least one angle")
 
-    source_id = location.plate_asset_image_id
 
     def _asset(slot, prompt):
         a = AssetImage(
@@ -324,7 +325,8 @@ async def expand_location_plate(
     the new AssetImage id, linked back to the source plate via
     ``source_asset_image_id``. Raises ValueError if the location has no plate or
     the expansion is empty/unknown (router → 404/422)."""
-    if not location.plate_asset_image_id:
+    source_id = await newest_asset_image_id(db, "location", location.id)
+    if not source_id:
         raise ValueError("Location has no plate to expand")
     expand = resolve_expansion(preset, amounts)
 
@@ -334,8 +336,8 @@ async def expand_location_plate(
         kind="plate",
         prompt=prompt,
         status="queued",
-        source_asset_image_id=location.plate_asset_image_id,
-        params={"location_id": location.id, "expanded_from": location.plate_asset_image_id,
+        source_asset_image_id=source_id,
+        params={"location_id": location.id, "expanded_from": source_id,
                 "preset": preset, **expand},
     )
     db.add(asset)
@@ -346,7 +348,7 @@ async def expand_location_plate(
         entity_type="asset_image", entity_id=asset.id,
         payload={
             "project_id": location.project_id,
-            "source_asset_image_id": location.plate_asset_image_id,
+            "source_asset_image_id": source_id,
             "asset_image_id": asset.id,
             "location_id": location.id,
             "prompt": prompt,

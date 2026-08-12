@@ -101,10 +101,9 @@ class Character(Base):
     # Structured, repeatable visual tokens for consistent generation (KAN-32).
     # Shape: {appearance, wardrobe, palette, negative: [tokens], locked_seed, notes}.
     prompt_profile = Column(JSON, nullable=True)
-    # The entity's "hero" image, fed in as an identity reference (KAN-36).
-    canonical_asset_image_id = Column(
-        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
-    )
+    # NOTE: no canonical/plate image column. An asset's reference image is chosen
+    # PER SCENE via scene_<type>.reference_id (falling back to the entity's newest
+    # Reference), so the same character can change wardrobe between scenes.
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="characters")
@@ -125,15 +124,9 @@ class Location(Base):
     description = Column(Text, nullable=True)
     shot_notes = Column(Text, nullable=True)
     prompt_profile = Column(JSON, nullable=True)  # see Character (KAN-32)
-    canonical_asset_image_id = Column(
-        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
-    )
-    # A wide, character-free establishing render of this location, reused as the
-    # background across every scene set here (KAN-41). Distinct from the hero
-    # canonical image above: the plate is deliberately empty scenery.
-    plate_asset_image_id = Column(
-        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
-    )
+    # NOTE: no canonical/plate image column. An asset's reference image is chosen
+    # PER SCENE via scene_<type>.reference_id (falling back to the entity's newest
+    # Reference), so the same character can change wardrobe between scenes.
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="locations")
@@ -153,9 +146,9 @@ class Prop(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     prompt_profile = Column(JSON, nullable=True)  # see Character (KAN-32)
-    canonical_asset_image_id = Column(
-        String, ForeignKey("asset_images.id", ondelete="SET NULL"), nullable=True
-    )
+    # NOTE: no canonical/plate image column. An asset's reference image is chosen
+    # PER SCENE via scene_<type>.reference_id (falling back to the entity's newest
+    # Reference), so the same character can change wardrobe between scenes.
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="props")

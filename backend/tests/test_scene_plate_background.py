@@ -4,13 +4,14 @@ import uuid
 
 import pytest
 
-from database import Character, Location, AssetImage, scene_characters, scene_locations
+from database import Reference, Character, Location, AssetImage, scene_characters, scene_locations
 import services.job_handlers as jh
 from services.job_handlers import build_scene_image, resolve_scene_plate
 
 
 async def _plated_location(db_session, project, scene, name, out_dir, *, plate=True):
     asset_id = None
+    rel = None
     if plate:
         rel = f"assets/{project.id}/locations/{name}_plate.png"
         os.makedirs(os.path.join(out_dir, os.path.dirname(rel)), exist_ok=True)
@@ -22,10 +23,16 @@ async def _plated_location(db_session, project, scene, name, out_dir, *, plate=T
         db_session.add(asset)
         await db_session.flush()
         asset_id = asset.id
-    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                   plate_asset_image_id=asset_id)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name=name)
     db_session.add(loc)
     await db_session.flush()
+    if asset_id:
+        ref = Reference(id=str(uuid.uuid4()), entity_type="location",
+                        entity_id=loc.id, role="moodboard",
+                        url=rel, asset_image_id=asset_id)
+        db_session.add(ref)
+        await db_session.flush()
+        loc._ref_id = ref.id
     await db_session.execute(
         scene_locations.insert().values(scene_id=scene.id, location_id=loc.id))
     await db_session.commit()
@@ -42,10 +49,14 @@ async def _canonical_char(db_session, project, scene, name, out_dir):
                        status="completed", image_url=rel)
     db_session.add(asset)
     await db_session.flush()
-    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                     canonical_asset_image_id=asset.id)
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name)
     db_session.add(char)
     await db_session.flush()
+    ref = Reference(id=str(uuid.uuid4()), entity_type="character", entity_id=char.id,
+                    role="moodboard", url=rel, asset_image_id=asset.id)
+    db_session.add(ref)
+    await db_session.flush()
+    char._ref_id = ref.id
     await db_session.execute(
         scene_characters.insert().values(scene_id=scene.id, character_id=char.id))
     await db_session.commit()
@@ -68,7 +79,7 @@ async def test_resolve_plate_stages_and_returns_filename(db_session, project, sc
     out_dir, in_dir = dirs
     loc = await _plated_location(db_session, project, scene, "Hall", str(out_dir))
     fn = await resolve_scene_plate(scene.id, db_session)
-    assert fn == f"{loc.id}_plate.png"
+    assert fn == f"{loc._ref_id}_ref.png"
     assert os.path.exists(os.path.join(in_dir, fn))  # staged into input dir
 
 
@@ -85,7 +96,7 @@ async def test_resolve_plate_first_by_name_when_multiple(db_session, project, sc
     await _plated_location(db_session, project, scene, "Zeta", str(out_dir))
     alpha = await _plated_location(db_session, project, scene, "Alpha", str(out_dir))
     fn = await resolve_scene_plate(scene.id, db_session)
-    assert fn == f"{alpha.id}_plate.png"  # "Alpha" sorts before "Zeta"
+    assert fn == f"{alpha._ref_id}_ref.png"  # "Alpha" sorts before "Zeta"
 
 
 # ── build_scene_image wiring (MSR ref path exposes a background node) ────────
@@ -103,7 +114,7 @@ async def test_plate_lands_on_background_node(db_session, project, scene, dirs):
     assert meta["workflow"] == "image_msr_ref"
     assert meta["plate"] is True
     # background_node is node 30 in the MSR ref map.
-    assert workflow["30"]["inputs"]["image"] == f"{loc.id}_plate.png"
+    assert workflow["30"]["inputs"]["image"] == f"{loc._ref_id}_ref.png"
 
 
 @pytest.mark.asyncio

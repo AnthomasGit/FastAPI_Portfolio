@@ -91,7 +91,6 @@ class CharacterResponse(BaseModel):
     description: Optional[str] = None
     traits: Optional[dict] = None
     reference_url: Optional[str] = None
-    canonical_asset_image_id: Optional[str] = None
     prompt_profile: Optional[dict] = None
 
     class Config:
@@ -120,7 +119,6 @@ class CharacterResponse(BaseModel):
                     'description': data.description,
                     'traits': data.traits,
                     'reference_url': newest.url,
-                    'canonical_asset_image_id': getattr(data, 'canonical_asset_image_id', None),
                     'prompt_profile': getattr(data, 'prompt_profile', None),
                 }
         return data
@@ -144,8 +142,6 @@ class LocationResponse(BaseModel):
     name: str
     description: Optional[str] = None
     shot_notes: Optional[str] = None
-    canonical_asset_image_id: Optional[str] = None
-    plate_asset_image_id: Optional[str] = None
 
     class Config:
         from_attributes = True

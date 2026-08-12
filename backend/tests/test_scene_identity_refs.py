@@ -5,7 +5,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from database import Character, AssetImage, scene_characters
+from database import Reference, Character, AssetImage, scene_characters
 import services.job_handlers as jh
 from services.job_handlers import build_scene_image, HANDLERS
 
@@ -13,6 +13,7 @@ from services.job_handlers import build_scene_image, HANDLERS
 async def _canonical_char(db_session, project, scene, name, out_dir, *, canonical=True):
     """A character linked to the scene, optionally with a canonical image on disk."""
     asset_id = None
+    rel = None
     if canonical:
         rel = f"assets/{project.id}/characters/{name}_00001_.png"
         os.makedirs(os.path.join(out_dir, os.path.dirname(rel)), exist_ok=True)
@@ -24,10 +25,18 @@ async def _canonical_char(db_session, project, scene, name, out_dir, *, canonica
         db_session.add(asset)
         await db_session.flush()
         asset_id = asset.id
-    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                     canonical_asset_image_id=asset_id)
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name=name)
     db_session.add(char)
     await db_session.flush()
+    if asset_id:
+        # Art reaches generation through a Reference now; the scene inherits the
+        # entity's newest one unless it picks explicitly.
+        ref = Reference(id=str(uuid.uuid4()), entity_type="character",
+                        entity_id=char.id, role="moodboard",
+                        url=rel, asset_image_id=asset_id)
+        db_session.add(ref)
+        await db_session.flush()
+        char._ref_id = ref.id          # staged filename derives from the Reference
     await db_session.execute(
         scene_characters.insert().values(scene_id=scene.id, character_id=char.id)
     )
@@ -52,13 +61,13 @@ async def test_two_canonical_chars_land_on_ref_nodes(db_session, project, scene,
     assert meta["workflow"] == "image_msr_ref"
     assert meta["ref_count"] == 2
     # Deterministic by name: Aldous -> subject 1 (node 29), Bex -> subject 2 (33).
-    assert workflow["29"]["inputs"]["image"] == f"{a.id}_canon.png"
-    assert workflow["33"]["inputs"]["image"] == f"{b.id}_canon.png"
+    assert workflow["29"]["inputs"]["image"] == f"{a._ref_id}_ref.png"
+    assert workflow["33"]["inputs"]["image"] == f"{b._ref_id}_ref.png"
     # LiconMSR needs all 4 subject slots filled: unused ones repeat the last ref.
-    assert workflow["40"]["inputs"]["image"] == f"{b.id}_canon.png"
-    assert workflow["95"]["inputs"]["image"] == f"{b.id}_canon.png"
+    assert workflow["40"]["inputs"]["image"] == f"{b._ref_id}_ref.png"
+    assert workflow["95"]["inputs"]["image"] == f"{b._ref_id}_ref.png"
     # Files were staged into the input dir.
-    assert (in_dir / f"{a.id}_canon.png").exists()
+    assert (in_dir / f"{a._ref_id}_ref.png").exists()
 
 
 @pytest.mark.asyncio
@@ -77,8 +86,8 @@ async def test_char_without_canonical_is_skipped(db_session, project, scene, tmp
     # Only the one with a canonical image contributes; no error. The single ref
     # fills every subject slot (padding).
     assert meta["ref_count"] == 1
-    assert workflow["29"]["inputs"]["image"] == f"{a.id}_canon.png"
-    assert workflow["95"]["inputs"]["image"] == f"{a.id}_canon.png"
+    assert workflow["29"]["inputs"]["image"] == f"{a._ref_id}_ref.png"
+    assert workflow["95"]["inputs"]["image"] == f"{a._ref_id}_ref.png"
 
 
 @pytest.mark.asyncio
@@ -128,27 +137,6 @@ async def test_identity_refs_off_uses_plain_workflow(db_session, project, scene,
 
 
 # ── canonical-image endpoint ────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_set_canonical_image_endpoint(client, db_session, project, character):
-    asset = AssetImage(id=str(uuid.uuid4()), origin_project_id=project.id,
-                       entity_type="character", kind="txt2img", status="completed",
-                       image_url="assets/x/characters/hero_00001_.png")
-    db_session.add(asset)
-    await db_session.commit()
-
-    resp = await client.put(f"/api/characters/{character.id}/canonical-image",
-                            json={"asset_image_id": asset.id})
-    assert resp.status_code == 200
-    assert resp.json()["canonical_asset_image_id"] == asset.id
-    fetched = (await db_session.execute(select(Character).where(Character.id == character.id))).scalars().one()
-    assert fetched.canonical_asset_image_id == asset.id
-
-    # Clearing it.
-    resp = await client.put(f"/api/characters/{character.id}/canonical-image",
-                            json={"asset_image_id": None})
-    assert resp.status_code == 200
-    assert resp.json()["canonical_asset_image_id"] is None
 
 
 @pytest.mark.asyncio

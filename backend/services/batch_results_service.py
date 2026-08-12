@@ -141,8 +141,7 @@ async def list_artifacts(batch_id: str, db: AsyncSession,
 async def commit_batch(batch: Batch, db: AsyncSession) -> dict:
     """Save a reviewed batch's survivors. Idempotent."""
     artifacts = await list_artifacts(batch.id, db)
-    counts = {"references_created": 0, "canonical_set": 0, "plates_set": 0,
-              "clips_approved": 0, "skipped": 0}
+    counts = {"references_created": 0, "clips_approved": 0, "skipped": 0}
     now = datetime.utcnow()
 
     for item in artifacts:
@@ -172,15 +171,10 @@ async def commit_batch(batch: Batch, db: AsyncSession) -> dict:
         if created:
             counts["references_created"] += 1
 
-        # Only ever fill a hole — never overwrite a deliberate pick.
-        is_plate = (asset.params or {}).get("angle_slot") is not None or asset.kind == "plate"
-        if etype == "location" and is_plate:
-            if entity.plate_asset_image_id is None:
-                entity.plate_asset_image_id = asset.id
-                counts["plates_set"] += 1
-        elif getattr(entity, "canonical_asset_image_id", "sentinel") is None:
-            entity.canonical_asset_image_id = asset.id
-            counts["canonical_set"] += 1
+        # Nothing else to set: there is no global canonical any more. Creating
+        # the Reference IS the commit — a scene with no explicit pick inherits
+        # the entity's newest reference, so a committed image is immediately
+        # usable, and a scene that HAS picked keeps its choice untouched.
 
     batch.committed_at = batch.committed_at or now
     await db.commit()

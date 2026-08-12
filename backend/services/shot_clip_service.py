@@ -62,7 +62,7 @@ async def resolve_shot_reference_files(shot: Shot, db: AsyncSession,
     files: list[str] = []
     used: list[tuple[str, object]] = []
     for etype, entity in entities:
-        filename = await stage_entity_primary_image(entity, etype, db)
+        filename = await stage_entity_primary_image(entity, etype, db, scene_id=shot.scene_id)
         if filename is None:
             # Selected (it HAS a primary image) but the file vanished from disk.
             # Rare, and the prompt already named it — so warn loudly rather than

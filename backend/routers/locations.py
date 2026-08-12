@@ -63,7 +63,7 @@ async def generate_plate(location_id: str, data: dict = Body(default={}),
                          db: AsyncSession = Depends(get_db)):
     """Generate a wide, character-free establishing plate for this location
     (KAN-41). Optional body: width, height, workflow. On completion the job
-    sets the location's plate_asset_image_id."""
+    publishes the result as a Reference on the location."""
     loc = (await db.execute(select(Location).where(Location.id == location_id))).scalars().first()
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -74,25 +74,6 @@ async def generate_plate(location_id: str, data: dict = Body(default={}),
         workflow=data.get("workflow"),
     )
     return {"asset_image_id": asset_id}
-
-
-@router.put("/api/locations/{location_id}/plate")
-async def set_plate(location_id: str, data: dict = Body(...),
-                    db: AsyncSession = Depends(get_db)):
-    """Set (or clear) which asset image is this location's active plate (KAN-41).
-    Lets an expanded plate variant (KAN-43) be promoted to the active plate,
-    since plate expansion produces a new AssetImage without replacing it."""
-    loc = (await db.execute(select(Location).where(Location.id == location_id))).scalars().first()
-    if not loc:
-        raise HTTPException(status_code=404, detail="Location not found")
-    asset_image_id = data.get("asset_image_id")
-    if asset_image_id is not None:
-        asset = await db.get(AssetImage, asset_image_id)
-        if not asset:
-            raise HTTPException(status_code=404, detail="Asset image not found")
-    loc.plate_asset_image_id = asset_image_id
-    await db.commit()
-    return {"plate_asset_image_id": asset_image_id}
 
 
 @router.post("/api/locations/{location_id}/plate/expand", status_code=202)

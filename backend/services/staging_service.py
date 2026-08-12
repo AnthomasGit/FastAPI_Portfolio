@@ -27,11 +27,16 @@ async def _default_backdrop_reference_id(scene_id: str, db: AsyncSession) -> str
         .where(scene_locations.c.scene_id == scene_id)
         .order_by(Location.name)
     )).scalars().all()
-    plated = [l for l in locs if l.plate_asset_image_id]
-    if not plated:
+    from services.job_handlers import scene_primary_reference
+    ref = None
+    for l in locs:
+        ref = await scene_primary_reference(scene_id, "location", l.id, db)
+        if ref is not None:
+            break
+    if ref is None or not ref.asset_image_id:
         return None
-    loc = plated[0]
-    asset = await db.get(AssetImage, loc.plate_asset_image_id)
+    loc = l
+    asset = await db.get(AssetImage, ref.asset_image_id)
     if not asset or not asset.image_url:
         return None
 

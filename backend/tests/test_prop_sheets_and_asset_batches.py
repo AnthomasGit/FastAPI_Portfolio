@@ -10,7 +10,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from database import AssetImage, Batch, Character, JobRecord, Location, Prop
+from database import AssetImage, Batch, Character, JobRecord, Location, Prop, Reference
 from services.sheet_service import (
     SHEET_TEMPLATES, PROP_ANGLE_CELLS, default_cells,
 )
@@ -108,9 +108,13 @@ async def test_from_canonical_false_clears_source_so_workflow_applies(
                        entity_type="prop", status="completed", image_url="x.png")
     db_session.add(asset)
     await db_session.flush()
-    prop = Prop(id=str(uuid.uuid4()), project_id=project.id, name="Knife",
-                canonical_asset_image_id=asset.id)
+    prop = Prop(id=str(uuid.uuid4()), project_id=project.id, name="Knife")
     db_session.add(prop)
+    await db_session.flush()
+    # The sheet's base image is the entity's newest generated reference.
+    db_session.add(Reference(id=str(uuid.uuid4()), entity_type="prop",
+                             entity_id=prop.id, role="moodboard",
+                             url="x.png", asset_image_id=asset.id))
     await db_session.commit()
 
     r = await client.post(f"/api/props/{prop.id}/sheet",

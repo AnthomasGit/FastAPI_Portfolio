@@ -4,6 +4,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Reference
 
 
+async def newest_asset_image_id(db: AsyncSession, entity_type: str, entity_id: str) -> str | None:
+    """The AssetImage behind an entity's newest generated reference, or None.
+
+    For the project-level operations that need "this entity's current image"
+    without a scene in hand — expanding a location plate, picking a sheet's base
+    image. Scene-scoped callers should use job_handlers.scene_primary_reference
+    instead, so an explicit per-scene pick is honoured.
+    """
+    result = await db.execute(
+        select(Reference.asset_image_id)
+        .where(
+            Reference.entity_type == entity_type,
+            Reference.entity_id == entity_id,
+            Reference.asset_image_id.isnot(None),
+        )
+        .order_by(Reference.created_at.desc())
+        .limit(1)
+    )
+    row = result.first()
+    return row[0] if row else None
+
+
 async def assign_asset_to_entity(db: AsyncSession, entity_type: str, entity_id: str,
                                  asset) -> tuple[Reference, bool]:
     """Find-or-create the pool Reference linking an AssetImage to an entity.

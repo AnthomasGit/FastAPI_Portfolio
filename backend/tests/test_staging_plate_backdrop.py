@@ -16,10 +16,14 @@ async def _link_plated_location(db_session, project, scene, name="Hall", plate=T
         db_session.add(asset)
         await db_session.flush()
         asset_id = asset.id
-    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name=name,
-                   plate_asset_image_id=asset_id)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name=name)
     db_session.add(loc)
     await db_session.flush()
+    if asset_id:
+        db_session.add(Reference(id=str(uuid.uuid4()), entity_type="location",
+                                 entity_id=loc.id, role="moodboard",
+                                 url=f"{name}_plate.png", asset_image_id=asset_id))
+        await db_session.flush()
     await db_session.execute(
         scene_locations.insert().values(scene_id=scene.id, location_id=loc.id))
     await db_session.commit()

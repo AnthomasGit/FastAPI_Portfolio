@@ -30,6 +30,7 @@ from database import AssetImage, Batch, JobRecord, Character, Project
 from services.seed_policy import resolve_seed
 from services.prompt_builder import entity_prompt
 from services.job_handlers import register_local
+from services.reference_service import newest_asset_image_id
 
 logger = logging.getLogger("sheet_service")
 
@@ -144,7 +145,10 @@ async def build_sheet_jobs(
         "target_id": entity.id,
         "locked_seed": profile.get("locked_seed"),
     })
-    canonical_id = entity.canonical_asset_image_id if from_canonical else None
+    # Sheets are project-level, so there is no scene to ask: use the entity's
+    # newest generated reference as the base image.
+    canonical_id = (await newest_asset_image_id(db, entity_type, entity.id)
+                    if from_canonical else None)
     kind = f"{entity_type}_sheet" if entity_type != "character" else "character_sheet"
 
     jobs: list[JobRecord] = []

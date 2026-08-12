@@ -537,7 +537,9 @@ async def preflight(spec: dict, db: AsyncSession) -> list[dict]:
     """
     if spec.get("kind") != "shot_clip" or spec.get("chain"):
         return []
-    from services.job_handlers import resolve_scene_entities, select_shot_entities, primary_asset_image_id
+    from services.job_handlers import (
+        resolve_scene_entities, select_shot_entities, has_scene_primary,
+    )
 
     scope = spec.get("scope")
     target_ids = spec.get("target_ids") or ([spec["project_id"]] if scope == "project" else [])
@@ -549,7 +551,8 @@ async def preflight(spec: dict, db: AsyncSession) -> list[dict]:
         if shot.scene_id not in entities_by_scene:
             entities_by_scene[shot.scene_id] = await resolve_scene_entities(shot.scene_id, db)
         picked = await select_shot_entities(shot, entities_by_scene[shot.scene_id], db)
-        usable = [e for etype, e in picked if primary_asset_image_id(e, etype)]
+        usable = [e for etype, e in picked
+                  if await has_scene_primary(shot.scene_id, etype, e.id, db)]
         if not usable:
             warnings.append({
                 "shot_id": shot.id,

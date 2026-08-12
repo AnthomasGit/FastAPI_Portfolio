@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from database import AssetImage, JobRecord, Location
+from database import Reference, AssetImage, JobRecord, Location
 from services import plate_service
 import services.job_handlers as jh
 from services.job_handlers import build_plate_expand
@@ -84,9 +84,12 @@ async def test_expand_links_result_to_source(db_session, project):
                        image_url="plate.png")
     db_session.add(plate)
     await db_session.flush()
-    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall",
-                   plate_asset_image_id=plate.id)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall")
     db_session.add(loc)
+    await db_session.flush()
+    db_session.add(Reference(id=str(uuid.uuid4()), entity_type="location",
+                             entity_id=loc.id, role="moodboard",
+                             url=plate.image_url, asset_image_id=plate.id))
     await db_session.commit()
 
     new_id = await plate_service.expand_location_plate(loc, db_session, preset="widen_21_9")
@@ -119,9 +122,12 @@ async def test_expand_endpoint(client, db_session, project):
                        image_url="plate.png")
     db_session.add(plate)
     await db_session.flush()
-    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall",
-                   plate_asset_image_id=plate.id)
+    loc = Location(id=str(uuid.uuid4()), project_id=project.id, name="Hall")
     db_session.add(loc)
+    await db_session.flush()
+    db_session.add(Reference(id=str(uuid.uuid4()), entity_type="location",
+                             entity_id=loc.id, role="moodboard",
+                             url=plate.image_url, asset_image_id=plate.id))
     await db_session.commit()
 
     ok = await client.post(f"/api/locations/{loc.id}/plate/expand", json={"preset": "pan_left"})

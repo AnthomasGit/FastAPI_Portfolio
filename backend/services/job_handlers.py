@@ -214,48 +214,93 @@ async def build_asset_img2img(payload: dict, db: AsyncSession) -> tuple[dict, di
     return workflow, meta
 
 
-# ── entity primary-image staging (shared by scene stills and shot clips) ────
+# ── per-scene primary image ─────────────────────────────────────────────────
 #
-# "Primary image" differs per entity type: a Location's is its establishing
-# plate (falling back to its hero canonical), everything else is its canonical.
-# Centralised here because three callers need it — scene identity refs, the
-# scene background plate, and the per-shot H3 reference slots.
+# An asset's reference image is chosen PER SCENE, not once per project: the same
+# character wears different clothes in different scenes, and the same set can be
+# lit differently. So the source of truth is `scene_<type>.reference_id` — the
+# scene's own pick — falling back to the entity's newest reference so a scene
+# renders as soon as art exists and picking is only needed to override.
+#
+# (There is deliberately no global canonical column any more. It contradicted
+# this design, which the Reference/scene-link schema was built for from the
+# start — see reference_service.newest_reference_id.)
 
-def primary_asset_image_id(entity, entity_type: str) -> str | None:
-    """The AssetImage id to feed into generation for this entity, or None."""
-    if entity_type == "location":
-        return entity.plate_asset_image_id or entity.canonical_asset_image_id
-    return getattr(entity, "canonical_asset_image_id", None)
-
-
-def _staged_name(entity, entity_type: str) -> str:
-    # Location plates and character canonicals keep their historical names —
-    # existing tests assert on them.
-    suffix = "plate" if entity_type == "location" else "canon"
-    return f"{entity.id}_{suffix}.png"
+_SCENE_LINKS = {
+    "character": (scene_characters, "character_id"),
+    "location": (scene_locations, "location_id"),
+    "prop": (scene_props, "prop_id"),
+}
 
 
-async def stage_entity_primary_image(entity, entity_type: str, db: AsyncSession) -> str | None:
-    """Stage an entity's primary image into COMFY_INPUT_DIR, returning the flat
-    input-relative filename, or None when there is nothing usable.
+async def scene_primary_reference(scene_id: str, entity_type: str, entity_id: str,
+                                  db: AsyncSession) -> Reference | None:
+    """The Reference a scene uses for an entity, or None if it has no art.
 
-    Generated images live in COMFY_OUTPUT_DIR under a subfolder but LoadImage
-    only reads COMFY_INPUT_DIR, so a flat copy is made first. Missing rows and
-    missing files are *skipped with a warning*, never raised: one absent
-    reference should degrade a render, not fail a whole overnight batch.
+    Explicit per-scene pick first; otherwise the entity's newest reference.
     """
-    asset_id = primary_asset_image_id(entity, entity_type)
-    if not asset_id:
-        return None
-    asset = await db.get(AssetImage, asset_id)
-    if not asset or not asset.image_url:
-        return None
-    dest = _staged_name(entity, entity_type)
+    link = _SCENE_LINKS.get(entity_type)
+    ref_id = None
+    if link is not None and scene_id:
+        table, fk = link
+        ref_id = (await db.execute(
+            select(table.c.reference_id).where(
+                table.c.scene_id == scene_id,
+                getattr(table.c, fk) == entity_id,
+            )
+        )).scalar()
+    if ref_id is None:
+        from services.reference_service import newest_reference_id
+        ref_id = await newest_reference_id(db, entity_type, entity_id)
+    return await db.get(Reference, ref_id) if ref_id else None
+
+
+def stage_reference_for_load(ref: Reference) -> str:
+    """Return a COMFY_INPUT_DIR-relative filename for a Reference, staging it.
+
+    Background-removed cutouts (``processed_url``) and plain uploads already
+    live flat in the input dir; asset-image references point into the output
+    dir under a subfolder — the "/" in the url is the established signal for
+    that — so those are copied in flat first. Raises rather than returning a
+    dangling name: a LoadImage pointing at a missing file makes ComfyUI reject
+    the ENTIRE graph at validation while still reporting success.
+    """
+    source = ref.processed_url or ref.url
+    if not source:
+        raise ValueError(f"Reference {ref.id} has no image file")
+    if "/" not in source:
+        if not os.path.exists(os.path.join(COMFY_INPUT_DIR, source)):
+            raise ValueError(f"Reference image '{source}' is missing from the input directory")
+        return source
+    staged = f"{ref.id}_ref{os.path.splitext(source)[1] or '.png'}"
     try:
-        return _stage_output_to_input(asset.image_url, dest)
-    except OSError:
-        logger.warning("%s %s: primary image missing on disk (%s) — skipped",
-                       entity_type, getattr(entity, "name", entity.id), asset.image_url)
+        return _stage_output_to_input(source, staged)
+    except OSError as e:
+        raise ValueError(f"Reference image '{source}' could not be staged for ComfyUI") from e
+
+
+async def has_scene_primary(scene_id: str, entity_type: str, entity_id: str,
+                            db: AsyncSession) -> bool:
+    """Whether this entity has anything to contribute to the scene — used to
+    filter slot candidates without doing any file IO."""
+    return await scene_primary_reference(scene_id, entity_type, entity_id, db) is not None
+
+
+async def stage_entity_primary_image(entity, entity_type: str, db: AsyncSession,
+                                     scene_id: str | None = None) -> str | None:
+    """Stage an entity's scene primary image, or None when nothing is usable.
+
+    Missing rows and missing files are *skipped with a warning*, never raised:
+    one absent reference should degrade a render, not fail a whole batch.
+    """
+    ref = await scene_primary_reference(scene_id, entity_type, entity.id, db)
+    if ref is None:
+        return None
+    try:
+        return stage_reference_for_load(ref)
+    except ValueError as e:
+        logger.warning("%s %s: scene primary image unusable (%s) — skipped",
+                       entity_type, getattr(entity, "name", entity.id), e)
         return None
 
 
@@ -338,7 +383,8 @@ async def shot_reference_entities(shot, db: AsyncSession,
     entities = await select_shot_entities(
         shot, await resolve_scene_entities(shot.scene_id, db), db
     )
-    usable = [(etype, e) for etype, e in entities if primary_asset_image_id(e, etype)]
+    usable = [(etype, e) for etype, e in entities
+              if await has_scene_primary(shot.scene_id, etype, e.id, db)]
 
     if max_refs is not None and len(usable) > max_refs:
         dropped = usable[max_refs:]
@@ -353,12 +399,13 @@ async def shot_reference_entities(shot, db: AsyncSession,
 
 async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
                                       max_slots: int) -> list[str]:
-    """Stage the canonical identity images of a scene's linked characters as
+    """Stage the identity images of a scene's linked characters as
     COMFY_INPUT_DIR-relative filenames, in a deterministic order (KAN-36).
 
-    A character without a canonical image is skipped (not an error). If more
-    characters have canonical images than the workflow has slots, the extras are
-    dropped with a warning.
+    Each character contributes THIS SCENE's primary reference, so a wardrobe
+    change between scenes needs no new character. A character with no art is
+    skipped (not an error); extras beyond the workflow's slots are dropped with
+    a warning.
     """
     chars = (await db.execute(
         select(Character).join(scene_characters)
@@ -369,13 +416,12 @@ async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
     staged: list[str] = []
     dropped: list[str] = []
     for char in chars:
-        # Characters use the canonical image only — never a plate.
-        if not char.canonical_asset_image_id:
+        if not await has_scene_primary(scene_id, "character", char.id, db):
             continue
         if len(staged) >= max_slots:
             dropped.append(char.name)
             continue
-        filename = await stage_entity_primary_image(char, "character", db)
+        filename = await stage_entity_primary_image(char, "character", db, scene_id=scene_id)
         if filename is None:
             continue
         staged.append(filename)
@@ -399,16 +445,15 @@ async def resolve_scene_plate(scene_id: str, db: AsyncSession) -> str | None:
         .where(scene_locations.c.scene_id == scene_id)
         .order_by(Location.name)
     )).scalars().all()
-    # Strictly the plate here, never the canonical fallback: this is the scene's
-    # *background*, and a hero location shot would be the wrong image entirely.
-    plated = [l for l in locs if l.plate_asset_image_id]
+    plated = [l for l in locs
+              if await has_scene_primary(scene_id, "location", l.id, db)]
     if not plated:
         return None
     loc = plated[0]
     if len(plated) > 1:
-        logger.info("scene %s has %d plated locations; using '%s'",
+        logger.info("scene %s has %d locations with art; using '%s'",
                     scene_id, len(plated), loc.name)
-    return await stage_entity_primary_image(loc, "location", db)
+    return await stage_entity_primary_image(loc, "location", db, scene_id=scene_id)
 
 
 async def build_scene_image(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
@@ -631,8 +676,8 @@ async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dic
     # — the dependency guarantees on_complete_location_plate has already run.
     source_id = payload.get("source_asset_image_id")
     if not source_id and payload.get("location_id"):
-        loc = await db.get(Location, payload["location_id"])
-        source_id = loc.plate_asset_image_id if loc else None
+        from services.reference_service import newest_asset_image_id
+        source_id = await newest_asset_image_id(db, "location", payload["location_id"])
         if source_id:
             # Backfill the link on the rows this job owns, so a later regenerate
             # of a single angle knows what it came from.
@@ -781,9 +826,13 @@ async def on_complete_location_plate(payload: dict, outputs: dict, db: AsyncSess
     location_id = payload.get("location_id")
     if not location_id:
         return
-    loc = await db.get(Location, location_id)
-    if loc is not None:
-        loc.plate_asset_image_id = payload.get("asset_image_id")
+    # Publish the finished plate as a Reference on the location. A scene with
+    # no explicit pick inherits the newest one, so the plate is immediately
+    # usable without a global "current plate" pointer.
+    asset = await db.get(AssetImage, payload.get("asset_image_id"))
+    if asset is not None and asset.image_url:
+        from services.reference_service import assign_asset_to_entity
+        await assign_asset_to_entity(db, "location", location_id, asset)
         await db.commit()
 
 
