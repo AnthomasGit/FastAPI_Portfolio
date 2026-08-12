@@ -22,6 +22,16 @@ class BatchCreateRequest(BaseModel):
     color_match: bool = False
     color_match_reference: Optional[str] = None
     film_grain: bool = False
+    # Per-shot clip audio override (defaults to each shot's own reference_audio_id).
+    ref_audio_ids: Optional[List[str]] = None
+    # Sheet batches (character_sheet / prop_sheet): override the cell grid, and
+    # choose img2img-off-canonical vs a fresh render with `workflow`.
+    cells: Optional[List[dict]] = None
+    from_canonical: bool = True
+    # Location batches: also render the 360 angle set off the new plate.
+    with_angles: bool = False
+    angles: Optional[List[dict]] = None
+    double_ref: bool = True
 
 
 class PresetCreate(BaseModel):

@@ -99,6 +99,75 @@ async def test_get_workflows_kind_filter(client):
     assert kinds == {"video"}
 
 
+# ── merged hand-authored facts (one endpoint, one param shape) ─────────────
+
+def _by_name(name, kind=None):
+    return next(w for w in list_workflows(kind) if w["name"] == name)
+
+
+def test_video_entry_carries_key_label_and_capabilities():
+    """A batch spec submits the workflow KEY, not the graph name, so the merged
+    entry has to expose it — otherwise the UI can't build a valid spec."""
+    w = _by_name("video_minimax_h3_r2v")
+    assert w["workflow_key"] == "minimax_h3_r2v"
+    assert w["label"] == "MiniMax H3 Reference-to-Video"
+    caps = w["capabilities"]
+    assert caps["max_refs"] == 9 and caps["max_ref_audios"] == 3
+    # autogrow_slots cannot be derived from a node map and is load-bearing.
+    assert caps["autogrow_slots"] is True
+
+
+def test_video_control_params_are_the_validated_settings():
+    """Controls must be the knobs _resolve_settings accepts, not every key the
+    graph could physically take — otherwise the UI offers params that 422."""
+    w = _by_name("video_minimax_h3_r2v")
+    control = {p["key"] for p in w["params"] if p["group"] == "control"}
+    assert control == {"sampler_name", "scheduler", "steps", "duration",
+                       "aspect_ratio", "megapixels"}
+
+
+def test_video_params_use_the_same_shape_as_image_params():
+    """The whole point of the merge: one renderer for both."""
+    vid = next(p for p in _by_name("video_minimax_h3_r2v")["params"]
+               if p["key"] == "steps")
+    img = next(p for p in _by_name("image_z_image_turbo")["params"]
+               if p["key"] == "width")
+    assert {"key", "type", "label", "group"} <= set(vid)
+    assert {"key", "type", "label", "group"} <= set(img)
+    assert vid["type"] == "int" and vid["min"] == 4 and vid["max"] == 60
+    # enum options survive for the select controls
+    sampler = next(p for p in _by_name("video_minimax_h3_r2v")["params"]
+                   if p["key"] == "sampler_name")
+    assert sampler["type"] == "enum" and "res_multistep" in sampler["options"]
+
+
+def test_video_input_slots_are_preserved_alongside_settings():
+    """Derived input params still document what the graph consumes."""
+    w = _by_name("video_minimax_h3_r2v")
+    inputs = {p["key"] for p in w["params"] if p["group"] == "input"}
+    assert {"image", "image9", "ref_audio"} <= inputs
+
+
+def test_image_entry_carries_its_picker_key():
+    w = _by_name("image_krea2_turbo")
+    assert w["workflow_key"] == "krea2_turbo"
+    assert w["capabilities"]["supports_size"] is False
+
+
+def test_graph_without_a_hand_authored_entry_is_unchanged():
+    """Most graphs have no picker entry; they must still list cleanly."""
+    w = _by_name("image_color_match")
+    assert "workflow_key" not in w
+    assert w["kind"] == "post"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_serves_the_merged_shape(client):
+    resp = await client.get("/api/workflows", params={"kind": "video"})
+    r2v = next(w for w in resp.json()["workflows"] if w["workflow_key"] == "minimax_h3_r2v")
+    assert r2v["capabilities"]["max_refs"] == 9
+
+
 # ── batch endpoint rejects unroutable params (422) ───────────────────────
 
 @pytest.mark.asyncio

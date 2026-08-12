@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -6,6 +6,7 @@ from typing import List
 from database import get_db, Prop, Project
 from schemas.schemas import PropCreate, PropUpdate, PropResponse
 from services.reference_service import delete_entity_references
+from services import sheet_service
 
 router = APIRouter()
 
@@ -63,3 +64,27 @@ async def delete_prop(prop_id: str, db: AsyncSession = Depends(get_db)):
     await delete_entity_references(db, "prop", prop_id)
     await db.delete(prop)
     await db.commit()
+
+
+@router.post("/api/props/{prop_id}/sheet", status_code=202)
+async def create_prop_sheet(prop_id: str, data: dict = Body(default={}),
+                            db: AsyncSession = Depends(get_db)):
+    """Generate a prop sheet: consistent angles plus a top-down and a material
+    close-up, sharing a locked seed. No expression cells — a prop has no face.
+
+    Optional body: ``cells`` overrides the grid, ``workflow`` picks the txt2img
+    model, and ``from_canonical`` (default true) chooses img2img off the prop's
+    canonical image versus a fresh render.
+    """
+    prop = (await db.execute(select(Prop).where(Prop.id == prop_id))).scalars().first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Prop not found")
+    try:
+        batch, jobs = await sheet_service.create_entity_sheet(
+            prop, "prop", db, cells=data.get("cells"),
+            workflow=data.get("workflow"),
+            from_canonical=bool(data.get("from_canonical", True)),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"batch_id": batch.id, "job_count": len(jobs)}

@@ -456,11 +456,20 @@ def _stage_output_to_input(output_rel: str, dest_name: str) -> str:
     return dest_name
 
 
-async def build_character_sheet(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
-    """One cell of a character sheet (KAN-38): img2img off the character's
-    canonical reference when it has one, else txt2img. Prompt and seed come from
-    the batch expansion; only the per-cell suffix (already baked into the prompt)
-    differs between cells."""
+async def build_sheet_cell(payload: dict, db: AsyncSession) -> tuple[dict, dict]:
+    """One cell of a character or prop sheet (KAN-38): img2img off the entity's
+    canonical reference when it has one, else txt2img via `workflow`. Prompt and
+    seed come from the batch expansion; only the per-cell suffix (already baked
+    into the prompt) differs between cells.
+
+    Entity-type agnostic — it reads entity_type off the payload — so the same
+    builder serves both the character_sheet and prop_sheet kinds.
+
+    NOTE the routing consequence: a `workflow` override only takes effect on the
+    txt2img branch. With a canonical image present, img2img wins (that is what
+    makes a sheet consistent), so a caller wanting a specific model must clear
+    source_asset_image_id — see sheet_service.build_sheet_jobs(from_canonical=).
+    """
     project_id = payload["project_id"]
     entity_type = payload["entity_type"]
     prompt = payload["prompt"]
@@ -587,9 +596,27 @@ async def build_plate_angles(payload: dict, db: AsyncSession) -> tuple[dict, dic
     seed_val = _seed(payload)
     base_prefix = f"assets/{project_id}/locations/{job_id}"
 
-    source_filename = await _resolve_source_image(
-        db, None, payload.get("source_asset_image_id"), job_id,
-    )
+    # In a chained batch the plate is rendered by an upstream job, so its id
+    # doesn't exist at expansion time. Re-read the location's current plate here
+    # — the dependency guarantees on_complete_location_plate has already run.
+    source_id = payload.get("source_asset_image_id")
+    if not source_id and payload.get("location_id"):
+        loc = await db.get(Location, payload["location_id"])
+        source_id = loc.plate_asset_image_id if loc else None
+        if source_id:
+            # Backfill the link on the rows this job owns, so a later regenerate
+            # of a single angle knows what it came from.
+            for spec in payload.get("angles") or []:
+                row = await db.get(AssetImage, spec.get("asset_image_id"))
+                if row is not None and not row.source_asset_image_id:
+                    row.source_asset_image_id = source_id
+                    row.params = {**(row.params or {}), "angle_of": source_id}
+            front = await db.get(AssetImage, payload.get("front_asset_image_id"))
+            if front is not None and not front.source_asset_image_id:
+                front.source_asset_image_id = source_id
+            await db.flush()
+
+    source_filename = await _resolve_source_image(db, None, source_id, job_id)
     if not source_filename:
         raise ValueError("No source plate provided for plate_angles")
 
@@ -772,7 +799,10 @@ register("asset_txt2img", build_asset_txt2img, on_complete_asset_image)
 register("asset_img2img", build_asset_img2img, on_complete_asset_image)
 register("scene_image", build_scene_image, on_complete_scene_image)
 # Sheet cells finalize like any asset image; the composite is a local job.
-register("character_sheet", build_character_sheet, on_complete_asset_image)
+# Two kinds, one builder: separate kinds keep the Queue labels meaningful and
+# let KIND_AVG_BYTES differ, while the build logic is identical.
+register("character_sheet", build_sheet_cell, on_complete_asset_image)
+register("prop_sheet", build_sheet_cell, on_complete_asset_image)
 # Location plate: a wide txt2img whose completion also sets Location.plate (KAN-41).
 register("location_plate", build_asset_txt2img, on_complete_location_plate)
 # Plate expansion / outpaint: result is a new AssetImage linked to the source (KAN-43).

@@ -26,6 +26,115 @@ def build_plate_prompt(location: Location) -> str:
     return f"{location_prompt(location)}, {PLATE_FRAMING}"
 
 
+async def build_plate_jobs(
+    location: Location,
+    db: AsyncSession,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    workflow: str | None = None,
+    batch=None,
+) -> list[JobRecord]:
+    """The plate job for a location, WITHOUT committing.
+
+    Split from generate_location_plate so a project-wide batch can materialize
+    plates inside its own transaction — a nested commit there would persist a
+    half-built batch.
+    """
+    prompt = build_plate_prompt(location)
+    width = width or DEFAULT_PLATE_WIDTH
+    height = height or DEFAULT_PLATE_HEIGHT
+
+    asset = AssetImage(
+        origin_project_id=location.project_id,
+        entity_type="location",
+        kind="plate",
+        prompt=prompt,
+        status="queued",
+        params={"location_id": location.id, "width": width, "height": height},
+    )
+    db.add(asset)
+    await db.flush()
+
+    job = JobRecord(
+        kind="location_plate", status="queued", max_attempts=1,
+        batch_id=getattr(batch, "id", None),
+        entity_type="asset_image", entity_id=asset.id,
+        payload={
+            "project_id": location.project_id,
+            "entity_type": "location",
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "workflow": workflow,
+            "asset_image_id": asset.id,
+            "location_id": location.id,
+        },
+    )
+    db.add(job)
+    await db.flush()
+    return [job]
+
+
+async def build_angles_jobs(
+    location: Location,
+    db: AsyncSession,
+    *,
+    angles: list[dict] | None = None,
+    double_ref: bool = True,
+    steps: int | None = None,
+    source_asset_image_id: str | None = None,
+    depends_on_job_id: str | None = None,
+    batch=None,
+) -> list[JobRecord]:
+    """The multi-angle job for a location, WITHOUT committing.
+
+    ``source_asset_image_id`` may be None when the plate is produced by an
+    upstream job in the same batch: build_plate_angles then re-reads the
+    location's plate at build time, which the dependency makes safe.
+    """
+    angles = angles if angles is not None else [dict(a) for a in DEFAULT_ANGLES]
+    angles = [a for a in angles if a and a.get("slot")]
+    if not angles:
+        raise ValueError("Need at least one angle")
+
+    def _asset(slot, prompt):
+        a = AssetImage(
+            origin_project_id=location.project_id, entity_type="location",
+            kind="plate", prompt=prompt, status="queued",
+            source_asset_image_id=source_asset_image_id,
+            params={"location_id": location.id, "angle_slot": slot,
+                    "angle_of": source_asset_image_id, "angle_prompt": prompt,
+                    "double_ref": bool(double_ref), "steps": steps},
+        )
+        db.add(a)
+        return a
+
+    front = _asset("front", "Front / 0deg (extended plate)")
+    angle_rows = [(a, _asset(a["slot"], a.get("prompt"))) for a in angles]
+    await db.flush()
+
+    job = JobRecord(
+        kind="plate_angles", status="queued", max_attempts=1,
+        batch_id=getattr(batch, "id", None),
+        depends_on_job_id=depends_on_job_id,
+        entity_type="asset_image", entity_id=front.id,
+        payload={
+            "project_id": location.project_id,
+            "source_asset_image_id": source_asset_image_id,
+            "location_id": location.id,      # lets build re-read the plate
+            "front_asset_image_id": front.id,
+            "angles": [{"slot": spec["slot"], "prompt": spec.get("prompt"),
+                        "asset_image_id": row.id} for spec, row in angle_rows],
+            "double_ref": bool(double_ref),
+            "steps": steps,
+        },
+    )
+    db.add(job)
+    await db.flush()
+    return [job]
+
+
 async def generate_location_plate(
     location: Location,
     db: AsyncSession,

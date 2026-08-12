@@ -187,9 +187,104 @@ def build_registry() -> dict:
     return registry
 
 
+# ── merging the hand-authored registries ───────────────────────────────────
+#
+# Three registries describe workflows, and they are NOT duplicates:
+#   this module   — derived from the .map.json files; MECHANICAL, i.e. which
+#                   INJECTION_MAP knobs a graph physically exposes.
+#   VIDEO_WORKFLOWS — hand-authored; SEMANTIC, i.e. what a workflow NEEDS
+#                   (needs_still, max_refs, autogrow_slots). None of that is
+#                   derivable from a node map, and autogrow_slots is load-bearing.
+#   IMAGE_WORKFLOWS — hand-authored; a txt2img model picker (label/blurb).
+#
+# Both hand-authored registries are keyed by a workflow *key* ("minimax_h3_r2v")
+# whose cfg names a *graph* ("video_minimax_h3_r2v") — the key is what a batch
+# spec submits. Merging them onto the derived entries gives the frontend ONE
+# endpoint and ONE param shape instead of three, which is why the batch dialog
+# needs no per-registry adapter.
+
+
+def _setting_to_param(spec: dict) -> dict:
+    """Convert a VIDEO_WORKFLOWS setting spec into the registry's param shape.
+
+    The video specs carry no explicit type (the backend never needed one), so
+    infer it the way the UI must render it.
+    """
+    if "options" in spec:
+        ptype = "enum"
+    elif isinstance(spec.get("default"), bool):
+        ptype = "bool"
+    elif isinstance(spec.get("default"), int):
+        ptype = "int"
+    elif isinstance(spec.get("default"), float):
+        ptype = "float"
+    else:
+        ptype = "text"
+    param = {"key": spec["id"], "type": ptype,
+             "label": spec.get("label") or spec["id"], "group": "control"}
+    for k in ("default", "min", "max", "step", "options", "help"):
+        if k in spec:
+            param[k] = spec[k]
+    return param
+
+
+def _hand_authored_by_graph() -> dict[str, dict]:
+    """graph name -> the extra facts its hand-authored entry carries."""
+    from services.video_service import VIDEO_WORKFLOWS, _public_settings
+    from services.image_workflows import IMAGE_WORKFLOWS
+
+    _CAPABILITY_KEYS = (
+        "needs_still", "requires_first_frame", "max_refs", "max_ref_videos",
+        "max_ref_audios", "background", "locations_as_refs", "driving_video",
+        "dual_prompt", "autogrow_slots", "first_frame", "last_frame",
+    )
+    out: dict[str, dict] = {}
+    for key, cfg in VIDEO_WORKFLOWS.items():
+        out[cfg["workflow"]] = {
+            "workflow_key": key,
+            "label": cfg.get("label"),
+            "blurb": cfg.get("blurb"),
+            "recommended": bool(cfg.get("recommended")),
+            "est_seconds": cfg.get("est_seconds"),
+            "capabilities": {k: cfg[k] for k in _CAPABILITY_KEYS if k in cfg},
+            # For video graphs the *validated* knobs are the settings specs, not
+            # every injectable key — _resolve_settings accepts exactly these.
+            "control_params": [_setting_to_param(s)
+                               for s in _public_settings(cfg.get("settings", []))],
+        }
+    for key, cfg in IMAGE_WORKFLOWS.items():
+        out.setdefault(cfg["workflow"], {}).update({
+            "workflow_key": key,
+            "label": cfg.get("label"),
+            "blurb": cfg.get("blurb"),
+            "recommended": bool(cfg.get("recommended")),
+            "capabilities": {"supports_size": cfg.get("supports_size", True)},
+        })
+    return out
+
+
 def list_workflows(kind: str | None = None) -> list[dict]:
-    """Registry entries as a JSON-serialisable list, optionally filtered by kind."""
-    entries = build_registry().values()
+    """Registry entries as a JSON-serialisable list, optionally filtered by kind.
+
+    Entries are the derived schema plus, where one exists, the hand-authored
+    entry's key/label/capabilities — so a caller can render controls and submit
+    a batch spec from this one payload.
+    """
+    extras = _hand_authored_by_graph()
+    entries = []
+    for entry in build_registry().values():
+        merged = dict(entry)
+        extra = extras.get(entry["name"])
+        if extra:
+            control = extra.pop("control_params", None)
+            merged.update({k: v for k, v in extra.items() if v is not None})
+            if control is not None:
+                # Keep the derived input/system params (they document what the
+                # graph consumes) but let the validated settings own `control`.
+                merged["params"] = control + [
+                    p for p in entry["params"] if p.get("group") != "control"
+                ]
+        entries.append(merged)
     if kind:
         entries = [e for e in entries if e["kind"] == kind]
     return sorted(entries, key=lambda e: e["name"])

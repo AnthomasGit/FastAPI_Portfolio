@@ -156,13 +156,14 @@ async def _resolve_targets(scope: str, target_ids: list[str], db: AsyncSession,
 # strictly better. Kinds are registered as their materializers land (KAN-51).
 Materializer = Callable[..., Awaitable[list[JobRecord]]]
 BATCH_KINDS: dict[str, Materializer] = {}
+_ENTITY_MODELS = {"character": Character, "location": Location, "prop": Prop}
 
 
 def register_materializer(kind: str, fn) -> None:
     BATCH_KINDS[kind] = fn
 
 
-async def _materialize_scene_image(target_type, target_id, spec, seed, base, priority, db):
+async def _materialize_scene_image(target_type, target_id, spec, seed, base, priority, db, batch):
     prompt = await construct_prompt(target_id, db)
     gen = GeneratedImage(scene_id=target_id, prompt=prompt, status="queued",
                          params={"seed": seed, "seed_policy": spec.get("seed_policy") or "random"})
@@ -181,7 +182,7 @@ async def _materialize_scene_image(target_type, target_id, spec, seed, base, pri
 register_materializer("scene_image", _materialize_scene_image)
 
 
-async def _materialize_shot_clip(target_type, target_id, spec, seed, base, priority, db):
+async def _materialize_shot_clip(target_type, target_id, spec, seed, base, priority, db, batch):
     """One H3 reference-to-video clip for one shot.
 
     The payload deliberately carries ids and knobs only: references, prompt and
@@ -220,7 +221,73 @@ async def _materialize_shot_clip(target_type, target_id, spec, seed, base, prior
 register_materializer("shot_clip", _materialize_shot_clip)
 
 
-async def _materialize_job(target_type, target_id, spec, seed, db) -> list[JobRecord]:
+def _entity_sheet_materializer(entity_type: str):
+    """Materializer for a character/prop sheet over one entity target.
+
+    Delegates to sheet_service's no-commit core so the cells + contact-sheet
+    composite land in THIS batch's transaction — the standalone endpoints create
+    their own batch and commit, which would persist a half-built one here.
+    """
+    async def _materialize(target_type, target_id, spec, seed, base, priority, db, batch):
+        from services import sheet_service
+
+        if target_type != entity_type:
+            return []          # an entity batch mixes types; skip the others
+        entity = await db.get(_ENTITY_MODELS[entity_type], target_id)
+        if entity is None:
+            raise ValueError(f"{entity_type.title()} {target_id} not found")
+        return await sheet_service.build_sheet_jobs(
+            entity, entity_type, batch, db,
+            cells=spec.get("cells"),
+            workflow=spec.get("workflow"),
+            from_canonical=bool(spec.get("from_canonical", True)),
+        )
+    return _materialize
+
+
+register_materializer("character_sheet", _entity_sheet_materializer("character"))
+register_materializer("prop_sheet", _entity_sheet_materializer("prop"))
+
+
+async def _materialize_location_plate(target_type, target_id, spec, seed, base, priority, db, batch):
+    """A location's establishing plate, optionally followed by the 360 angle set.
+
+    The angles job depends on the plate job rather than reading its output
+    directly: create_plate_angles needs Location.plate_asset_image_id, which is
+    only set by the plate job's on_complete. `$from_parent` can't help — it
+    yields an image_url, not an asset id — so the angles builder re-reads the
+    location at build time, which the dependency makes safe.
+    """
+    from services import plate_service
+
+    if target_type != "location":
+        return []
+    loc = await db.get(Location, target_id)
+    if loc is None:
+        raise ValueError(f"Location {target_id} not found")
+
+    params = spec.get("params") or {}
+    jobs = await plate_service.build_plate_jobs(
+        loc, db,
+        width=params.get("width"), height=params.get("height"),
+        workflow=spec.get("workflow"), batch=batch,
+    )
+    if spec.get("with_angles"):
+        jobs += await plate_service.build_angles_jobs(
+            loc, db,
+            angles=spec.get("angles"),
+            double_ref=bool(spec.get("double_ref", True)),
+            steps=params.get("steps"),
+            depends_on_job_id=jobs[0].job_id,
+            batch=batch,
+        )
+    return jobs
+
+
+register_materializer("location_plate", _materialize_location_plate)
+
+
+async def _materialize_job(target_type, target_id, spec, seed, db, batch=None) -> list[JobRecord]:
     """Build the JobRecord(s) for one target+variant via the kind's materializer.
 
     Returns a list because some kinds fan out (a sheet is N cells + a composite).
@@ -239,7 +306,7 @@ async def _materialize_job(target_type, target_id, spec, seed, db) -> list[JobRe
             f"Batch kind '{kind}' cannot be expanded into runnable jobs "
             f"(known kinds: {', '.join(sorted(BATCH_KINDS))})."
         )
-    return await materializer(target_type, target_id, spec, seed, base, priority, db)
+    return await materializer(target_type, target_id, spec, seed, base, priority, db, batch)
 
 
 async def _materialize_chain(chain, target_type, target_id, spec, seed, batch, db) -> list[JobRecord]:
@@ -258,7 +325,7 @@ async def _materialize_chain(chain, target_type, target_id, spec, seed, batch, d
         root_spec["workflow"] = stages[0].workflow
     # A chain's root stage is a single-job kind by construction (every declared
     # chain starts with scene_image / asset_txt2img), so take the one job.
-    root_jobs = await _materialize_job(target_type, target_id, root_spec, seed, db)
+    root_jobs = await _materialize_job(target_type, target_id, root_spec, seed, db, batch)
     root = root_jobs[0]
     root.batch_id = batch.id
     db.add(root)
@@ -359,7 +426,11 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
                     cj.scheduled_after = run_after
                 jobs.extend(chain_jobs)
                 continue
-            new_jobs = await _materialize_job(target_type, target_id, spec, seed, db)
+            new_jobs = await _materialize_job(target_type, target_id, spec, seed, db, batch)
+            if not new_jobs:
+                # An entity-scope batch resolves characters, locations AND props;
+                # a materializer returns [] for the types it doesn't handle.
+                continue
             for job in new_jobs:
                 job.batch_id = batch.id
                 # Overnight start: the worker skips a job until scheduled_after passes.

@@ -52,16 +52,55 @@ EXPRESSION_CELLS = [
     {"slot": "expr-fear", "suffix": "head and shoulders, fearful expression"},
 ]
 
+# A prop has no face, so expression cells are meaningless for one. What a
+# modeller (and an R2V reference slot) actually wants instead is a top-down and
+# a material close-up.
+PROP_ANGLE_CELLS = [
+    {"slot": "front", "suffix": "front view, full object, plain background"},
+    {"slot": "three-quarter", "suffix": "three-quarter view, full object"},
+    {"slot": "side", "suffix": "side view, full object"},
+    {"slot": "back", "suffix": "back view, full object"},
+    {"slot": "top", "suffix": "top-down view, full object"},
+    {"slot": "detail", "suffix": "extreme close-up of surface material and texture"},
+]
 
-def default_cells(character: Character) -> list[dict]:
-    """Build the default cell list for a character: fixed angle + expression
-    rows plus one wardrobe cell per entry in ``prompt_profile.wardrobe``."""
-    cells = [dict(c) for c in ANGLE_CELLS + EXPRESSION_CELLS]
-    wardrobe = (character.prompt_profile or {}).get("wardrobe") or []
-    for item in wardrobe:
+# Per-entity-type sheet shape. `variant_key` names the prompt_profile list that
+# expands into one extra cell each (a character's wardrobe, a prop's materials).
+SHEET_TEMPLATES = {
+    "character": {
+        "cells": ANGLE_CELLS + EXPRESSION_CELLS,
+        "variant_key": "wardrobe",
+        "variant_suffix": "full body, wearing {item}",
+        "asset_dir": "characters",
+    },
+    "prop": {
+        "cells": PROP_ANGLE_CELLS,
+        "variant_key": "materials",
+        "variant_suffix": "full object, {item} finish",
+        "asset_dir": "props",
+    },
+}
+
+VALID_SHEET_ENTITY_TYPES = tuple(SHEET_TEMPLATES)
+
+
+def default_cells(entity, entity_type: str = "character") -> list[dict]:
+    """The default cell list for an entity: its type's fixed rows plus one cell
+    per entry in the profile list that type varies over."""
+    tpl = SHEET_TEMPLATES.get(entity_type)
+    if tpl is None:
+        raise ValueError(
+            f"No sheet template for '{entity_type}' "
+            f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
+        )
+    cells = [dict(c) for c in tpl["cells"]]
+    for item in (getattr(entity, "prompt_profile", None) or {}).get(tpl["variant_key"]) or []:
         if not item:
             continue
-        cells.append({"slot": f"wardrobe:{item}", "suffix": f"full body, wearing {item}"})
+        cells.append({
+            "slot": f"{tpl['variant_key']}:{item}",
+            "suffix": tpl["variant_suffix"].format(item=item),
+        })
     return cells
 
 
@@ -70,43 +109,43 @@ def _cell_prompt(base: str, suffix: str) -> str:
     return f"{base}, {suffix}" if suffix else base
 
 
-async def create_character_sheet(
-    character: Character,
+async def build_sheet_jobs(
+    entity,
+    entity_type: str,
+    batch: Batch,
     db: AsyncSession,
+    *,
     cells: list[dict] | None = None,
-) -> tuple[Batch, list[JobRecord]]:
-    """Create a ``character_sheet`` batch: one job per cell, all sharing the
-    character's locked seed and canonical reference image, differing only by the
-    cell suffix. Appends a dependent ``contact_sheet`` job that composes the
-    finished cells into a labelled grid. Returns (batch, jobs).
+    workflow: str | None = None,
+    from_canonical: bool = True,
+) -> list[JobRecord]:
+    """The sheet's jobs for an existing batch, WITHOUT committing.
 
-    Raises ValueError if the cell list is empty (router -> 422).
+    Split out from create_entity_sheet so a project-wide batch can materialize
+    sheets inside its own transaction — committing here would commit a
+    half-built batch (create_batch flushes its Batch row first and adds jobs
+    after, so a nested commit persists an incomplete graph).
+
+    `from_canonical` picks the generation route per cell: img2img off the
+    entity's canonical image (what makes a sheet actually consistent) or a fresh
+    txt2img via `workflow`. It is forced off when there is no canonical image.
     """
-    cells = cells if cells is not None else default_cells(character)
+    cells = cells if cells is not None else default_cells(entity, entity_type)
     cells = [c for c in cells if c and c.get("slot")]
     if not cells:
-        raise ValueError("Character sheet needs at least one cell")
+        raise ValueError(f"{entity_type.title()} sheet needs at least one cell")
 
-    project_id = character.project_id
-    base_prompt = entity_prompt(character)
-    profile = character.prompt_profile or {}
+    project_id = entity.project_id
+    base_prompt = entity_prompt(entity)
+    profile = getattr(entity, "prompt_profile", None) or {}
     # One seed shared across every cell so the sheet is one consistent subject.
     seed = resolve_seed("locked", {
         "project_id": project_id,
-        "target_id": character.id,
+        "target_id": entity.id,
         "locked_seed": profile.get("locked_seed"),
     })
-    canonical_id = character.canonical_asset_image_id
-
-    batch = Batch(
-        project_id=project_id,
-        name=f"Character sheet — {character.name}",
-        kind="character_sheet",
-        spec={"character_id": character.id, "seed": seed, "cells": cells},
-        status="pending",
-    )
-    db.add(batch)
-    await db.flush()
+    canonical_id = entity.canonical_asset_image_id if from_canonical else None
+    kind = f"{entity_type}_sheet" if entity_type != "character" else "character_sheet"
 
     jobs: list[JobRecord] = []
     last_cell_job: JobRecord | None = None
@@ -114,28 +153,34 @@ async def create_character_sheet(
         prompt = _cell_prompt(base_prompt, cell.get("suffix"))
         asset = AssetImage(
             origin_project_id=project_id,
-            entity_type="character",
+            entity_type=entity_type,
             kind="sheet",
             prompt=prompt,
             status="queued",
             source_asset_image_id=canonical_id,
             params={"sheet_slot": cell["slot"], "sheet_batch_id": batch.id,
-                    "character_id": character.id},
+                    "entity_type": entity_type, "entity_id": entity.id,
+                    f"{entity_type}_id": entity.id},
         )
         db.add(asset)
         await db.flush()
+        payload = {
+            "project_id": project_id,
+            "entity_type": entity_type,
+            "prompt": prompt,
+            "seed": seed,
+            "source_asset_image_id": canonical_id,
+            "asset_image_id": asset.id,
+            "sheet_slot": cell["slot"],
+        }
+        # Only meaningful on the txt2img route; build_sheet_cell ignores it when
+        # a source image is present.
+        if workflow:
+            payload["workflow"] = workflow
         job = JobRecord(
-            kind="character_sheet", status="queued", seed=seed, batch_id=batch.id,
+            kind=kind, status="queued", seed=seed, batch_id=batch.id,
             entity_type="asset_image", entity_id=asset.id,
-            payload={
-                "project_id": project_id,
-                "entity_type": "character",
-                "prompt": prompt,
-                "seed": seed,
-                "source_asset_image_id": canonical_id,
-                "asset_image_id": asset.id,
-                "sheet_slot": cell["slot"],
-            },
+            payload=payload,
         )
         db.add(job)
         await db.flush()
@@ -153,11 +198,12 @@ async def create_character_sheet(
     # dependency — see docs/BATCH_AUTOMATION_PLAN.md §6 "Concurrency upgrade path".
     contact_asset = AssetImage(
         origin_project_id=project_id,
-        entity_type="character",
+        entity_type=entity_type,
         kind="contact_sheet",
-        prompt=f"Contact sheet — {character.name}",
+        prompt=f"Contact sheet — {entity.name}",
         status="queued",
-        params={"sheet_batch_id": batch.id, "character_id": character.id},
+        params={"sheet_batch_id": batch.id, "entity_type": entity_type,
+                "entity_id": entity.id, f"{entity_type}_id": entity.id},
     )
     db.add(contact_asset)
     await db.flush()
@@ -168,15 +214,62 @@ async def create_character_sheet(
         payload={
             "asset_image_id": contact_asset.id,
             "sheet_batch_id": batch.id,
-            "character_id": character.id,
+            "entity_type": entity_type,
+            f"{entity_type}_id": entity.id,
             "project_id": project_id,
         },
     )
     db.add(contact_job)
+    await db.flush()
     jobs.append(contact_job)
+    return jobs
 
+
+async def create_entity_sheet(
+    entity,
+    entity_type: str,
+    db: AsyncSession,
+    cells: list[dict] | None = None,
+    *,
+    workflow: str | None = None,
+    from_canonical: bool = True,
+) -> tuple[Batch, list[JobRecord]]:
+    """Create a sheet batch for one entity and commit it. Returns (batch, jobs).
+
+    The standalone entry point (POST /api/{characters,props}/{id}/sheet). A
+    project-wide batch uses build_sheet_jobs directly instead, so it can put the
+    jobs in its own batch and transaction.
+    """
+    if entity_type not in SHEET_TEMPLATES:
+        raise ValueError(
+            f"No sheet template for '{entity_type}' "
+            f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
+        )
+    kind = f"{entity_type}_sheet" if entity_type != "character" else "character_sheet"
+    batch = Batch(
+        project_id=entity.project_id,
+        name=f"{entity_type.title()} sheet — {entity.name}",
+        kind=kind,
+        spec={"entity_type": entity_type, f"{entity_type}_id": entity.id},
+        status="pending",
+    )
+    db.add(batch)
+    await db.flush()
+    jobs = await build_sheet_jobs(entity, entity_type, batch, db, cells=cells,
+                                  workflow=workflow, from_canonical=from_canonical)
+    batch.spec = {**batch.spec, "seed": jobs[0].seed,
+                  "cells": cells if cells is not None else default_cells(entity, entity_type)}
     await db.commit()
     return batch, jobs
+
+
+async def create_character_sheet(
+    character: Character,
+    db: AsyncSession,
+    cells: list[dict] | None = None,
+) -> tuple[Batch, list[JobRecord]]:
+    """Back-compat alias — POST /api/characters/{id}/sheet and its tests use this."""
+    return await create_entity_sheet(character, "character", db, cells)
 
 
 # ── contact-sheet composite (KAN-39) ────────────────────────────────────────
@@ -255,7 +348,11 @@ async def run_contact_sheet(payload: dict, db: AsyncSession) -> dict:
         }
         for a in cells
     ]
-    rel = f"assets/{project_id}/characters/contact_{batch_id}.png"
+    # Older payloads carry no entity_type; they were all characters.
+    asset_dir = SHEET_TEMPLATES.get(
+        payload.get("entity_type", "character"), SHEET_TEMPLATES["character"]
+    )["asset_dir"]
+    rel = f"assets/{project_id}/{asset_dir}/contact_{batch_id}.png"
     out_path = os.path.join(COMFY_OUTPUT_DIR, rel)
     compose_contact_sheet(labeled, out_path)
 
