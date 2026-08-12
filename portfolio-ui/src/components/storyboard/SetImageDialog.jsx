@@ -333,7 +333,9 @@ export function SetImageDialog({ entityType, entityId, entityName, projectId, op
                     <SelectContent position="popper" className="bg-bay-850 border-line text-fg text-xs">
                       {(references || []).filter((r) => r.url).map((r) => (
                         <SelectItem key={r.id} value={r.id}>
-                          {r.role}
+                          {/* Backend-derived label — role is "moodboard" for
+                              every generated image and cannot distinguish them. */}
+                          {r.label || r.role}
                         </SelectItem>
                       ))}
                     </SelectContent>

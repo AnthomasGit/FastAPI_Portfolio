@@ -214,5 +214,7 @@ async def assign_asset_image(
     # Shared with batch commit so both dedupe identically.
     ref, _created = await assign_asset_to_entity(db, singular, entity_id, asset)
     await db.commit()
-    await db.refresh(ref)
+    # attribute_names: refresh the relationship too, so the response can derive
+    # its picker label from the joined asset image.
+    await db.refresh(ref, ["asset_image"])
     return ref

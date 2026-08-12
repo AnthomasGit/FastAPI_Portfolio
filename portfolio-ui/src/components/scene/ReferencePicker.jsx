@@ -14,12 +14,11 @@ export function ReferencePicker({ refs, selectedId, onSelect, ring }) {
   const [open, setOpen] = useState(false);
   const selected = refs.find((r) => r.id === selectedId);
 
-  const labelFor = (ref) => {
-    const sameRole = refs.filter((r) => r.role === ref.role);
-    return sameRole.length > 1
-      ? `${ref.role} (${ref.description?.slice(0, 12) || sameRole.indexOf(ref) + 1})`
-      : ref.role;
-  };
+  // The backend derives `label` (slot → prompt excerpt → upload+date) so every
+  // consumer names a reference the same way and the client needs no extra fetch
+  // of asset images. Role is the last resort: it is "moodboard" for essentially
+  // every generated image, which is what made this picker unreadable.
+  const labelFor = (ref) => ref.label || ref.description || ref.role;
 
   const pick = (refId) => {
     onSelect(refId);

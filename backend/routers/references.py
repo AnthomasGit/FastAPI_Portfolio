@@ -79,6 +79,9 @@ async def list_project_references(project_id: str, entity_type: str, db: AsyncSe
     entity_ids = select(model.id).where(model.project_id == project_id)
     result = await db.execute(
         select(Reference)
+        # Eager-load: ReferenceResponse derives its picker label from the
+        # joined asset image, and a lazy load here raises MissingGreenlet.
+        .options(selectinload(Reference.asset_image))
         .where(
             Reference.entity_type == singular,
             Reference.entity_id.in_(entity_ids),
@@ -95,6 +98,9 @@ async def list_references(entity_type: str, entity_id: str, db: AsyncSession = D
 
     result = await db.execute(
         select(Reference)
+        # Eager-load: ReferenceResponse derives its picker label from the
+        # joined asset image, and a lazy load here raises MissingGreenlet.
+        .options(selectinload(Reference.asset_image))
         .where(
             Reference.entity_type == PLURAL_TO_SINGULAR[entity_type],
             Reference.entity_id == entity_id,
@@ -131,7 +137,8 @@ async def create_reference(
 
 @router.put("/api/references/{reference_id}", response_model=ReferenceResponse)
 async def update_reference(reference_id: str, data: ReferenceUpdate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Reference).where(Reference.id == reference_id))
+    result = await db.execute(select(Reference).options(selectinload(Reference.asset_image))
+        .where(Reference.id == reference_id))
     ref = result.scalars().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")
@@ -150,7 +157,8 @@ async def update_reference(reference_id: str, data: ReferenceUpdate, db: AsyncSe
 
 @router.delete("/api/references/{reference_id}", status_code=204)
 async def delete_reference(reference_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Reference).where(Reference.id == reference_id))
+    result = await db.execute(select(Reference).options(selectinload(Reference.asset_image))
+        .where(Reference.id == reference_id))
     ref = result.scalars().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")
@@ -162,7 +170,8 @@ async def delete_reference(reference_id: str, db: AsyncSession = Depends(get_db)
 async def remove_background_from_reference(
     reference_id: str, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Reference).where(Reference.id == reference_id))
+    result = await db.execute(select(Reference).options(selectinload(Reference.asset_image))
+        .where(Reference.id == reference_id))
     ref = result.scalars().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")
@@ -190,7 +199,8 @@ async def remove_background_from_reference(
 async def restore_background_on_reference(
     reference_id: str, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Reference).where(Reference.id == reference_id))
+    result = await db.execute(select(Reference).options(selectinload(Reference.asset_image))
+        .where(Reference.id == reference_id))
     ref = result.scalars().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")

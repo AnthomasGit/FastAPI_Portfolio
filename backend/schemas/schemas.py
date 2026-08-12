@@ -229,6 +229,44 @@ class ReferenceUpdate(BaseModel):
     sort_order: Optional[int] = None
 
 
+def reference_label(ref) -> str:
+    """A short, human-distinguishing name for one reference.
+
+    Every generated image carries ``role="moodboard"``, so role alone renders a
+    picker as "moodboard, moodboard (1), moodboard (2)…" — useless precisely
+    where it matters most, choosing which look a scene uses. Layered, most
+    specific first:
+
+      1. the sheet/angle slot   -> "profile", "expr-joy", "red coat", "left45"
+      2. a prompt excerpt       -> "late 20s male with a…"
+      3. upload + date          -> "upload · Jul 27"
+
+    The ``wardrobe:``/``materials:`` group prefix is stripped — the group is
+    obvious from context and the trigger is narrow.
+
+    Computed here rather than in the client so every consumer of a reference
+    list labels identically, and so the client needs no extra fetch of asset
+    images just to draw a dropdown.
+    """
+    asset = getattr(ref, "asset_image", None)
+    params = (getattr(asset, "params", None) or {}) if asset is not None else {}
+
+    slot = params.get("sheet_slot") or params.get("angle_slot")
+    if slot:
+        return slot.split(":", 1)[1] if ":" in slot else slot
+
+    prompt = (getattr(asset, "prompt", None) or "").strip() if asset is not None else ""
+    if prompt:
+        if len(prompt) <= 28:
+            return prompt
+        return prompt[:28].rsplit(" ", 1)[0] + "…"
+
+    created = getattr(ref, "created_at", None)
+    stamp = created.strftime("%b %d") if created else ""
+    role = getattr(ref, "role", None) or "reference"
+    return f"{role} · {stamp}" if stamp else role
+
+
 class ReferenceResponse(BaseModel):
     id: str
     entity_type: str
@@ -239,10 +277,37 @@ class ReferenceResponse(BaseModel):
     description: Optional[str] = None
     sort_order: int = 0
     asset_image_id: Optional[str] = None
+    # Display name for pickers — see reference_label. Derived, never stored.
+    label: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_label(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return data
+        try:
+            label = reference_label(data)
+        except Exception:
+            # A lazy asset_image load outside a greenlet raises; degrade to the
+            # plain row rather than failing the whole response.
+            return data
+        return {
+            "id": data.id,
+            "entity_type": data.entity_type,
+            "entity_id": data.entity_id,
+            "role": data.role,
+            "url": data.url,
+            "processed_url": data.processed_url,
+            "description": data.description,
+            "sort_order": data.sort_order,
+            "asset_image_id": data.asset_image_id,
+            "label": label,
+            "created_at": data.created_at,
+        }
 
 
 class AssetImageGenerateRequest(BaseModel):
