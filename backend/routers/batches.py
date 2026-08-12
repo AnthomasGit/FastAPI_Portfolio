@@ -14,6 +14,7 @@ from services.batch_service import (
     InsufficientDiskError,
     VALID_SCOPES,
 )
+from services import batch_results_service
 
 router = APIRouter()
 
@@ -70,3 +71,33 @@ async def cancel(batch_id: str, db: AsyncSession = Depends(get_db)):
 async def retry(batch_id: str, db: AsyncSession = Depends(get_db)):
     batch = await _get_batch(batch_id, db)
     return await retry_failed(batch, db)
+
+
+# ── review & commit ────────────────────────────────────────────────────────
+
+@router.get("/api/batches/{batch_id}/artifacts")
+async def batch_artifacts(batch_id: str, include_failed: bool = False,
+                          db: AsyncSession = Depends(get_db)):
+    """Everything this batch produced, for the review grid."""
+    await _get_batch(batch_id, db)
+    return {"artifacts": await batch_results_service.list_artifacts(
+        batch_id, db, include_failed=include_failed)}
+
+
+@router.post("/api/batches/{batch_id}/commit")
+async def commit(batch_id: str, db: AsyncSession = Depends(get_db)):
+    """Save the survivors of a reviewed batch.
+
+    Links each kept image to its entity as a pool Reference and fills an unset
+    canonical/plate; marks kept clips approved. Idempotent — re-running returns
+    zeros rather than duplicating. Refuses while the batch is still working, so
+    a mid-run commit can't half-approve it.
+    """
+    batch = await _get_batch(batch_id, db)
+    summary = await batch_summary(batch, db)
+    if summary["status"] not in batch_results_service.TERMINAL_BATCH_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Batch is still {summary['status']}; commit once it has finished.",
+        )
+    return await batch_results_service.commit_batch(batch, db)

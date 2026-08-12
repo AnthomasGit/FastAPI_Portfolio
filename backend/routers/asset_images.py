@@ -20,6 +20,7 @@ from services.asset_image_service import (
 )
 from services.image_workflows import list_image_workflows
 from services.prompt_builder import location_prompt
+from services.reference_service import assign_asset_to_entity
 from services import plate_service
 
 import os
@@ -208,31 +209,10 @@ async def assign_asset_image(
         )
 
     # A pool reference, not a global primary — there is no entity-level
-    # primary. Find-or-create by asset_image_id so re-assigning the same
-    # generated image doesn't pile up duplicate pool rows. The caller (Scene
-    # Detail) is responsible for setting this as the current scene's primary
-    # via PUT .../links/{entity_type}/{entity_id}.
-    existing = await db.execute(
-        select(Reference).where(
-            Reference.entity_type == singular,
-            Reference.entity_id == entity_id,
-            Reference.asset_image_id == asset.id,
-        )
-    )
-    ref = existing.scalars().first()
-
-    if ref:
-        ref.url = asset.image_url
-    else:
-        ref = Reference(
-            entity_type=singular,
-            entity_id=entity_id,
-            role="moodboard",
-            url=asset.image_url,
-            asset_image_id=asset.id,
-        )
-        db.add(ref)
-
+    # primary. The caller (Scene Detail) is responsible for setting this as the
+    # current scene's primary via PUT .../links/{entity_type}/{entity_id}.
+    # Shared with batch commit so both dedupe identically.
+    ref, _created = await assign_asset_to_entity(db, singular, entity_id, asset)
     await db.commit()
     await db.refresh(ref)
     return ref

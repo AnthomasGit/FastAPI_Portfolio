@@ -4,6 +4,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Reference
 
 
+async def assign_asset_to_entity(db: AsyncSession, entity_type: str, entity_id: str,
+                                 asset) -> tuple[Reference, bool]:
+    """Find-or-create the pool Reference linking an AssetImage to an entity.
+
+    Returns (reference, created). Deduped by asset_image_id so re-assigning the
+    same generated image doesn't pile up duplicate pool rows — which is also
+    what makes batch commit idempotent. `entity_type` is SINGULAR.
+
+    Does not commit: the caller owns the transaction (the assign endpoint
+    commits per call; batch commit commits once for the whole batch).
+    """
+    existing = await db.execute(
+        select(Reference).where(
+            Reference.entity_type == entity_type,
+            Reference.entity_id == entity_id,
+            Reference.asset_image_id == asset.id,
+        )
+    )
+    ref = existing.scalars().first()
+    if ref:
+        ref.url = asset.image_url
+        return ref, False
+    ref = Reference(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        role="moodboard",
+        url=asset.image_url,
+        asset_image_id=asset.id,
+    )
+    db.add(ref)
+    return ref, True
+
+
 async def delete_entity_references(db: AsyncSession, entity_type: str, entity_id: str) -> None:
     await db.execute(
         delete(Reference).where(

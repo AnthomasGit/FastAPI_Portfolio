@@ -1,14 +1,17 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_db, GeneratedImage, Shot
+from database import get_db, GeneratedImage, GeneratedVideo, Shot
 from schemas.schemas import (
     VideoGenerateRequest,
     GeneratedVideoResponse,
     VideoWorkflowResponse,
 )
 from services.video_service import (
+    COMFY_OUTPUT_DIR,
     DEFAULT_WORKFLOW,
     generate_video,
     get_video,
@@ -114,3 +117,23 @@ async def get_video_binary(video_id: str, db: AsyncSession = Depends(get_db)):
 
     media_type = "video/webm" if (video.video_url or "").endswith(".webm") else "video/mp4"
     return Response(content=content, media_type=media_type)
+
+
+@router.delete("/api/generate/video/{video_id}", status_code=204)
+async def delete_video(video_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a generated clip (its row; best-effort its file).
+
+    Mirrors DELETE /api/asset-images/{id} — the review grid needs a way to
+    reject a clip, and clips previously had no delete route at all.
+    """
+    video = await db.get(GeneratedVideo, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    file_rel = video.video_url
+    await db.delete(video)
+    await db.commit()
+    if file_rel:
+        try:
+            os.unlink(os.path.join(COMFY_OUTPUT_DIR, file_rel))
+        except OSError:
+            pass  # already gone / never written — the row is what matters
