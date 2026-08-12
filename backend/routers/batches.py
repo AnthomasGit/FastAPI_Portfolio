@@ -16,6 +16,7 @@ from services.batch_service import (
     DISK_SAFETY_MARGIN,
     VALID_SCOPES,
 )
+from services.workflow_registry import validate_params
 
 router = APIRouter()
 
@@ -42,6 +43,19 @@ async def create_batch_endpoint(
         raise HTTPException(status_code=404, detail="Project not found")
 
     spec = data.model_dump()
+
+    # Reject a spec whose params name a knob the chosen workflow can't route,
+    # so an unroutable override fails here rather than silently no-op'ing in
+    # inject() and producing a plausible-but-wrong render (KAN-45).
+    unknown = validate_params(data.kind, data.workflow, spec.get("params") or {})
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown workflow param(s) for kind '{data.kind}': "
+                f"{', '.join(sorted(unknown))}."
+            ),
+        )
 
     # Fail fast on a bad run_after before doing any work.
     try:
