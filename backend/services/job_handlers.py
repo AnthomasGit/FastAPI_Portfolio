@@ -282,6 +282,45 @@ async def resolve_scene_entities(scene_id: str, db: AsyncSession) -> list[tuple[
     return out
 
 
+_ENTITY_MODELS = {"character": Character, "location": Location, "prop": Prop}
+
+
+async def select_shot_entities(shot, scene_entities: list[tuple[str, object]],
+                               db: AsyncSession) -> list[tuple[str, object]]:
+    """Apply a shot's `clip_refs` override to its scene's entity list.
+
+    `clip_refs` is null when the shot has no opinion → use the scene default.
+    An explicit `[]` means "no references" and is honoured as such. Entries name
+    an entity by (entity_type, entity_id) and are returned IN THE GIVEN ORDER,
+    because that order becomes the graph's slot order and the prompt's
+    <Subject N> numbering.
+
+    Entries whose entity no longer exists are skipped with a warning — the
+    column has no FK, so a deleted character leaves dangling ids behind and a
+    stale pin must not fail the render.
+    """
+    refs = shot.clip_refs
+    if refs is None:
+        return scene_entities
+    by_key = {(etype, e.id): (etype, e) for etype, e in scene_entities}
+
+    out: list[tuple[str, object]] = []
+    for ref in refs:
+        etype, eid = ref.get("entity_type"), ref.get("entity_id")
+        hit = by_key.get((etype, eid))
+        if hit is None:
+            # Pinned entity may be valid but no longer linked to the scene, so
+            # fall back to a direct load before giving up.
+            model = _ENTITY_MODELS.get(etype)
+            entity = await db.get(model, eid) if model and eid else None
+            if entity is None:
+                logger.warning("shot %s pins unknown %s %s — skipped", shot.id, etype, eid)
+                continue
+            hit = (etype, entity)
+        out.append(hit)
+    return out
+
+
 async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
                                       max_slots: int) -> list[str]:
     """Stage the canonical identity images of a scene's linked characters as

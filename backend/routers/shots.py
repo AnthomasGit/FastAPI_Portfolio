@@ -3,11 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from database import get_db, Scene
+from database import get_db, Scene, Shot
 from schemas.schemas import (
     ShotResponse, ShotCreate, ShotUpdate, ShotReorderRequest,
 )
-from services import shot_service
+from services import shot_service, shot_prompt_service
 
 router = APIRouter()
 
@@ -59,3 +59,34 @@ async def update_shot(shot_id: str, data: ShotUpdate, db: AsyncSession = Depends
 async def delete_shot(shot_id: str, db: AsyncSession = Depends(get_db)):
     if not await shot_service.delete_shot(db, shot_id):
         raise HTTPException(status_code=404, detail="Shot not found")
+
+
+# ── H3 clip-prompt composition ─────────────────────────────────────────────
+
+@router.post("/api/shots/{shot_id}/compose-prompt")
+async def compose_shot_prompt(shot_id: str, force: bool = False,
+                              db: AsyncSession = Depends(get_db)):
+    """Compose (and store) this shot's six-section H3 clip prompt.
+
+    Idempotent unless `force`: the stored prompt is user-editable, so a
+    regenerate has to be asked for rather than happening as a side effect.
+    """
+    shot = await db.get(Shot, shot_id)
+    if shot is None:
+        raise HTTPException(status_code=404, detail="Shot not found")
+    try:
+        doc = await shot_prompt_service.compose_for_shot(shot, db, force=force)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Prompt composition failed: {e}") from e
+    return {"shot_id": shot_id, "clip_prompt": doc}
+
+
+@router.post("/api/scenes/{scene_id}/shots/compose-prompts")
+async def compose_scene_prompts(scene_id: str, force: bool = False,
+                                db: AsyncSession = Depends(get_db)):
+    """Extract the scene's dialogue once, then compose every shot's prompt.
+
+    Dialogue is scene-level so speaker ids stay consistent across shots.
+    """
+    await _get_scene(scene_id, db)
+    return await shot_prompt_service.compose_for_scene(scene_id, db, force=force)
