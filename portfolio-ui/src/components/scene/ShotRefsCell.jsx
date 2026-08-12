@@ -26,10 +26,16 @@ const ACCENT = {
 function sceneDefaultRefs(scene) {
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
   const withThumb = (items, links, type) =>
-    [...(items || [])].sort(byName).map((e) => {
-      const link = (links || []).find((l) => l.entity_id === e.id);
-      return { entity_type: type, entity_id: e.id, name: e.name, url: link?.reference_url || null };
-    });
+    [...(items || [])].sort(byName).map((e) => ({
+      entity_type: type,
+      entity_id: e.id,
+      name: e.name,
+      // Keep the WHOLE link: its thumbnail url depends on asset_image_id and
+      // is_processed together, not on reference_url alone (an unprocessed
+      // asset-image reference must go through the asset-images route, since
+      // it lives in the output dir and the uploads mount cannot serve it).
+      link: (links || []).find((l) => l.entity_id === e.id) || null,
+    }));
   return [
     ...withThumb(scene.characters, scene.character_links, 'character'),
     ...withThumb(scene.locations, scene.location_links, 'location'),
@@ -128,8 +134,8 @@ export function ShotRefsCell({ shot, sceneId, scene }) {
                   {on ? idx + 1 : '·'}
                 </span>
                 <span className="w-7 h-7 rounded border border-line bg-bay-900 overflow-hidden shrink-0">
-                  {item.url
-                    ? <img src={api.getReferenceFileUrl({ url: item.url })} alt="" className="w-full h-full object-cover" />
+                  {api.getLinkThumbUrl(item.link)
+                    ? <img src={api.getLinkThumbUrl(item.link)} alt="" className="w-full h-full object-cover" />
                     : null}
                 </span>
                 <span className={`flex-1 truncate text-[11px] ${ACCENT[item.entity_type]}`}>
