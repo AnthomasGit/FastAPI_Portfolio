@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Shot, Scene, Project
 from services import ai_service
-from services.job_handlers import resolve_scene_entities, select_shot_entities
+from services.job_handlers import resolve_scene_entities, shot_reference_entities
 from services.prompt_builder import entity_prompt, location_prompt, _style_tokens
 
 logger = logging.getLogger(__name__)
@@ -412,10 +412,15 @@ async def compose_for_shot(shot: Shot, db: AsyncSession, *, force: bool = False)
     if shot.clip_prompt and not force:
         return shot.clip_prompt
 
-    scene, project, entities = await _load_context(shot, db)
-    # The shot's own override decides which entities appear and in what order —
-    # the prompt must describe exactly the images the graph will be given.
-    entities = await select_shot_entities(shot, entities, db)
+    scene, project, _all = await _load_context(shot, db)
+    # Exactly the entities the graph will receive, in slot order: filtered to
+    # those with a primary image and capped at the workflow's slot count. The
+    # prompt must describe the images that will actually be injected, not every
+    # entity linked to the scene.
+    from services.shot_clip_service import DEFAULT_SHOT_CLIP_WORKFLOW
+    from services.video_service import VIDEO_WORKFLOWS
+    max_refs = VIDEO_WORKFLOWS[DEFAULT_SHOT_CLIP_WORKFLOW].get("max_refs")
+    entities = await shot_reference_entities(shot, db, max_refs=max_refs)
 
     doc = await compose_shot_clip_prompt(
         shot, scene, entities, project,

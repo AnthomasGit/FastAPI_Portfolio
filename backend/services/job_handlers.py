@@ -321,6 +321,36 @@ async def select_shot_entities(shot, scene_entities: list[tuple[str, object]],
     return out
 
 
+async def shot_reference_entities(shot, db: AsyncSession,
+                                  max_refs: int | None = None) -> list[tuple[str, object]]:
+    """The entities that will actually fill a shot's reference slots, in slot order.
+
+    THE single definition of "what goes in the slots", shared by the prompt
+    composer and the clip builder. Both must agree or the invariant the whole
+    design rests on breaks: slot N is image{N} in the graph AND <Subject N> in
+    the prompt, so a prompt that describes an entity the graph never receives is
+    describing the wrong picture — silently.
+
+    Entities with no primary image are dropped (a scene routinely links props
+    nobody has generated art for yet), then the list is capped at the graph's
+    slot count.
+    """
+    entities = await select_shot_entities(
+        shot, await resolve_scene_entities(shot.scene_id, db), db
+    )
+    usable = [(etype, e) for etype, e in entities if primary_asset_image_id(e, etype)]
+
+    if max_refs is not None and len(usable) > max_refs:
+        dropped = usable[max_refs:]
+        logger.warning(
+            "shot %s has %d usable references but only %d slots; dropped: %s",
+            shot.id, len(usable), max_refs,
+            ", ".join(f"{t} {getattr(e, 'name', e.id)}" for t, e in dropped),
+        )
+        usable = usable[:max_refs]
+    return usable
+
+
 async def resolve_scene_identity_refs(scene_id: str, db: AsyncSession,
                                       max_slots: int) -> list[str]:
     """Stage the canonical identity images of a scene's linked characters as

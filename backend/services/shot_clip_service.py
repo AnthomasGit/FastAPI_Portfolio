@@ -25,8 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Shot, Scene, GeneratedVideo
 from services.job_handlers import (
     register,
-    resolve_scene_entities,
-    select_shot_entities,
+    shot_reference_entities,
     stage_entity_primary_image,
 )
 from services.video_service import (
@@ -56,28 +55,26 @@ async def resolve_shot_reference_files(shot: Shot, db: AsyncSession,
     count are dropped with a warning that names them, so the omission is visible
     in the job log rather than silent.
     """
-    entities = await select_shot_entities(
-        shot, await resolve_scene_entities(shot.scene_id, db), db
-    )
+    # Same selection the prompt composer used — filtering/capping lives in one
+    # place so <Subject N> and image{N} cannot describe different entities.
+    entities = await shot_reference_entities(shot, db, max_refs=max_refs)
 
     files: list[str] = []
     used: list[tuple[str, object]] = []
-    dropped: list[str] = []
     for etype, entity in entities:
-        if len(files) >= max_refs:
-            dropped.append(f"{etype} {getattr(entity, 'name', entity.id)}")
-            continue
         filename = await stage_entity_primary_image(entity, etype, db)
         if filename is None:
+            # Selected (it HAS a primary image) but the file vanished from disk.
+            # Rare, and the prompt already named it — so warn loudly rather than
+            # silently shifting every later subject up a slot.
+            logger.warning(
+                "shot %s: %s %s was selected but its image could not be staged — "
+                "slot numbering will not match the composed prompt",
+                shot.id, etype, getattr(entity, "name", entity.id),
+            )
             continue
         files.append(filename)
         used.append((etype, entity))
-
-    if dropped:
-        logger.warning(
-            "shot %s has more references than the workflow's %d slots; dropped: %s",
-            shot.id, max_refs, ", ".join(dropped),
-        )
     return files, used
 
 

@@ -27,6 +27,11 @@ services:
         condition: service_started
       bg-remover:
         condition: service_started
+      # Wait for the model to finish loading. Without this the first request
+      # after `up` hits a server that is still mmap'ing weights and fails in a
+      # way that looks like a timeout rather than a cold start.
+      llama:
+        condition: service_healthy
 
   # 1b. One-shot DB migrator. Runs `alembic upgrade head` to completion and
   #     exits; portfolio-api waits on its success. Uses the same image as the
@@ -215,6 +220,69 @@ services:
       - /opt/ComfyUI/models/background_removal:/opt/ComfyUI/models/background_removal:ro
     ports:
       - "8400:8400"
+
+  # 7. The LLM (llama.cpp server, OpenAI-compatible)
+  #    Serves every LLM feature -- storyboard/shot-list/profile generation and
+  #    the H3 clip prompts -- at /v1, so the app needs no code change: it is
+  #    already a plain AsyncOpenAI client driven by OPENAI_BASE_URL/LLM_MODEL.
+  #
+  #    llama.cpp rather than Ollama for three reasons that matter here:
+  #      * context is explicit (--ctx-size). Ollama silently defaults to 2048,
+  #        which would truncate our screenplay prompts invisibly.
+  #      * --override-tensor lets a 30B MoE run on 12GB by keeping attention on
+  #        the GPU and routing expert tensors to RAM.
+  #      * response_format={"type":"json_object"} is enforced with a GBNF
+  #        grammar, so the sampler CANNOT emit invalid JSON. Every one of our
+  #        seven call sites sends that field, and malformed/empty output was the
+  #        exact failure that made hosted routing unusable.
+  #
+  #    Pinned to GPU 0 (RTX 3060, 12GB). ComfyUI holds GPU 1 (3090) below, so
+  #    the two never contend -- video generation keeps the big card.
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: llama-server
+    ports:
+      - "8080:8080"
+    volumes:
+      # Bind mount, not a named volume: GGUFs are 9-18GB and worth being able
+      # to inspect, swap and delete from the host without docker plumbing.
+      - ./models:/models
+    # --parallel 1 because our callers are strictly serial (compose_for_scene
+    # loops shots one at a time). llama-server defaults to 4 slots and sizes the
+    # KV cache for all of them, which on a 12GB card left ~400MiB headroom --
+    # an OOM waiting to happen mid-batch for concurrency we never use.
+    #
+    # Flags rather than LLAMA_ARG_* env vars, specifically so optional flags can
+    # be OMITTED: llama-server rejects an empty value (e.g. an unset
+    # --override-tensor is `invalid value`, not "ignore me"), and compose cannot
+    # conditionally drop an environment entry. In a command string an empty
+    # ${LLAMA_EXTRA_ARGS} simply expands to nothing.
+    command: >
+      --model /models/${LLAMA_GGUF}
+      --ctx-size ${LLAMA_CTX:-16384}
+      --n-gpu-layers ${LLAMA_NGL:-99}
+      --alias ${LLM_MODEL}
+      --parallel ${LLAMA_PARALLEL:-1}
+      --host 0.0.0.0
+      --port 8080
+      ${LLAMA_EXTRA_ARGS:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [ gpu ]
+    healthcheck:
+      # /health reports 503 until the model is loaded, which is what gates
+      # portfolio-api above. start_period is generous: a cold 14B load off
+      # spinning-up page cache is slow, and A3B slower still.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      start_period: 300s
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
 
 volumes:
   local_pg_data:

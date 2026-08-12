@@ -298,6 +298,54 @@ async def test_owning_row_links_shot_scene_project(db_session, project, scene):
 
 
 @pytest.mark.asyncio
+async def test_prompt_and_graph_see_the_same_entities(db_session, project, scene, dirs):
+    """REGRESSION: the composer and the builder must select identically.
+
+    The compose path once used every scene-linked entity while the render path
+    skipped those without a primary image — so a scene with 8 entities and 2
+    images produced a prompt describing <Subject 1..8> for a graph that received
+    2 pictures. <Subject 3> then referred to something not in slot 3, silently.
+    """
+    out_dir, _ = dirs
+    ada = await _with_image(db_session, project, out_dir, Character, "Ada")
+    bar = await _with_image(db_session, project, out_dir, Location, "Bar")
+    # Linked to the scene but with no art yet — the common case.
+    for name in ("Remote", "Table", "TV"):
+        p = Prop(id=str(uuid.uuid4()), project_id=project.id, name=name)
+        db_session.add(p)
+        await db_session.flush()
+        await db_session.execute(scene_props.insert().values(
+            scene_id=scene.id, prop_id=p.id))
+    await _link(db_session, scene, chars=[ada], locs=[bar])
+    shot = await _shot(db_session, scene)
+
+    from services.job_handlers import shot_reference_entities, resolve_scene_entities
+    assert len(await resolve_scene_entities(scene.id, db_session)) == 5   # all linked
+
+    selected = await shot_reference_entities(shot, db_session, max_refs=9)
+    files, used = await resolve_shot_reference_files(shot, db_session, 9)
+
+    # Only the two with art are selected, and both paths agree exactly.
+    assert [e.name for _, e in selected] == ["Ada", "Bar"]
+    assert [e.name for _, e in used] == ["Ada", "Bar"]
+    assert len(files) == len(selected)
+
+
+@pytest.mark.asyncio
+async def test_selection_is_capped_at_the_slot_count(db_session, project, scene, dirs):
+    """The cap lives in the shared selector, so the prompt can never declare
+    more subjects than the graph has slots."""
+    out_dir, _ = dirs
+    chars = [await _with_image(db_session, project, out_dir, Character, f"C{i:02d}")
+             for i in range(11)]
+    await _link(db_session, scene, chars=chars)
+    shot = await _shot(db_session, scene)
+
+    from services.job_handlers import shot_reference_entities
+    assert len(await shot_reference_entities(shot, db_session, max_refs=9)) == 9
+
+
+@pytest.mark.asyncio
 async def test_handler_is_registered():
     from services.job_handlers import HANDLERS
     import services.shot_clip_service  # noqa: F401
