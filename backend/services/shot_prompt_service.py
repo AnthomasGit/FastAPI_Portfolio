@@ -258,33 +258,83 @@ SCENE
 VISUAL STYLE: {_style_tokens(project)}"""
 
 
+class PromptCompositionError(RuntimeError):
+    """The model did not return a usable document. Carries which model, since
+    LLM_MODEL may be a routing alias that lands on a different one each call."""
+
+
+def _document_from_response(response) -> str:
+    """Turn a completion into the six-section document, or raise.
+
+    Deliberately tolerant of two real failure modes seen with routed/free models:
+      * `content` is None — typical of reasoning models that spend their token
+        budget on reasoning and emit nothing (the raw AttributeError this used
+        to produce told the operator nothing);
+      * the model ignored the JSON instruction and returned the document as
+        prose — recoverable, because the sections are self-labelling.
+    """
+    model = getattr(response, "model", None) or ai_service.LLM_MODEL
+    choice = response.choices[0] if response.choices else None
+    content = getattr(getattr(choice, "message", None), "content", None)
+
+    if not content or not content.strip():
+        reason = "returned empty content"
+        if getattr(getattr(choice, "message", None), "reasoning", None):
+            reason += " (reasoning-only response — the model spent its budget thinking)"
+        raise PromptCompositionError(f"{model} {reason}")
+
+    try:
+        return render_document(ai_service.extract_json(content))
+    except Exception:
+        # Not JSON — accept prose if it actually carries the sections.
+        parsed = parse_document(content)
+        if len(parsed) >= 3:
+            return render_document(parsed)
+        raise PromptCompositionError(
+            f"{model} returned neither JSON nor a sectioned document "
+            f"(first 200 chars: {content.strip()[:200]!r})"
+        ) from None
+
+
 async def compose_shot_clip_prompt(shot, scene, entities: list[tuple[str, object]],
                                    project, *, dialogue: list[dict] | None = None,
-                                   has_audio: bool = False) -> str:
+                                   has_audio: bool = False, attempts: int = 2) -> str:
     """Compose the six-section H3 document for one shot. Returns the document.
 
     `entities` is the ORDERED, already-resolved reference list — the same list
     that fills the graph's image slots, so <Subject N> lines up with image{N}.
+
+    Retried once by default: when LLM_MODEL is a routing alias (e.g.
+    ``openrouter/free``) each call can land on a different model, so a single
+    unusable response says nothing about the next one.
     """
     subjects = build_subject_brief(entities)
     audio_role = shot.audio_role if has_audio else None
+    messages = [
+        {"role": "system", "content": _system_prompt(audio_role, has_audio)},
+        {"role": "user", "content": _user_prompt(shot, scene, project, subjects,
+                                                 dialogue, audio_role, has_audio)},
+    ]
 
-    response = await ai_service.client.chat.completions.create(
-        model=ai_service.LLM_MODEL,
-        messages=[
-            {"role": "system", "content": _system_prompt(audio_role, has_audio)},
-            {"role": "user", "content": _user_prompt(shot, scene, project, subjects,
-                                                     dialogue, audio_role, has_audio)},
-        ],
-        temperature=0.7,
-        response_format={"type": "json_object"},
-        extra_headers={
-            "HTTP-Referer": "https://storyboardpro.local",
-            "X-Title": "Storyboard Pro",
-        },
-    )
-    data = ai_service.extract_json(response.choices[0].message.content)
-    return render_document(data)
+    last: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            response = await ai_service.client.chat.completions.create(
+                model=ai_service.LLM_MODEL,
+                messages=messages,
+                temperature=0.7,
+                response_format={"type": "json_object"},
+                extra_headers={
+                    "HTTP-Referer": "https://storyboardpro.local",
+                    "X-Title": "Storyboard Pro",
+                },
+            )
+            return _document_from_response(response)
+        except PromptCompositionError as e:
+            last = e
+            logger.warning("shot %s prompt attempt %d/%d failed: %s",
+                           shot.id, attempt + 1, attempts, e)
+    raise last
 
 
 async def extract_scene_dialogue(scene, entities: list[tuple[str, object]],
@@ -408,11 +458,16 @@ async def compose_for_scene(scene_id: str, db: AsyncSession, *, force: bool = Fa
             # prompts, which are the thing a render actually needs.
             logger.exception("dialogue extraction failed for scene %s; continuing", scene_id)
 
-    composed = []
+    composed, failed = [], []
     for s in shots:
         try:
             await compose_for_shot(s, db, force=force)
             composed.append(s.id)
-        except Exception:
+        except Exception as e:
+            # One bad shot must not block the rest, but the caller has to learn
+            # WHY — a bare composed:0 is indistinguishable from a timeout.
             logger.exception("prompt composition failed for shot %s", s.id)
-    return {"composed": len(composed), "shots": composed}
+            failed.append({"shot_id": s.id, "shot_number": s.shot_number,
+                           "reason": str(e)[:300]})
+    return {"composed": len(composed), "shots": composed,
+            "failed": failed, "model": ai_service.LLM_MODEL}

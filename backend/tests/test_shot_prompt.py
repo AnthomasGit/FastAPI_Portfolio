@@ -178,6 +178,86 @@ async def test_endpoint_404_for_missing_shot(client):
     assert r.status_code == 404
 
 
+# ── unusable model responses ───────────────────────────────────────────────
+#
+# LLM_MODEL may be a routing alias (openrouter/free) that lands on a different
+# model per call, so these are the responses actually seen in practice.
+
+def _resp(content, *, model="some/model", reasoning=None):
+    msg = SimpleNamespace(content=content, reasoning=reasoning)
+    return SimpleNamespace(model=model, choices=[SimpleNamespace(message=msg)])
+
+
+@pytest.mark.asyncio
+async def test_empty_content_raises_a_named_error_not_attributeerror():
+    """A reasoning model can spend its whole budget thinking and return None.
+    That used to crash with AttributeError, which told the operator nothing."""
+    shot = Shot(id="s1", scene_id="sc1", shot_number="1A")
+    with patch.object(sps.ai_service.client.chat.completions, "create",
+                      new=AsyncMock(return_value=_resp(None, model="x/reasoner",
+                                                       reasoning="thinking..."))):
+        with pytest.raises(sps.PromptCompositionError) as exc:
+            await sps.compose_shot_clip_prompt(shot, SimpleNamespace(slugline="", screenplay=""),
+                                               [], None, attempts=1)
+    assert "x/reasoner" in str(exc.value)          # names which model failed
+    assert "reasoning-only" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_prose_with_sections_is_accepted():
+    """Some models ignore the JSON instruction. The sections are self-labelling,
+    so a sectioned prose reply is recoverable rather than a failure."""
+    prose = sps.render_document(SIX)
+    shot = Shot(id="s1", scene_id="sc1", shot_number="1A")
+    with patch.object(sps.ai_service.client.chat.completions, "create",
+                      new=AsyncMock(return_value=_resp(prose))):
+        doc = await sps.compose_shot_clip_prompt(
+            shot, SimpleNamespace(slugline="", screenplay=""), [], None, attempts=1)
+    assert "detailed_description:" in doc
+
+
+@pytest.mark.asyncio
+async def test_unusable_prose_raises_with_a_sample():
+    shot = Shot(id="s1", scene_id="sc1", shot_number="1A")
+    with patch.object(sps.ai_service.client.chat.completions, "create",
+                      new=AsyncMock(return_value=_resp("I cannot help with that."))):
+        with pytest.raises(sps.PromptCompositionError, match="cannot help"):
+            await sps.compose_shot_clip_prompt(
+                shot, SimpleNamespace(slugline="", screenplay=""), [], None, attempts=1)
+
+
+@pytest.mark.asyncio
+async def test_retry_recovers_when_a_routed_model_varies():
+    """The point of retrying: with a routing alias the next call is a different
+    model, so one unusable response says nothing about the next."""
+    shot = Shot(id="s1", scene_id="sc1", shot_number="1A")
+    create = AsyncMock(side_effect=[_resp(None), _llm_json(SIX)])
+    with patch.object(sps.ai_service.client.chat.completions, "create", new=create):
+        doc = await sps.compose_shot_clip_prompt(
+            shot, SimpleNamespace(slugline="", screenplay=""), [], None, attempts=2)
+    assert create.await_count == 2
+    assert "subject_definitions:" in doc
+
+
+@pytest.mark.asyncio
+async def test_scene_compose_reports_why_each_shot_failed(db_session, project, scene):
+    """A bare composed:0 is indistinguishable from a timeout — which is exactly
+    how this failure was first misread."""
+    for n in ("1A", "1B"):
+        db_session.add(Shot(id=str(uuid.uuid4()), scene_id=scene.id, shot_number=n))
+    await db_session.commit()
+
+    with patch.object(sps.ai_service.client.chat.completions, "create",
+                      new=AsyncMock(return_value=_resp(None, model="x/empty"))):
+        result = await sps.compose_for_scene(scene.id, db_session, force=True)
+
+    assert result["composed"] == 0
+    assert len(result["failed"]) == 2
+    assert {f["shot_number"] for f in result["failed"]} == {"1A", "1B"}
+    assert "x/empty" in result["failed"][0]["reason"]
+    assert result["model"] == sps.ai_service.LLM_MODEL
+
+
 # ── clip_refs override drives subject selection AND order ──────────────────
 
 @pytest.mark.asyncio
