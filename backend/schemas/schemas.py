@@ -142,9 +142,34 @@ class LocationResponse(BaseModel):
     name: str
     description: Optional[str] = None
     shot_notes: Optional[str] = None
+    prompt_profile: Optional[dict] = None
+    reference_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def derive_reference_url(cls, data: Any) -> Any:
+        """Newest reference's url — the image an unpicked scene inherits, and the
+        UI's "does this asset have art yet" signal. Mirrors CharacterResponse."""
+        if isinstance(data, dict):
+            return data
+        try:
+            refs = data.references
+        except Exception:
+            return data
+        with_url = [r for r in (refs or []) if getattr(r, 'url', None)]
+        newest = max(with_url, key=lambda r: r.created_at, default=None)
+        if not newest:
+            return data
+        out = {c: getattr(data, c, None) for c in
+               ('id', 'project_id', 'name', 'description', 'prompt_profile')}
+        out['reference_url'] = newest.url
+        if hasattr(data, 'shot_notes'):
+            out['shot_notes'] = data.shot_notes
+        return out
+
 
 
 class PropCreate(BaseModel):
@@ -162,9 +187,34 @@ class PropResponse(BaseModel):
     project_id: str
     name: str
     description: Optional[str] = None
+    prompt_profile: Optional[dict] = None
+    reference_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def derive_reference_url(cls, data: Any) -> Any:
+        """Newest reference's url — the image an unpicked scene inherits, and the
+        UI's "does this asset have art yet" signal. Mirrors CharacterResponse."""
+        if isinstance(data, dict):
+            return data
+        try:
+            refs = data.references
+        except Exception:
+            return data
+        with_url = [r for r in (refs or []) if getattr(r, 'url', None)]
+        newest = max(with_url, key=lambda r: r.created_at, default=None)
+        if not newest:
+            return data
+        out = {c: getattr(data, c, None) for c in
+               ('id', 'project_id', 'name', 'description', 'prompt_profile')}
+        out['reference_url'] = newest.url
+        if hasattr(data, 'shot_notes'):
+            out['shot_notes'] = data.shot_notes
+        return out
+
 
 
 class ReferenceCreate(BaseModel):

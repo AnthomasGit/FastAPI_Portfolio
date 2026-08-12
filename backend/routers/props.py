@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from database import get_db, Prop, Project
@@ -15,6 +16,9 @@ router = APIRouter()
 async def list_props(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Prop)
+        # Eager-load: the response derives reference_url from the newest
+        # reference, and a lazy load in async context raises MissingGreenlet.
+        .options(selectinload(Prop.references))
         .where(Prop.project_id == project_id)
         .order_by(Prop.name)
     )

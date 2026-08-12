@@ -87,9 +87,9 @@ export const api = {
     fetchJSON(`/projects/${projectId}/style-profile`, { method: 'POST' }),
   saveStyleProfile: (projectId, profile) =>
     fetchJSON(`/projects/${projectId}/style-profile`, { method: 'PUT', body: JSON.stringify(profile) }),
-  // Canonical "hero" image → fed into scene generation as an identity reference.
-  setCanonicalImage: (entityType, id, assetImageId) =>
-    fetchJSON(`/${entityType}/${id}/canonical-image`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
+  // NOTE: no setCanonicalImage / setLocationPlate. Which image an asset uses is
+  // chosen PER SCENE via setSceneEntityReference below; there is no project-wide
+  // primary, so those endpoints were removed rather than left to 404.
 
   // Location background plates (Phase 4). generate/expand return { asset_image_id }
   // for an async job — poll getAssetImage(id) until completed, same as asset gen.
@@ -98,9 +98,6 @@ export const api = {
   // body: { preset: 'widen_21_9'|'pan_left'|'pan_right' } and/or expand_left/right/top/bottom px.
   expandPlate: (locationId, body) =>
     fetchJSON(`/locations/${locationId}/plate/expand`, { method: 'POST', body: JSON.stringify(body) }),
-  // Promote a plate variant (e.g. an expanded one) to the location's active plate.
-  setLocationPlate: (locationId, assetImageId) =>
-    fetchJSON(`/locations/${locationId}/plate`, { method: 'PUT', body: JSON.stringify({ asset_image_id: assetImageId }) }),
   // Multi-angle 360 off the plate → { front_asset_image_id, asset_image_ids }.
   // body: { angles?: [{slot, prompt}], double_ref?, steps? }.
   renderPlateAngles: (locationId, body = {}) =>

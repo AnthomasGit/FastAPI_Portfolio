@@ -3,10 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, ImageIcon, Expand, Check, Orbit, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 
-// A location's wide, character-free establishing "plate" (Phase 4): the fixed
-// background reused across every scene set here. The plate is chosen on the
-// asset-library thumbnails below (the Frame button); this panel shows the
-// current plate and lets you outpaint it wider, promoting the result.
+// A location's wide, character-free establishing "plate" (Phase 4).
+//
+// There is no project-wide "active plate" any more: which image a location uses
+// is a per-scene choice, made with the scene page's "Primary for this scene"
+// picker. This panel therefore shows the location's MOST RECENT image — the one
+// a scene inherits when it has not picked — and lets you outpaint it wider or
+// fan it out to 360 angles. "Use as plate" adds the result to the library,
+// which makes it the newest and so the new default.
 const EXPAND_PRESETS = [
   { key: 'widen_21_9', label: 'Widen 21:9' },
   { key: 'pan_left', label: 'Pan left' },
@@ -15,7 +19,15 @@ const EXPAND_PRESETS = [
 
 export function LocationPlatePanel({ location, projectId }) {
   const queryClient = useQueryClient();
-  const plateId = location.plate_asset_image_id;
+  // The newest reference with a generated image is what an unpicked scene
+  // inherits, so that is the plate this panel represents.
+  const { data: locRefs } = useQuery({
+    queryKey: ['references', 'locations', location.id],
+    queryFn: () => api.listReferences('locations', location.id),
+  });
+  const plateId = (locRefs || [])
+    .filter((r) => r.asset_image_id)
+    .slice(-1)[0]?.asset_image_id ?? null;
   const [showExpand, setShowExpand] = useState(false);
   const [expandJobId, setExpandJobId] = useState(null);
   const [angleIds, setAngleIds] = useState(null);
@@ -61,9 +73,15 @@ export function LocationPlatePanel({ location, projectId }) {
     mutationFn: () => api.renderPlateAngles(location.id, {}),
     onSuccess: (r) => setAngleIds(r.asset_image_ids),
   });
+  // Adding it to the library makes it the newest reference — and therefore the
+  // default any scene without an explicit pick will use.
   const promote = useMutation({
-    mutationFn: (assetImageId) => api.setLocationPlate(location.id, assetImageId),
-    onSuccess: () => { setExpandJobId(null); invalidateProject(); },
+    mutationFn: (assetImageId) => api.assignAssetImage('locations', location.id, assetImageId),
+    onSuccess: () => {
+      setExpandJobId(null);
+      queryClient.invalidateQueries({ queryKey: ['references', 'locations', location.id] });
+      invalidateProject();
+    },
   });
   const regenAngle = useMutation({
     mutationFn: (assetImageId) => api.regeneratePlateAngle(assetImageId),
@@ -120,7 +138,8 @@ export function LocationPlatePanel({ location, projectId }) {
           <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2 text-center">
             <ImageIcon className="w-4 h-4 text-fg-faint" />
             <span className="text-[10px] text-fg-faint leading-tight">
-              Set one from the library below (the frame button on a thumbnail).
+              No images yet — generate one with (+) below. Each scene then picks
+              which to use from its own “Primary for this scene”.
             </span>
           </div>
         )}
@@ -161,7 +180,7 @@ export function LocationPlatePanel({ location, projectId }) {
               disabled={promote.isPending}
               className="mt-1 flex items-center gap-1 h-5 px-1.5 rounded-frame border border-lead-600 text-[10px] text-lead-400 hover:bg-lead-600/10 transition-colors disabled:opacity-50"
             >
-              <Check className="w-3 h-3" /> Use as plate
+              <Check className="w-3 h-3" /> Add to library
             </button>
           </div>
         </div>
