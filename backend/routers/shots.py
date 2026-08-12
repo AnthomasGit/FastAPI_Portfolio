@@ -8,6 +8,10 @@ from schemas.schemas import (
     ShotResponse, ShotCreate, ShotUpdate, ShotReorderRequest,
 )
 from services import shot_service, shot_prompt_service
+# Imported for its side effect: registers the `shot_clip` job handler. main.py
+# imports every router, so this is what makes the kind available to the worker
+# (same pattern as video/controlled_image/mesh registering from their services).
+from services import shot_clip_service  # noqa: F401
 
 router = APIRouter()
 
