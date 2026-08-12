@@ -23,6 +23,7 @@ from database import (
 )
 from services.comfyui_service import construct_prompt
 from services.seed_policy import resolve_seed
+from services.chains import validate_chain
 
 VALID_SCOPES = {"project", "scene", "shot", "entity"}
 SEED_MAX = 1000000000000000
@@ -131,6 +132,55 @@ async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
     )
 
 
+async def _materialize_chain(chain, target_type, target_id, spec, seed, batch, db) -> list[JobRecord]:
+    """Expand one chain over one target into a linked list of JobRecords.
+
+    Stage 0 is a normal root job (its owning row created by the standard
+    per-kind materializer); each later stage ``depends_on`` the previous and
+    takes its output via ``{"$from_parent": "image_url"}``, so the worker runs
+    them in order and its cascade-cancel drops only this target's tail if a
+    stage fails. Downstream stages currently assume a GeneratedImage owning row
+    (the scene-still pipelines); asset-image chains are declared but validate
+    out today, so that path is never reached yet."""
+    stages = chain.stages
+    root_spec = {**spec, "kind": stages[0].kind}
+    if stages[0].workflow:
+        root_spec["workflow"] = stages[0].workflow
+    root = await _materialize_job(target_type, target_id, root_spec, seed, db)
+    root.batch_id = batch.id
+    db.add(root)
+    await db.flush()  # root.job_id for the next stage's dependency link
+    jobs = [root]
+
+    prev = root
+    for stage in stages[1:]:
+        scene_id = target_id if target_type == "scene" else None
+        gen = GeneratedImage(scene_id=scene_id, status="queued", kind=stage.kind,
+                             params={"chain": chain.name, "source_job_id": prev.job_id})
+        db.add(gen)
+        await db.flush()
+        payload = {
+            (stage.parent_input or "source"): {"$from_parent": "image_url"},
+            "generation_id": gen.id,
+            f"{target_type}_id": target_id,
+        }
+        if stage.workflow:
+            payload["workflow"] = stage.workflow
+        if stage.kind == "color_match":
+            payload["reference_image"] = spec.get("color_match_reference")
+            payload["film_grain"] = bool(spec.get("film_grain"))
+        job = JobRecord(
+            kind=stage.kind, status="queued", priority=int(spec.get("priority") or 0),
+            batch_id=batch.id, entity_type="generated_image", entity_id=gen.id,
+            depends_on_job_id=prev.job_id, payload=payload,
+        )
+        db.add(job)
+        await db.flush()
+        jobs.append(job)
+        prev = job
+    return jobs
+
+
 async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRecord]]:
     """Create a Batch and all its child jobs from a spec, in the caller's
     transaction. Returns (batch, jobs). Raises ValueError for an unknown scope
@@ -138,6 +188,10 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     scope = spec.get("scope")
     if scope not in VALID_SCOPES:
         raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
+
+    # A chain spec must name a runnable chain — validate before creating anything
+    # so an unrunnable one (missing exported workflow) half-builds nothing.
+    chain = validate_chain(spec["chain"]) if spec.get("chain") else None
 
     variants = max(1, int(spec.get("variants") or 1))
     run_after = parse_run_after(spec.get("run_after"))  # raises ValueError -> router 422
@@ -173,6 +227,15 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
                 "locked_seed": locked_seed,
                 "base_seed": base_seed,
             })
+            # Chain batches expand into a linked stage graph per target/variant;
+            # the chain owns its stages, so the single-job + auto-color-match
+            # path below is skipped.
+            if chain is not None:
+                chain_jobs = await _materialize_chain(chain, target_type, target_id, spec, seed, batch, db)
+                for cj in chain_jobs:
+                    cj.scheduled_after = run_after
+                jobs.extend(chain_jobs)
+                continue
             job = await _materialize_job(target_type, target_id, spec, seed, db)
             job.batch_id = batch.id
             # Overnight start: the worker skips a job until scheduled_after passes.

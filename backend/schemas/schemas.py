@@ -9,6 +9,7 @@ class BatchCreateRequest(BaseModel):
     kind: str  # job kind, e.g. "scene_image"
     target_ids: List[str] = []
     workflow: Optional[str] = None
+    chain: Optional[str] = None  # named job chain instead of a single workflow (KAN-47)
     variants: int = 1
     seed_policy: str = "random"
     base_seed: Optional[int] = None

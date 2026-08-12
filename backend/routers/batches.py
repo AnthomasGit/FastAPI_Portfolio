@@ -47,7 +47,9 @@ async def create_batch_endpoint(
     # Reject a spec whose params name a knob the chosen workflow can't route,
     # so an unroutable override fails here rather than silently no-op'ing in
     # inject() and producing a plausible-but-wrong render (KAN-45).
-    unknown = validate_params(data.kind, data.workflow, spec.get("params") or {})
+    # Chain specs manage their own per-stage graphs; single-workflow param
+    # validation applies only to non-chain batches.
+    unknown = [] if data.chain else validate_params(data.kind, data.workflow, spec.get("params") or {})
     if unknown:
         raise HTTPException(
             status_code=422,
