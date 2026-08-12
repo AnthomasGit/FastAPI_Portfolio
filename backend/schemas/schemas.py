@@ -341,6 +341,7 @@ class GeneratedVideoResponse(BaseModel):
     prompt_id: Optional[str] = None
     params: Optional[dict] = None
     error: Optional[str] = None
+    approved_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
@@ -503,6 +504,12 @@ class ShotBase(BaseModel):
     audio_notes: Optional[str] = None
     capture_id: Optional[str] = None
     generated_image_id: Optional[str] = None
+    # Shot-clip batching (H3 reference-to-video).
+    reference_audio_id: Optional[str] = None
+    audio_role: Optional[str] = None            # 'dialogue' | 'timbre'
+    dialogue: Optional[List[dict]] = None       # [{speaker_id, entity_id, language, text}]
+    clip_refs: Optional[List[dict]] = None      # ordered [{entity_type, entity_id}]
+    clip_prompt: Optional[str] = None
 
 
 class ShotCreate(ShotBase):
@@ -521,6 +528,11 @@ class ShotUpdate(BaseModel):
     audio_notes: Optional[str] = None
     capture_id: Optional[str] = None
     generated_image_id: Optional[str] = None
+    reference_audio_id: Optional[str] = None
+    audio_role: Optional[str] = None
+    dialogue: Optional[List[dict]] = None
+    clip_refs: Optional[List[dict]] = None
+    clip_prompt: Optional[str] = None
 
 
 class ShotResponse(ShotBase):

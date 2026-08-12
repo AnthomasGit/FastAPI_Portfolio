@@ -46,6 +46,44 @@ async def test_update_missing_shot_404(client):
     assert r.status_code == 404
 
 
+# ── shot-clip batching fields (H3 reference-to-video) ──────────────────────
+
+async def test_clip_fields_round_trip(client, scene):
+    """clip_refs order is load-bearing — ref N becomes image{N} in the graph and
+    <Subject N> in the composed prompt — so assert the order survives."""
+    created = (await client.post(f"/api/scenes/{scene.id}/shots",
+                                 json={"shot_number": "1A"})).json()
+    refs = [
+        {"entity_type": "character", "entity_id": "char-b"},
+        {"entity_type": "character", "entity_id": "char-a"},
+        {"entity_type": "location", "entity_id": "loc-1"},
+    ]
+    dialogue = [{"speaker_id": "S1", "entity_id": "char-b",
+                 "language": "English", "text": "Watch your dog!"}]
+    r = await client.put(f"/api/shots/{created['id']}", json={
+        "clip_refs": refs, "dialogue": dialogue,
+        "audio_role": "timbre", "clip_prompt": "subject_definitions:\n<Subject 1> ...",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["clip_refs"] == refs          # order preserved exactly
+    assert body["dialogue"] == dialogue
+    assert body["audio_role"] == "timbre"
+    assert body["clip_prompt"].startswith("subject_definitions:")
+    assert body["shot_number"] == "1A"        # untouched field preserved
+
+
+async def test_clip_fields_default_to_null(client, scene):
+    """null clip_refs means 'compute the default ordering at build time' — it
+    must not be conflated with [] (explicitly no references)."""
+    body = (await client.post(f"/api/scenes/{scene.id}/shots",
+                              json={"shot_number": "1A"})).json()
+    assert body["clip_refs"] is None
+    assert body["dialogue"] is None
+    assert body["reference_audio_id"] is None
+    assert body["clip_prompt"] is None
+
+
 async def test_delete_shot(client, scene):
     created = (await client.post(f"/api/scenes/{scene.id}/shots", json={"shot_number": "1A"})).json()
     r = await client.delete(f"/api/shots/{created['id']}")

@@ -309,6 +309,11 @@ class GeneratedVideo(Base):
     prompt_id = Column(String, nullable=True)
     params = Column(JSON, nullable=True)                 # {workflow, frames, fps, seed}
     error = Column(Text, nullable=True)
+    # Set when the user keeps this clip while reviewing its batch. Deliberately
+    # a marker here rather than a Shot.generated_video_id: clips are an
+    # append-only attempt list (see the class docstring), so "the chosen clip"
+    # is the newest approved one, not a pointer that overwrites history.
+    approved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     source_image = relationship("GeneratedImage", back_populates="videos")
@@ -344,6 +349,32 @@ class Shot(Base):
     capture_id = Column(String, ForeignKey("scene_captures.id", ondelete="SET NULL"), nullable=True)
     generated_image_id = Column(String, ForeignKey("generated_images.id", ondelete="SET NULL"),
                                 nullable=True)
+
+    # ── Shot-clip batching (MiniMax H3 reference-to-video) ──────────────────
+    # The audio FILE fed to the graph's LoadAudio slot. Distinct from
+    # audio_notes above, which stays a planning note that feeds the prompt.
+    # SET NULL like capture_id: deleting a library clip must not delete coverage.
+    reference_audio_id = Column(String, ForeignKey("reference_audios.id", ondelete="SET NULL"),
+                                nullable=True)
+    # How that audio is used — 'dialogue' (it carries the spoken lines) or
+    # 'timbre' (voice reference only). Load-bearing, not descriptive: the H3
+    # full-reference guide picks a different task-type prefix and retention
+    # marker for each, and forbids carrying source dialogue over for 'timbre'.
+    audio_role = Column(String, nullable=True)
+    # LLM-extracted from the scene screenplay, user-editable:
+    # [{speaker_id, entity_id, language, text}]. speaker_id is the guide's (Sx);
+    # entity_id binds that speaker to a character subject.
+    dialogue = Column(JSON, nullable=True)
+    # Per-shot override of which assets fill the reference slots, as an ordered
+    # [{entity_type, entity_id}]. Order is load-bearing — ref N becomes image{N}
+    # in the graph and <Subject N> in the prompt. null = compute the default
+    # (characters -> location -> props); [] = explicitly none.
+    # No FK, so entries can dangle after a delete: resolvers skip-with-warning.
+    clip_refs = Column(JSON, nullable=True)
+    # The composed six-section H3 document. Generated once, then editable —
+    # the same generate-then-edit shape as prompt_profile.
+    clip_prompt = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     scene = relationship("Scene", back_populates="shots")
@@ -465,6 +496,10 @@ class Batch(Base):
     status = Column(String, nullable=False, default="pending")
     # Overnight scheduling: propagated to child jobs' scheduled_after (KAN-29).
     run_after = Column(DateTime, nullable=True)
+    # Set when the user reviews the finished batch and saves the survivors.
+    # Distinguishes "done rendering, awaiting review" from "reviewed and
+    # committed", and makes a re-submitted commit cheap to detect.
+    committed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
