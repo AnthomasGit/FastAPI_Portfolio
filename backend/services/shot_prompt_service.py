@@ -194,19 +194,34 @@ Return ONLY valid JSON with exactly these six string keys:
 
 Rules from the format guide:
 - Write in English. Keep dialogue and lyrics in their original language inside <d>[Language] ...</d>.
-- subject_definitions: one line per <Subject N>. State what the label denotes and
-  the main features to follow. Use the EXACT labels and numbering supplied — they
-  map to reference image slots and must not be renumbered or reordered.
+- subject_definitions: put each <Subject N> on ITS OWN LINE, separated by a
+  newline character — do not run them together into one paragraph. State what the
+  label denotes and the main features to follow. Use the EXACT labels and
+  numbering supplied — they map to reference image slots and must not be
+  renumbered or reordered.
 - summary: begin with the task-type prefix supplied, then one short paragraph
   using the <Subject N> labels. Introduce no new labels here.
-- retention_analysis: one line per label, e.g.
+- retention_analysis: one line per label, each on its own line, e.g.
   "<Subject 1> (appears in [Shot 1]): {DEFAULT_SUBJECT_MARKER} - ...".
   Use {DEFAULT_SUBJECT_MARKER} for subjects unless told otherwise; retaining the
   referenced likeness is the goal.
 - detailed_description: this is ONE single shot. Open with one or two sentences
   establishing visual style, then a single "[Shot 1] ..." block with NO timestamp.
-  Aim for 350-500 words. Establish composition, subject appearance and position,
-  environment and lighting, action and state changes, camera movement, and sound.
+
+  LENGTH IS A HARD REQUIREMENT: 350-500 words. A short description starves the
+  video model and produces a worse clip. Reach the length by DESCRIBING MORE OF
+  WHAT IS VISIBLE, never by repeating yourself or padding with plot summary.
+  Work through all of the following, roughly a sentence or two each:
+    1. framing and composition — what fills the frame, foreground vs background
+    2. each <Subject N> at its first appearance: appearance, clothing, exact
+       position in frame, posture and facial expression
+    3. the environment: architecture, surfaces, props, set dressing, depth cues
+    4. lighting: sources, direction, colour temperature, shadows, contrast
+    5. the action, as a progression — what changes between the first and last
+       frame, including small motions (hands, eyes, breath, fabric)
+    6. camera: movement type, amplitude, speed, and any change of focus
+    7. texture and atmosphere: materials, reflections, air, motion blur
+    8. diegetic sound occurring within the shot
   Insert each <Subject N> at its first clear appearance. Do not summarize plot or
   list reference relationships instead of describing what is visible.
 - Give each vocal source a stable (S1), (S2)... in order of vocal events, and
