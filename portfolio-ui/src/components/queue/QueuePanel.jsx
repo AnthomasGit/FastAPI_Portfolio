@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Loader2, XCircle, RotateCcw, ListPlus, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { GenerateEverythingDialog } from './GenerateEverythingDialog';
+import { BatchReviewGrid } from './BatchReviewGrid';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -82,6 +83,7 @@ function BatchJobs({ batchId, batchStatus }) {
 function BatchRow({ batch, projectId }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [showJobs, setShowJobs] = useState(false);
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['project-batches', projectId] });
     queryClient.invalidateQueries({ queryKey: ['batch', batch.id] });
@@ -149,7 +151,24 @@ function BatchRow({ batch, projectId }) {
       </div>
       {open && (
         <div className="border-t border-line bg-bay-900/40">
-          <BatchJobs batchId={batch.id} batchStatus={batch.status} />
+          {/* A finished batch is a pile of candidates, so review comes first;
+              the per-job list stays available for diagnosing failures. */}
+          {TERMINAL.has(batch.status) ? (
+            <>
+              <BatchReviewGrid batch={batch} projectId={projectId} />
+              <div className="border-t border-line">
+                <button
+                  onClick={() => setShowJobs((v) => !v)}
+                  className="w-full px-4 py-2 text-left text-[11px] text-fg-faint hover:text-fg transition-colors"
+                >
+                  {showJobs ? 'Hide' : 'Show'} jobs ({c.total})
+                </button>
+                {showJobs && <BatchJobs batchId={batch.id} batchStatus={batch.status} />}
+              </div>
+            </>
+          ) : (
+            <BatchJobs batchId={batch.id} batchStatus={batch.status} />
+          )}
         </div>
       )}
     </div>

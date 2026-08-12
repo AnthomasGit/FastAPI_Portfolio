@@ -1,24 +1,27 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useProjectStore } from '../stores/projectStore';
 import { StorySummary } from '../components/storyboard/StorySummary';
 import { SceneTable } from '../components/storyboard/SceneTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import { Play, GitBranch, Loader2 } from 'lucide-react';
+import { Play, GitBranch, Loader2, ListPlus } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 import { EntityAssetLibrary } from '../components/storyboard/EntityAssetLibrary';
 import { LocationPlatePanel } from '../components/storyboard/LocationPlatePanel';
 import { PooledAssetGallery } from '../components/storyboard/PooledAssetGallery';
+import { GenerateAssetsDialog } from '../components/storyboard/GenerateAssetsDialog';
 import { QueuePanel } from '../components/queue/QueuePanel';
+import { GenerateEverythingDialog } from '../components/queue/GenerateEverythingDialog';
 
-function DeptPanel({ title, count, accent, empty, children }) {
+function DeptPanel({ title, count, accent, empty, action, children }) {
   return (
     <section className="rounded-frame border border-line bg-bay-850">
       <header className="flex items-center gap-2 px-4 py-3 border-b border-line">
         <h2 className={`text-sm font-semibold ${accent}`}>{title}</h2>
         <span className="font-mono text-[11px] text-fg-faint">{count}</span>
+        {action && <div className="ml-auto">{action}</div>}
       </header>
       <div className="p-4">
         {count === 0 ? <p className="text-xs text-fg-faint">{empty}</p> : children}
@@ -27,28 +30,36 @@ function DeptPanel({ title, count, accent, empty, children }) {
   );
 }
 
+// Per-tab batch generation. Lives here rather than inside DeptPanel so the
+// dialog's open state is scoped to the one tab that owns it.
+function GenerateAssetsAction({ tab, projectId, entities }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        disabled={entities.length === 0}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-frame bg-lead-500 text-bay-950
+                   text-[11px] font-semibold hover:bg-lead-400 transition-colors disabled:opacity-40"
+      >
+        <ListPlus className="w-3 h-3" /> Generate…
+      </button>
+      <GenerateAssetsDialog tab={tab} projectId={projectId} entities={entities}
+        open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
 export function Storyboard() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
-  const [runningAll, setRunningAll] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
 
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
     queryFn: () => api.getProject(id),
   });
-
-  const handleRunAll = async () => {
-    setRunningAll(true);
-    try {
-      await api.generateProject(id);
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
-    } catch (e) {
-      console.error('Run All failed', e);
-    }
-    setRunningAll(false);
-  };
 
   useEffect(() => {
     if (project) setCurrentProject(project);
@@ -96,14 +107,16 @@ export function Storyboard() {
           >
             <GitBranch className="w-3.5 h-3.5" /> Graph
           </button>
+          {/* Opens the batch dialog rather than firing the legacy
+              /api/generate/project endpoint, which created no Batch and so
+              could never be reviewed, cancelled or retried from the Queue. */}
           <button
-            onClick={handleRunAll}
-            disabled={runningAll}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-frame bg-lead-500 text-bay-950 text-xs font-semibold hover:bg-lead-400 transition-colors disabled:bg-bay-700 disabled:text-fg-faint"
-            title="Queue an image for every scene in this project"
+            onClick={() => setGenerateOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-frame bg-lead-500 text-bay-950 text-xs font-semibold hover:bg-lead-400 transition-colors"
+            title="Queue a render for this project"
           >
-            {runningAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            {runningAll ? 'Queueing…' : 'Render all scenes'}
+            <Play className="w-3.5 h-3.5" />
+            Generate everything…
           </button>
         </div>
       </div>
@@ -127,7 +140,8 @@ export function Storyboard() {
 
           <TabsContent value="characters">
             <PooledAssetGallery entityType="characters" projectId={id} />
-            <DeptPanel title="Characters" count={characters.length} accent="text-cast" empty="No characters yet. Add them from a scene.">
+            <DeptPanel title="Characters" count={characters.length} accent="text-cast" empty="No characters yet. Add them from a scene."
+              action={<GenerateAssetsAction tab="characters" projectId={id} entities={characters} />}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {characters.map((ch) => (
                   <div key={ch.id} className="rounded-frame border border-line bg-bay-900 p-3">
@@ -142,7 +156,8 @@ export function Storyboard() {
 
           <TabsContent value="locations">
             <PooledAssetGallery entityType="locations" projectId={id} />
-            <DeptPanel title="Locations" count={locations.length} accent="text-set" empty="No locations yet. Add them from a scene.">
+            <DeptPanel title="Locations" count={locations.length} accent="text-set" empty="No locations yet. Add them from a scene."
+              action={<GenerateAssetsAction tab="locations" projectId={id} entities={locations} />}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {locations.map((loc) => (
                   <div key={loc.id} className="rounded-frame border border-line bg-bay-900 p-3">
@@ -158,7 +173,8 @@ export function Storyboard() {
 
           <TabsContent value="props">
             <PooledAssetGallery entityType="props" projectId={id} />
-            <DeptPanel title="Props" count={props.length} accent="text-prop" empty="No props yet. Add them from a scene.">
+            <DeptPanel title="Props" count={props.length} accent="text-prop" empty="No props yet. Add them from a scene."
+              action={<GenerateAssetsAction tab="props" projectId={id} entities={props} />}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                 {props.map((p) => (
                   <div key={p.id} className="rounded-frame border border-line bg-bay-900 p-3">
@@ -187,6 +203,9 @@ export function Storyboard() {
           </TabsContent>
         </div>
       </Tabs>
+
+      <GenerateEverythingDialog projectId={id} open={generateOpen}
+        onOpenChange={setGenerateOpen} />
     </div>
   );
 }

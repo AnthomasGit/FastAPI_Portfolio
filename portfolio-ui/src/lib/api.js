@@ -249,9 +249,29 @@ export const api = {
   listImageWorkflows: () => fetchJSON('/image-workflows'),
 
   // Workflow registry (KAN-45): each entry carries the param schema the UI
-  // renders controls from (KAN-46). Optional kind filter: image|video|3d|post.
+  // renders controls from (KAN-46), plus — for graphs that have a hand-authored
+  // entry — its `workflow_key` and `capabilities`. One endpoint for image AND
+  // video, so a caller needs one renderer. Optional kind: image|video|3d|post.
   listWorkflows: (kind) => fetchJSON(`/workflows${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
   listChains: () => fetchJSON('/chains'),
+
+  // Batch review & commit.
+  getBatchArtifacts: (batchId, { includeFailed = false } = {}) =>
+    fetchJSON(`/batches/${batchId}/artifacts${includeFailed ? '?include_failed=true' : ''}`),
+  commitBatch: (batchId) => fetchJSON(`/batches/${batchId}/commit`, { method: 'POST' }),
+  deleteVideo: (videoId) => fetchJSON(`/generate/video/${videoId}`, { method: 'DELETE' }),
+
+  // Per-entity sheets.
+  createCharacterSheet: (characterId, body = {}) =>
+    fetchJSON(`/characters/${characterId}/sheet`, { method: 'POST', body: JSON.stringify(body) }),
+  createPropSheet: (propId, body = {}) =>
+    fetchJSON(`/props/${propId}/sheet`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // H3 clip prompts (composed once, stored on the shot, editable).
+  composeShotPrompt: (shotId, { force = false } = {}) =>
+    fetchJSON(`/shots/${shotId}/compose-prompt${force ? '?force=true' : ''}`, { method: 'POST' }),
+  composeScenePrompts: (sceneId, { force = false } = {}) =>
+    fetchJSON(`/scenes/${sceneId}/shots/compose-prompts${force ? '?force=true' : ''}`, { method: 'POST' }),
 
   listAssetImages: (params = {}) => {
     const qs = new URLSearchParams();
