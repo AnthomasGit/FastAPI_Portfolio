@@ -1,6 +1,12 @@
 // Compose a shot's coverage metadata into an LTX motion prompt. This is why
 // the shot list carries size/angle/movement/audio — they steer the clip, not
 // just document intent. Editable before submit.
+//
+// SCOPE: interactive Clip Studio submits ONLY. Batch shot-clips (the MiniMax H3
+// reference-to-video path) do NOT use this — their prompt is the six-section
+// full-reference document composed server-side and stored on Shot.clip_prompt
+// (see backend/services/shot_prompt_service.py). Keep the two separate: this one
+// is a single motion sentence, that one is a structured multi-section doc.
 const SIZE_LABEL = {
   WS: 'wide shot', MS: 'medium shot', MCU: 'medium close-up', CU: 'close-up',
   ECU: 'extreme close-up', POV: 'point-of-view shot', OTS: 'over-the-shoulder shot',

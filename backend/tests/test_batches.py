@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from database import Batch, JobRecord, Scene, Shot, Character, GeneratedImage
+from services.batch_service import _resolve_targets
 
 
 async def _scenes(db_session, project, n):
@@ -74,29 +75,22 @@ async def test_variants_multiply_jobs_with_distinct_seeds(client, db_session, pr
 
 
 @pytest.mark.asyncio
-async def test_shot_scope_expands_to_shots_of_scenes(client, db_session, project):
+async def test_shot_scope_expands_to_shots_of_scenes(db_session, project):
+    """Scope resolution is tested directly: `shot` scope takes SCENE ids (despite
+    the name) and expands to that scene's shots."""
     scene = (await _scenes(db_session, project, 1))[0]
     for i in range(2):
         db_session.add(Shot(id=str(uuid.uuid4()), scene_id=scene.id,
                             shot_number=f"1{chr(65+i)}", sort_order=i))
     await db_session.commit()
 
-    resp = await client.post("/api/batches", json={
-        "project_id": project.id, "scope": "shot", "kind": "video",
-        "target_ids": [scene.id],
-    })
-    assert resp.status_code == 201
-    assert resp.json()["job_count"] == 2
-    jobs = (await db_session.execute(
-        select(JobRecord).where(JobRecord.batch_id == resp.json()["batch_id"])
-    )).scalars().all()
-    for job in jobs:
-        assert job.entity_type == "shot"
-        assert job.payload["shot_id"] == job.entity_id
+    targets = await _resolve_targets("shot", [scene.id], db_session)
+    assert [t[0] for t in targets] == ["shot", "shot"]
+    assert [t[2].shot_number for t in targets] == ["1A", "1B"]
 
 
 @pytest.mark.asyncio
-async def test_entity_scope_targets_entities(client, db_session, project):
+async def test_entity_scope_targets_entities(db_session, project):
     chars = []
     for i in range(2):
         c = Character(id=str(uuid.uuid4()), project_id=project.id, name=f"C{i}")
@@ -104,16 +98,27 @@ async def test_entity_scope_targets_entities(client, db_session, project):
         chars.append(c)
     await db_session.commit()
 
+    targets = await _resolve_targets("entity", [c.id for c in chars], db_session)
+    assert {t[0] for t in targets} == {"character"}
+    assert {t[1] for t in targets} == {c.id for c in chars}
+
+
+@pytest.mark.asyncio
+async def test_unmaterializable_kind_422_creates_nothing(client, db_session, project):
+    """A kind with no registered materializer is refused at request time.
+
+    Previously these fell through to a generic payload that no handler could
+    consume, so the batch was accepted and every job then failed at build time
+    (the KAN-51 bug). Failing here, with nothing created, is the contract.
+    """
+    await _scenes(db_session, project, 2)
     resp = await client.post("/api/batches", json={
-        "project_id": project.id, "scope": "entity", "kind": "asset_txt2img",
-        "target_ids": [c.id for c in chars],
+        "project_id": project.id, "scope": "project", "kind": "asset_txt2img",
     })
-    assert resp.status_code == 201
-    assert resp.json()["job_count"] == 2
-    jobs = (await db_session.execute(
-        select(JobRecord).where(JobRecord.batch_id == resp.json()["batch_id"])
-    )).scalars().all()
-    assert {j.entity_type for j in jobs} == {"character"}
+    assert resp.status_code == 422
+    assert "asset_txt2img" in resp.json()["detail"]
+    assert (await db_session.execute(select(Batch))).scalars().first() is None
+    assert (await db_session.execute(select(JobRecord))).scalars().first() is None
 
 
 @pytest.mark.asyncio

@@ -62,10 +62,15 @@ CHAINS: dict[str, Chain] = {
             Stage("color_match", parent_input="source", label="Colour match"),
         ),
     ),
-    "shot_clip": Chain(
-        name="shot_clip",
+    # Named still_i2v_polish, NOT shot_clip: `shot_clip` is now a job kind (the
+    # native per-shot MiniMax H3 reference-to-video render), and chain names share
+    # a flat namespace with job kinds in _known_kinds(). This chain is the
+    # different, older route — animate an already-approved beauty-pass still —
+    # so it stays declared rather than being deleted.
+    "still_i2v_polish": Chain(
+        name="still_i2v_polish",
         label="Still → i2v clip → face-fix",
-        description="Generate a still, animate it to a clip, then run a face-restoration pass.",
+        description="Animate an approved still to a clip, then run a face-restoration pass.",
         stages=(
             Stage("scene_image", label="Scene still"),
             Stage("video", workflow="video_ltx_i2v", parent_input="image", label="Image-to-video clip"),

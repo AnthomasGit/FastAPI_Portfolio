@@ -14,6 +14,7 @@ import re
 import random
 import shutil
 from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,17 @@ KIND_AVG_BYTES = {
     "controlled_image": 2_500_000,
     "video": 15_000_000,
     "mesh": 8_000_000,
+    # A 10s MiniMax H3 clip is far and away the heaviest artifact we produce, and
+    # a shot-clip batch is the *largest* batch (one per shot, not per scene) — so
+    # a wrong number here disables the disk guard exactly where it matters most.
+    # PROVISIONAL: measure a real clip and retune.
+    "shot_clip": 40_000_000,
+    # Sheet kinds fan out to ~10 cells per target, so the per-job average is one
+    # cell; the job count already reflects the fan-out.
+    "character_sheet": 2_000_000,
+    "prop_sheet": 2_000_000,
+    "location_plate": 2_500_000,
+    "plate_angles": 10_000_000,
 }
 DEFAULT_AVG_BYTES = 2_000_000
 # Require this multiple of the estimate to be free before accepting a batch.
@@ -98,38 +110,63 @@ async def _resolve_targets(scope: str, target_ids: list[str], db: AsyncSession):
     raise ValueError(f"Unknown scope '{scope}' (expected one of {sorted(VALID_SCOPES)})")
 
 
-async def _materialize_job(target_type, target_id, spec, seed, db) -> JobRecord:
-    """Build one JobRecord for a target+variant, creating the owning row when the
-    kind needs one (scene_image → a queued GeneratedImage). The resolved seed is
-    recorded on the owning row's params so a past run can be reproduced exactly."""
+# kind -> materializer. A materializer builds the JobRecord(s) for ONE
+# target+variant and creates whatever owning row the kind needs, in the caller's
+# transaction (it must NOT commit — create_batch owns the transaction).
+#
+# Registry rather than an if/elif chain, and — importantly — rather than a
+# generic fallback. The old fallback emitted `payload={f"{target_type}_id": ...}`
+# for every unhandled kind, which every handler except scene_image rejects at
+# build time: a batch of N such jobs was accepted, queued, and then burned its
+# retries on a KeyError at 3am. Failing at request time with a clear message is
+# strictly better. Kinds are registered as their materializers land (KAN-51).
+Materializer = Callable[..., Awaitable[list[JobRecord]]]
+BATCH_KINDS: dict[str, Materializer] = {}
+
+
+def register_materializer(kind: str, fn) -> None:
+    BATCH_KINDS[kind] = fn
+
+
+async def _materialize_scene_image(target_type, target_id, spec, seed, base, priority, db):
+    prompt = await construct_prompt(target_id, db)
+    gen = GeneratedImage(scene_id=target_id, prompt=prompt, status="queued",
+                         params={"seed": seed, "seed_policy": spec.get("seed_policy") or "random"})
+    db.add(gen)
+    await db.flush()
+    return [JobRecord(
+        kind="scene_image", status="queued", seed=seed, priority=priority, max_attempts=1,
+        entity_type="generated_image", entity_id=gen.id,
+        payload={**base, "prompt": prompt, "generation_id": gen.id,
+                 "scene_id": target_id,
+                 "identity_refs": bool(spec.get("identity_refs")),
+                 "use_plate": bool(spec.get("use_plate", True))},
+    )]
+
+
+register_materializer("scene_image", _materialize_scene_image)
+
+
+async def _materialize_job(target_type, target_id, spec, seed, db) -> list[JobRecord]:
+    """Build the JobRecord(s) for one target+variant via the kind's materializer.
+
+    Returns a list because some kinds fan out (a sheet is N cells + a composite).
+    The resolved seed is recorded on the owning row's params so a past run can be
+    reproduced exactly. Raises ValueError for an unregistered kind -> router 422.
+    """
     kind = spec["kind"]
     priority = int(spec.get("priority") or 0)
     base = {**(spec.get("params") or {}), "seed": seed}
     if spec.get("workflow"):
         base["workflow"] = spec["workflow"]
 
-    if kind == "scene_image" and target_type == "scene":
-        prompt = await construct_prompt(target_id, db)
-        gen = GeneratedImage(scene_id=target_id, prompt=prompt, status="queued",
-                             params={"seed": seed, "seed_policy": spec.get("seed_policy") or "random"})
-        db.add(gen)
-        await db.flush()
-        return JobRecord(
-            kind=kind, status="queued", seed=seed, priority=priority, max_attempts=1,
-            entity_type="generated_image", entity_id=gen.id,
-            payload={**base, "prompt": prompt, "generation_id": gen.id,
-                     "scene_id": target_id,
-                     "identity_refs": bool(spec.get("identity_refs")),
-                     "use_plate": bool(spec.get("use_plate", True))},
+    materializer = BATCH_KINDS.get(kind)
+    if materializer is None:
+        raise ValueError(
+            f"Batch kind '{kind}' cannot be expanded into runnable jobs "
+            f"(known kinds: {', '.join(sorted(BATCH_KINDS))})."
         )
-
-    # Generic: link the job directly to its target; the handler for `kind`
-    # resolves the rest at build time.
-    return JobRecord(
-        kind=kind, status="queued", seed=seed, priority=priority,
-        entity_type=target_type, entity_id=target_id,
-        payload={**base, f"{target_type}_id": target_id},
-    )
+    return await materializer(target_type, target_id, spec, seed, base, priority, db)
 
 
 async def _materialize_chain(chain, target_type, target_id, spec, seed, batch, db) -> list[JobRecord]:
@@ -146,7 +183,10 @@ async def _materialize_chain(chain, target_type, target_id, spec, seed, batch, d
     root_spec = {**spec, "kind": stages[0].kind}
     if stages[0].workflow:
         root_spec["workflow"] = stages[0].workflow
-    root = await _materialize_job(target_type, target_id, root_spec, seed, db)
+    # A chain's root stage is a single-job kind by construction (every declared
+    # chain starts with scene_image / asset_txt2img), so take the one job.
+    root_jobs = await _materialize_job(target_type, target_id, root_spec, seed, db)
+    root = root_jobs[0]
     root.batch_id = batch.id
     db.add(root)
     await db.flush()  # root.job_id for the next stage's dependency link
@@ -193,6 +233,15 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     # so an unrunnable one (missing exported workflow) half-builds nothing.
     chain = validate_chain(spec["chain"]) if spec.get("chain") else None
 
+    # Same reason, for the kind: everything below flushes rows, so an
+    # unmaterializable kind must be refused BEFORE the Batch row exists or a
+    # rejected request still leaves a batch behind.
+    if chain is None and spec.get("kind") not in BATCH_KINDS:
+        raise ValueError(
+            f"Batch kind '{spec.get('kind')}' cannot be expanded into runnable jobs "
+            f"(known kinds: {', '.join(sorted(BATCH_KINDS))})."
+        )
+
     variants = max(1, int(spec.get("variants") or 1))
     run_after = parse_run_after(spec.get("run_after"))  # raises ValueError -> router 422
     # project scope defaults to the batch's own project when no targets given.
@@ -236,16 +285,18 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
                     cj.scheduled_after = run_after
                 jobs.extend(chain_jobs)
                 continue
-            job = await _materialize_job(target_type, target_id, spec, seed, db)
-            job.batch_id = batch.id
-            # Overnight start: the worker skips a job until scheduled_after passes.
-            job.scheduled_after = run_after
-            db.add(job)
-            jobs.append(job)
+            new_jobs = await _materialize_job(target_type, target_id, spec, seed, db)
+            for job in new_jobs:
+                job.batch_id = batch.id
+                # Overnight start: the worker skips a job until scheduled_after passes.
+                job.scheduled_after = run_after
+                db.add(job)
+            jobs.extend(new_jobs)
 
             # "Colour-match to key frame": every generated still gets a dependent
-            # color_match job that runs once the still completes (KAN-37).
-            cm = await _maybe_color_match_job(job, target_type, target_id, spec, batch, db)
+            # color_match job that runs once the still completes (KAN-37). Only
+            # the primary job of a target is eligible.
+            cm = await _maybe_color_match_job(new_jobs[0], target_type, target_id, spec, batch, db)
             if cm is not None:
                 cm.scheduled_after = run_after
                 db.add(cm)

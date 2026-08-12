@@ -36,6 +36,12 @@ async def trigger_project_generation(project_id: str, db: AsyncSession = Depends
     Replaces the old inline fire-hose: nothing is submitted synchronously — the
     worker drains the batch. Returns `generation_ids` (unchanged key) alongside
     the new `batch_id` so existing callers keep working.
+
+    LEGACY. The batch unit is now one clip per *shot* (kind `shot_clip`), not one
+    still per scene, and batches are created through POST /api/batches so they
+    carry a spec the Queue can review and commit. This endpoint hardcodes
+    scope=project/kind=scene_image with no spec, so prefer /api/batches; it is
+    kept only so older callers keep working.
     """
     if not (await db.execute(select(Project).where(Project.id == project_id))).scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")

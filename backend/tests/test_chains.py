@@ -45,7 +45,7 @@ def available_chain():
 def test_canonical_chains_validate_out_with_reasons():
     for name, missing_token in [
         ("still_polish", "image_upscale_refine"),
-        ("shot_clip", "image_face_fix"),
+        ("still_i2v_polish", "image_face_fix"),
         ("character_kit", "dataset_export"),
     ]:
         info = chain_availability(name)
@@ -67,7 +67,7 @@ async def test_get_chains_endpoint(client):
     resp = await client.get("/api/chains")
     assert resp.status_code == 200
     names = {c["name"] for c in resp.json()["chains"]}
-    assert {"still_polish", "shot_clip", "character_kit"} <= names
+    assert {"still_polish", "still_i2v_polish", "character_kit"} <= names
 
 
 # ── expansion: job count + dependency links (acceptance #1) ───────────────
