@@ -5,18 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, Project, Batch
 from schemas.schemas import BatchCreateRequest
 from services.batch_service import (
-    create_batch,
+    assemble_batch,
     batch_summary,
     cancel_batch,
     retry_failed,
     list_project_batches,
-    estimate_output_bytes,
-    free_output_bytes,
-    parse_run_after,
-    DISK_SAFETY_MARGIN,
+    BatchValidationError,
+    InsufficientDiskError,
     VALID_SCOPES,
 )
-from services.workflow_registry import validate_params
 
 router = APIRouter()
 
@@ -42,50 +39,12 @@ async def create_batch_endpoint(
     if not (await db.execute(select(Project).where(Project.id == data.project_id))).scalars().first():
         raise HTTPException(status_code=404, detail="Project not found")
 
-    spec = data.model_dump()
-
-    # Reject a spec whose params name a knob the chosen workflow can't route,
-    # so an unroutable override fails here rather than silently no-op'ing in
-    # inject() and producing a plausible-but-wrong render (KAN-45).
-    # Chain specs manage their own per-stage graphs; single-workflow param
-    # validation applies only to non-chain batches.
-    unknown = [] if data.chain else validate_params(data.kind, data.workflow, spec.get("params") or {})
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Unknown workflow param(s) for kind '{data.kind}': "
-                f"{', '.join(sorted(unknown))}."
-            ),
-        )
-
-    # Fail fast on a bad run_after before doing any work.
     try:
-        parse_run_after(spec.get("run_after"))
-    except ValueError as e:
+        return await assemble_batch(data.model_dump(), db)
+    except InsufficientDiskError as e:
+        raise HTTPException(status_code=507, detail=str(e)) from e
+    except ValueError as e:  # BatchValidationError + create_batch's own ValueErrors
         raise HTTPException(status_code=422, detail=str(e)) from e
-
-    # Refuse an overnight batch that would likely fill the output disk.
-    estimated_bytes, _ = await estimate_output_bytes(spec, db)
-    free = free_output_bytes()
-    if estimated_bytes * DISK_SAFETY_MARGIN > free:
-        raise HTTPException(
-            status_code=507,
-            detail=(
-                f"Estimated output {estimated_bytes} bytes needs "
-                f"{DISK_SAFETY_MARGIN}x free space; only {free} bytes free on the output disk."
-            ),
-        )
-
-    try:
-        batch, jobs = await create_batch(spec, db)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    return {
-        "batch_id": batch.id,
-        "job_count": len(jobs),
-        "estimated_output_bytes": estimated_bytes,
-    }
 
 
 @router.get("/api/batches/{batch_id}")

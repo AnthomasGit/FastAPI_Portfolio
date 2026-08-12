@@ -468,6 +468,21 @@ class Batch(Base):
     jobs = relationship("JobRecord", back_populates="batch")
 
 
+class BatchPreset(Base):
+    """A saved batch spec (Phase 5, KAN-48) — "render the whole project the way
+    I did last time" as one click. `spec` is a stored BatchCreateRequest body;
+    running a preset merges optional overrides on top and instantiates a Batch.
+    A null `project_id` is a global preset available to every project.
+    """
+    __tablename__ = "batch_presets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    name = Column(String, nullable=False)
+    spec = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class JobRecord(Base):
     __tablename__ = "jobs"
 

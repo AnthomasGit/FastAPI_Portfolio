@@ -255,6 +255,51 @@ async def create_batch(spec: dict, db: AsyncSession) -> tuple[Batch, list[JobRec
     return batch, jobs
 
 
+class BatchValidationError(ValueError):
+    """A batch spec the API should reject with 422."""
+
+
+class InsufficientDiskError(Exception):
+    """Estimated output would not fit the safety margin (API 507)."""
+    def __init__(self, estimated: int, free: int):
+        self.estimated = estimated
+        self.free = free
+        super().__init__(f"Estimated output {estimated} bytes needs "
+                         f"{DISK_SAFETY_MARGIN}x free; only {free} bytes free.")
+
+
+async def assemble_batch(spec: dict, db: AsyncSession) -> dict:
+    """Validate + disk-check + create a batch from a spec, returning the API
+    response body. Shared by POST /api/batches and preset-run so both produce an
+    identical batch from an identical spec (KAN-48). Raises BatchValidationError
+    (422) / InsufficientDiskError (507); create_batch's own ValueErrors (unknown
+    scope, unrunnable chain) propagate as 422 too."""
+    from services.workflow_registry import validate_params
+
+    if not spec.get("chain"):
+        unknown = validate_params(spec.get("kind"), spec.get("workflow"), spec.get("params") or {})
+        if unknown:
+            raise BatchValidationError(
+                f"Unknown workflow param(s) for kind '{spec.get('kind')}': "
+                f"{', '.join(sorted(unknown))}."
+            )
+    try:
+        parse_run_after(spec.get("run_after"))
+    except ValueError as e:
+        raise BatchValidationError(str(e)) from e
+
+    estimated_bytes, _ = await estimate_output_bytes(spec, db)
+    if estimated_bytes * DISK_SAFETY_MARGIN > free_output_bytes():
+        raise InsufficientDiskError(estimated_bytes, free_output_bytes())
+
+    batch, jobs = await create_batch(spec, db)
+    return {
+        "batch_id": batch.id,
+        "job_count": len(jobs),
+        "estimated_output_bytes": estimated_bytes,
+    }
+
+
 async def _maybe_color_match_job(source_job, target_type, target_id, spec, batch, db):
     """A dependent color_match job for a scene_image still, or None.
 

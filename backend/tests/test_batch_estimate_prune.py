@@ -48,9 +48,10 @@ async def test_estimate_included_in_response(client, db_session, project, monkey
 @pytest.mark.asyncio
 async def test_insufficient_disk_returns_507_and_creates_nothing(client, db_session, project, monkeypatch):
     await _scenes(db_session, project, 3)
-    # Only 1 byte free — the estimate can't possibly fit. Patch the name the
-    # router actually calls (imported into its namespace).
-    monkeypatch.setattr("routers.batches.free_output_bytes", lambda: 1)
+    # Only 1 byte free — the estimate can't possibly fit. The disk check lives
+    # in batch_service.assemble_batch (shared by POST /api/batches and preset
+    # runs), so patch the name that path calls.
+    monkeypatch.setattr("services.batch_service.free_output_bytes", lambda: 1)
     resp = await client.post("/api/batches", json={
         "project_id": project.id, "scope": "project", "kind": "scene_image",
     })

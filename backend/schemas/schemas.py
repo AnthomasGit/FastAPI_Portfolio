@@ -24,6 +24,21 @@ class BatchCreateRequest(BaseModel):
     film_grain: bool = False
 
 
+class PresetCreate(BaseModel):
+    name: str
+    spec: dict
+    project_id: Optional[str] = None  # null = global preset (KAN-48)
+
+
+class PresetUpdate(BaseModel):
+    name: Optional[str] = None
+    spec: Optional[dict] = None
+
+
+class PresetRun(BaseModel):
+    overrides: dict = {}  # merged over the stored spec without mutating it
+
+
 class ProjectCreate(BaseModel):
     title: Optional[str] = None
     idea: str
