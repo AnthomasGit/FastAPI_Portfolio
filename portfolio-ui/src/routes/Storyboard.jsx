@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { Play, GitBranch, Loader2, ListPlus } from 'lucide-react';
 import { AssetDrawer } from '@/components/stage3d/AssetDrawer';
 import { EntityAssetLibrary } from '../components/storyboard/EntityAssetLibrary';
+import { PromptProfilePanel } from '../components/storyboard/PromptProfilePanel';
 import { LocationPlatePanel } from '../components/storyboard/LocationPlatePanel';
 import { PooledAssetGallery } from '../components/storyboard/PooledAssetGallery';
 import { GenerateAssetsDialog } from '../components/storyboard/GenerateAssetsDialog';
@@ -147,6 +148,7 @@ export function Storyboard() {
                   <div key={ch.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-cast">{ch.name}</h3>
                     {ch.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{ch.description}</p>}
+                    <PromptProfilePanel entityType="character" entityId={ch.id} entityName={ch.name} profile={ch.prompt_profile} />
                     <EntityAssetLibrary entityType="character" entityId={ch.id} entityName={ch.name} projectId={id} />
                   </div>
                 ))}
@@ -163,6 +165,7 @@ export function Storyboard() {
                   <div key={loc.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-set">{loc.name}</h3>
                     {loc.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{loc.description}</p>}
+                    <PromptProfilePanel entityType="location" entityId={loc.id} entityName={loc.name} profile={loc.prompt_profile} />
                     <LocationPlatePanel location={loc} projectId={id} />
                     <EntityAssetLibrary entityType="location" entityId={loc.id} entityName={loc.name} projectId={id} />
                   </div>
@@ -180,6 +183,7 @@ export function Storyboard() {
                   <div key={p.id} className="rounded-frame border border-line bg-bay-900 p-3">
                     <h3 className="font-mono text-sm font-bold text-prop">{p.name}</h3>
                     {p.description && <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{p.description}</p>}
+                    <PromptProfilePanel entityType="prop" entityId={p.id} entityName={p.name} profile={p.prompt_profile} />
                     <EntityAssetLibrary entityType="prop" entityId={p.id} entityName={p.name} projectId={id} />
                   </div>
                 ))}
