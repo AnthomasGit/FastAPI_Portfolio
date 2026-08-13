@@ -12,8 +12,9 @@ from sqlalchemy import select
 
 from database import AssetImage, Batch, Character, JobRecord, Location, Prop, Reference
 from services.sheet_service import (
-    SHEET_TEMPLATES, PROP_ANGLE_CELLS, default_cells,
+    SHEET_TEMPLATES, PROP_ANGLE_CELLS, ANGLE_CELLS, default_cells,
 )
+from services.prompt_builder import entity_prompt
 
 
 async def _prop(db_session, project, name="Knife", profile=None):
@@ -40,11 +41,35 @@ def test_props_get_angles_not_expressions():
     assert not any(s.startswith("expr-") for s in slots)
 
 
-def test_characters_keep_expressions_and_wardrobe():
-    char = Character(id="c", name="Ada", prompt_profile={"wardrobe": ["red coat"]})
+def test_characters_are_angles_plus_alternate_outfits():
+    """Expression cells were dropped: they gave the edit model nothing to act on
+    (a head-and-shoulders noun phrase against a full-body source), and a sheet's
+    job is angle + wardrobe coverage for reference slots, not acting range.
+
+    Only ALTERNATE outfits get a cell — the default one is already worn in every
+    angle cell, so a cell for it would render the same clothes twice."""
+    char = Character(id="c", name="Ada", prompt_profile={"outfits": [
+        {"name": "day", "items": ["red coat"], "default": True},
+        {"name": "gala", "items": ["black gown", "silver heels"]},
+    ]})
     slots = {c["slot"] for c in default_cells(char, "character")}
-    assert any(s.startswith("expr-") for s in slots)
-    assert "wardrobe:red coat" in slots
+    assert not any(s.startswith("expr-") for s in slots)
+    assert "outfit:gala" in slots
+    assert "outfit:day" not in slots
+
+    suffix = next(c["suffix"] for c in default_cells(char, "character")
+                  if c["slot"] == "outfit:gala")
+    assert "black gown, silver heels" in suffix   # the whole set, worn together
+
+
+def test_legacy_wardrobe_list_reads_as_one_default_outfit():
+    """Un-migrated profiles keep composing the same base line, and stop emitting
+    a redundant cell per garment."""
+    char = Character(id="c", name="Ada",
+                     prompt_profile={"wardrobe": ["red coat", "boots"]})
+    assert entity_prompt(char) == "Ada: red coat, boots"
+    assert [c["slot"] for c in default_cells(char, "character")] == \
+           [c["slot"] for c in ANGLE_CELLS]
 
 
 def test_props_vary_over_materials():
@@ -53,7 +78,7 @@ def test_props_vary_over_materials():
     prop = Prop(id="p", name="Knife", prompt_profile={"materials": ["brass"]})
     cells = default_cells(prop, "prop")
     assert any(c["slot"] == "materials:brass" for c in cells)
-    assert SHEET_TEMPLATES["prop"]["variant_key"] == "materials"
+    assert SHEET_TEMPLATES["prop"]["variant_prefix"] == "materials"
 
 
 def test_unknown_entity_type_rejected():

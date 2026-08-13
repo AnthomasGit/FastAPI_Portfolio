@@ -188,13 +188,15 @@ Pure JSON only, no markdown."""
     else:
         system_prompt = """You are a subject designer for film production. Given a character or prop and its description, produce a STRUCTURED, REPEATABLE visual profile — fixed tokens that keep this subject looking identical across many generated frames. Emphasise concrete, unchanging physical attributes (hair, build, face, distinguishing features, materials, wardrobe), NOT narrative, mood, or one-off action.
 Return ONLY valid JSON with these keys:
-- appearance: array of short visual tokens (the fixed look)
-- wardrobe: array of clothing/covering tokens (empty for props if N/A)
+- appearance: array of short visual tokens for the fixed, unchanging look — body, face, hair, distinguishing features. NEVER clothing.
+- outfits: array of complete outfits, each {"name": short label, "items": array of garment tokens, "default": true on exactly one}. An outfit is a full head-to-toe set worn together, not a single garment. Give one outfit unless the description clearly calls for alternates. Empty array for props.
 - palette: array of colour tokens
 - negative: array of things to avoid
 - locked_seed: an integer, or null
 - notes: a short string
-Pure JSON only, no markdown."""
+Pure JSON only, no markdown.
+
+State negations positively in `appearance` ("clean-shaven", "no glasses") — the negative list does not reach every generation path."""
 
     user = f"Type: {entity_type}\nName: {name}\nDescription: {description or '(none)'}"
     if style_profile:

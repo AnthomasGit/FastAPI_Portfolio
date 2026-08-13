@@ -5,7 +5,7 @@ export const ASSET_BATCH_CONFIGS = {
   characters: {
     kind: 'character_sheet',
     title: 'Generate character sheets',
-    blurb: 'A consistent sheet per character — angles, expressions and one cell per '
+    blurb: 'A consistent sheet per character — four angles plus one cell per '
          + 'wardrobe entry, all sharing a locked seed.',
     primaryField: 'reference_url',
     baseImageToggle: true,

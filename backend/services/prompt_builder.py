@@ -19,10 +19,52 @@ from database import (
 )
 
 LEGACY_STYLE_TAIL = "cinematic, film still, professional lighting, high detail, 4K"
-_PROFILE_POSITIVE_KEYS = ("appearance", "wardrobe", "palette")
 # Locations carry environment-shaped profile keys, not the character wardrobe/
 # face ones (KAN-41).
 _LOCATION_POSITIVE_KEYS = ("environment", "architecture", "materials", "lighting", "palette")
+
+
+def outfits_of(entity) -> list[dict]:
+    """A character's outfits, normalised to ``[{name, items, default}]``.
+
+    An *outfit* is the atomic unit a person actually wears, which a flat list of
+    garments is not: "change the subject's clothing to black sneakers" is not an
+    instruction anyone can follow, and a per-scene wardrobe swap needs a NAME to
+    point at ("scene 4 uses the rain gear"), not a garment.
+
+    Legacy profiles carrying a flat ``wardrobe`` list are read as one default
+    outfit, so existing characters keep composing the exact same prompt line.
+    They do lose their per-garment sheet cells — which were the redundant ones,
+    since those garments are already in the base line.
+    """
+    profile = getattr(entity, "prompt_profile", None) or {}
+    raw = profile.get("outfits")
+    if raw:
+        out = []
+        for i, o in enumerate(raw):
+            if not isinstance(o, dict):
+                continue
+            items = [t for t in (o.get("items") or []) if t]
+            if not items:
+                continue
+            out.append({"name": o.get("name") or f"outfit {i + 1}",
+                        "items": items,
+                        "default": bool(o.get("default"))})
+        if out and not any(o["default"] for o in out):
+            out[0]["default"] = True   # no explicit default: the first one wins
+        return out
+
+    legacy = [t for t in (profile.get("wardrobe") or []) if t]
+    return [{"name": "default", "items": legacy, "default": True}] if legacy else []
+
+
+def default_outfit(entity) -> dict | None:
+    """The outfit baked into the entity's base prompt line (what they wear
+    unless a scene says otherwise). None when the entity has no outfits."""
+    for outfit in outfits_of(entity):
+        if outfit["default"]:
+            return outfit
+    return None
 
 
 def _tokens_from(entity, keys) -> str:
@@ -32,6 +74,10 @@ def _tokens_from(entity, keys) -> str:
     tokens = []
     for key in keys:
         tokens += [t for t in (profile.get(key) or []) if t]
+    return _line(entity, tokens)
+
+
+def _line(entity, tokens: list[str]) -> str:
     if tokens:
         return f"{entity.name}: " + ", ".join(tokens)
     if entity.description:
@@ -39,9 +85,24 @@ def _tokens_from(entity, keys) -> str:
     return entity.name
 
 
-def _entity_tokens(entity) -> str:
-    """Character/prop token line (appearance/wardrobe/palette)."""
-    return _tokens_from(entity, _PROFILE_POSITIVE_KEYS)
+def _entity_tokens(entity, *, outfit: bool = True, palette: bool = True) -> str:
+    """Character/prop token line: fixed appearance, the DEFAULT outfit only, and
+    palette. Non-default outfits are deliberately excluded — they are alternates
+    selected per scene or per sheet cell, and listing them all would describe a
+    subject wearing several outfits at once.
+
+    Clearing `outfit`/`palette` leaves the IDENTITY only, which is what a cell
+    that dresses the subject in an alternate outfit needs — see entity_prompt.
+    """
+    profile = getattr(entity, "prompt_profile", None) or {}
+    tokens = [t for t in (profile.get("appearance") or []) if t]
+    if outfit:
+        worn = default_outfit(entity)
+        if worn:
+            tokens += worn["items"]
+    if palette:
+        tokens += [t for t in (profile.get("palette") or []) if t]
+    return _line(entity, tokens)
 
 
 def _location_tokens(location) -> str:
@@ -55,11 +116,18 @@ def location_prompt(location) -> str:
     return _location_tokens(location)
 
 
-def entity_prompt(entity) -> str:
+def entity_prompt(entity, *, outfit: bool = True, palette: bool = True) -> str:
     """Public single-entity prompt line (profile tokens, else description, else
     name). Used by the character-sheet builder (KAN-38) to compose per-cell
-    prompts from a character's structured profile."""
-    return _entity_tokens(entity)
+    prompts from a character's structured profile.
+
+    Clear `outfit` for a cell that dresses the subject in an ALTERNATE outfit.
+    Leaving the default outfit in asserts it as present fact while the suffix
+    asks to change it, and an edit model reconciles that by compositing rather
+    than replacing — measured: a charcoal suit jacket rendered on top of the
+    football jersey, over the track pants it was supposed to replace.
+    """
+    return _entity_tokens(entity, outfit=outfit, palette=palette)
 
 
 def _style_tokens(project) -> str:

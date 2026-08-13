@@ -1,10 +1,10 @@
 """Character sheets, contact-sheet composites, and dataset export (Phase 3).
 
 A *character sheet* (KAN-38) is just a batch of N generations of one character
-with a locked seed and per-cell prompt suffixes: front/profile/back angles, a row
-of expressions, and one cell per wardrobe entry from the character's
-``prompt_profile``. Each cell lands as an ``AssetImage`` tagged ``kind="sheet"``
-so the existing per-project asset library renders them with no UI work.
+with a locked seed and per-cell prompt suffixes: front/three-quarter/profile/back
+angles, plus one cell per ALTERNATE outfit in the character's ``prompt_profile``.
+Each cell lands as an ``AssetImage`` tagged ``kind="sheet"`` so the existing
+per-project asset library renders them with no UI work.
 
 Once the cells complete, a dependent *contact-sheet* job (KAN-39) composes them
 into a single labelled grid PNG with PIL — no ComfyUI round-trip. And because a
@@ -12,8 +12,17 @@ character sheet *is* a captioned dataset, ``GET /api/characters/{id}/dataset.zip
 (KAN-40) streams the images plus matching ``.txt`` captions in the standard
 LoRA-dataset layout.
 
-The sheet template is data (``ANGLE_CELLS`` / ``EXPRESSION_CELLS`` + wardrobe),
-not hardcoded branches, so it can be extended or overridden per request.
+The sheet template is data (``ANGLE_CELLS`` + outfits), not hardcoded branches,
+so it can be extended or overridden per request.
+
+**Suffixes are edit INSTRUCTIONS, not descriptions.** The default route is
+img2img through an image-*edit* model, which treats the source as the scene to
+preserve and the prompt as an operation to apply to it. A noun phrase like
+"front view, full body" gives it nothing to do, so it returns the source almost
+unchanged — measured: the subject stayed seated in the source living room and
+only the shirt colour drifted. Imperative verbs ("turn", "replace", "remove")
+are what actually move the subject. Keep that voice when editing the tables
+below.
 """
 import io
 import os
@@ -28,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AssetImage, Batch, JobRecord, Character, Project
 from services.seed_policy import resolve_seed
-from services.prompt_builder import entity_prompt
+from services.prompt_builder import entity_prompt, outfits_of
 from services.job_handlers import register_local
 from services.reference_service import newest_asset_image_id
 
@@ -40,17 +49,24 @@ COMFY_OUTPUT_DIR = os.environ.get("COMFY_OUTPUT_DIR", "/opt/ComfyUI/output")
 # (stored in params.sheet_slot and used as the contact-sheet / caption label),
 # `suffix` is appended to the character's base prompt. Data, not branches, so
 # the grid can be extended here or overridden per request.
+# Every character cell stages the subject the same way; only the rotation
+# differs. Factored out so the angle cells and the outfit cells cannot drift
+# apart — a sheet is only comparable cell-to-cell if the staging is identical.
+_STAGING = (
+    "standing upright, full body visible head to feet, "
+    "replace the background with a plain light grey studio backdrop, "
+    "remove all furniture and props"
+)
+
 ANGLE_CELLS = [
-    {"slot": "front", "suffix": "front view, full body, neutral expression"},
-    {"slot": "three-quarter", "suffix": "three-quarter view, full body"},
-    {"slot": "profile", "suffix": "side profile view, full body"},
-    {"slot": "back", "suffix": "back view, full body"},
-]
-EXPRESSION_CELLS = [
-    {"slot": "expr-neutral", "suffix": "head and shoulders, neutral expression"},
-    {"slot": "expr-joy", "suffix": "head and shoulders, joyful expression, smiling"},
-    {"slot": "expr-anger", "suffix": "head and shoulders, angry expression"},
-    {"slot": "expr-fear", "suffix": "head and shoulders, fearful expression"},
+    {"slot": "front",
+     "suffix": f"turn the subject to face the camera directly, {_STAGING}"},
+    {"slot": "three-quarter",
+     "suffix": f"turn the subject 45 degrees to a three-quarter view, {_STAGING}"},
+    {"slot": "profile",
+     "suffix": f"turn the subject to a full side profile, {_STAGING}"},
+    {"slot": "back",
+     "suffix": f"turn the subject to face directly away from the camera, {_STAGING}"},
 ]
 
 # A prop has no face, so expression cells are meaningless for one. What a
@@ -65,18 +81,47 @@ PROP_ANGLE_CELLS = [
     {"slot": "detail", "suffix": "extreme close-up of surface material and texture"},
 ]
 
-# Per-entity-type sheet shape. `variant_key` names the prompt_profile list that
-# expands into one extra cell each (a character's wardrobe, a prop's materials).
+
+def _outfit_variants(entity) -> list[tuple[str, str]]:
+    """(slot label, item text) per ALTERNATE outfit — the default one is skipped
+    because it is already in the base prompt line, so a cell for it would render
+    the clothes the subject is wearing anyway."""
+    return [(o["name"], ", ".join(o["items"]))
+            for o in outfits_of(entity) if not o["default"]]
+
+
+def _flat_variants(key: str):
+    """(slot label, item text) per entry of a flat profile list — a prop's
+    materials, where each entry genuinely is an independent variant."""
+    def _variants(entity) -> list[tuple[str, str]]:
+        items = (getattr(entity, "prompt_profile", None) or {}).get(key) or []
+        return [(item, item) for item in items if item]
+    return _variants
+
+
+# Per-entity-type sheet shape. `variants` yields the extra cells beyond the
+# fixed rows: alternate outfits for a character, each material for a prop.
+# `variant_prefix` groups those slots ("outfit:work") so reference_label can
+# strip it back off for display.
 SHEET_TEMPLATES = {
     "character": {
-        "cells": ANGLE_CELLS + EXPRESSION_CELLS,
-        "variant_key": "wardrobe",
-        "variant_suffix": "full body, wearing {item}",
+        "cells": ANGLE_CELLS,
+        "variant_prefix": "outfit",
+        "variants": _outfit_variants,
+        # "dress the subject in", not "change the subject's clothing to": the
+        # latter presupposes a garment to replace, and the cell's base line has
+        # deliberately been stripped of one (variant_swaps_outfit below).
+        "variant_suffix": (
+            "dress the subject in {item}, "
+            "turn the subject to face the camera directly, " + _STAGING
+        ),
+        "variant_swaps_outfit": True,
         "asset_dir": "characters",
     },
     "prop": {
         "cells": PROP_ANGLE_CELLS,
-        "variant_key": "materials",
+        "variant_prefix": "materials",
+        "variants": _flat_variants("materials"),
         "variant_suffix": "full object, {item} finish",
         "asset_dir": "props",
     },
@@ -87,7 +132,7 @@ VALID_SHEET_ENTITY_TYPES = tuple(SHEET_TEMPLATES)
 
 def default_cells(entity, entity_type: str = "character") -> list[dict]:
     """The default cell list for an entity: its type's fixed rows plus one cell
-    per entry in the profile list that type varies over."""
+    per variant that type varies over (alternate outfits / materials)."""
     tpl = SHEET_TEMPLATES.get(entity_type)
     if tpl is None:
         raise ValueError(
@@ -95,13 +140,14 @@ def default_cells(entity, entity_type: str = "character") -> list[dict]:
             f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
         )
     cells = [dict(c) for c in tpl["cells"]]
-    for item in (getattr(entity, "prompt_profile", None) or {}).get(tpl["variant_key"]) or []:
-        if not item:
-            continue
-        cells.append({
-            "slot": f"{tpl['variant_key']}:{item}",
+    for label, item in tpl["variants"](entity):
+        cell = {
+            "slot": f"{tpl['variant_prefix']}:{label}",
             "suffix": tpl["variant_suffix"].format(item=item),
-        })
+        }
+        if tpl.get("variant_swaps_outfit"):
+            cell["swaps_outfit"] = True
+        cells.append(cell)
     return cells
 
 
@@ -137,7 +183,11 @@ async def build_sheet_jobs(
         raise ValueError(f"{entity_type.title()} sheet needs at least one cell")
 
     project_id = entity.project_id
-    base_prompt = entity_prompt(entity)
+    # Palette is dropped from every cell: it restates the default outfit's
+    # colours as loose tokens ("olive green"), which pulls that outfit back into
+    # cells meant to replace it and adds nothing the appearance tokens lack.
+    base_prompt = entity_prompt(entity, palette=False)
+    identity_prompt = entity_prompt(entity, outfit=False, palette=False)
     profile = getattr(entity, "prompt_profile", None) or {}
     # One seed shared across every cell so the sheet is one consistent subject.
     seed = resolve_seed("locked", {
@@ -154,7 +204,8 @@ async def build_sheet_jobs(
     jobs: list[JobRecord] = []
     last_cell_job: JobRecord | None = None
     for cell in cells:
-        prompt = _cell_prompt(base_prompt, cell.get("suffix"))
+        base = identity_prompt if cell.get("swaps_outfit") else base_prompt
+        prompt = _cell_prompt(base, cell.get("suffix"))
         asset = AssetImage(
             origin_project_id=project_id,
             entity_type=entity_type,

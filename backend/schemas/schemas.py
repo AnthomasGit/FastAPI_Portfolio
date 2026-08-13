@@ -237,11 +237,11 @@ def reference_label(ref) -> str:
     where it matters most, choosing which look a scene uses. Layered, most
     specific first:
 
-      1. the sheet/angle slot   -> "profile", "expr-joy", "red coat", "left45"
+      1. the sheet/angle slot   -> "profile", "gala", "brass", "left45"
       2. a prompt excerpt       -> "late 20s male with a…"
       3. upload + date          -> "upload · Jul 27"
 
-    The ``wardrobe:``/``materials:`` group prefix is stripped — the group is
+    The ``outfit:``/``materials:`` group prefix is stripped — the group is
     obvious from context and the trigger is narrow.
 
     Computed here rather than in the client so every consumer of a reference

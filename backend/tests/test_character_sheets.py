@@ -27,30 +27,69 @@ def out_dir(tmp_path, monkeypatch):
 
 # ── 3.1 character sheet batch ───────────────────────────────────────────────
 
+
+@pytest.mark.asyncio
+async def test_alternate_outfit_cell_drops_the_default_outfit(db_session, project):
+    """An outfit cell must not name the outfit it is replacing.
+
+    Leaving it in asserts the jersey as present fact while the suffix asks for a
+    suit, and the edit model composites instead of replacing — measured: the
+    jacket rendered over the jersey, on top of the track pants. Palette goes too,
+    since "olive green" drags the same outfit back in by colour.
+    """
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name="Hero",
+                     prompt_profile={
+                         "appearance": ["mid-40s man", "greying beard"],
+                         "palette": ["olive green"],
+                         "outfits": [
+                             {"name": "matchday",
+                              "items": ["olive jersey", "track pants"], "default": True},
+                             {"name": "work", "items": ["charcoal suit"]},
+                         ]})
+    db_session.add(char)
+    await db_session.commit()
+
+    _, jobs = await sheet_service.create_character_sheet(char, db_session)
+    by_slot = {j.payload.get("sheet_slot"): j.payload["prompt"] for j in jobs
+               if j.kind == "character_sheet"}
+
+    outfit_cell = by_slot["outfit:work"]
+    assert "charcoal suit" in outfit_cell
+    assert "olive jersey" not in outfit_cell and "track pants" not in outfit_cell
+    assert "olive green" not in outfit_cell          # palette dropped
+    assert "greying beard" in outfit_cell            # identity survives
+
+    # Angle cells keep the default outfit — that IS what the subject wears.
+    assert "olive jersey" in by_slot["front"]
+    assert "olive green" not in by_slot["front"]     # palette dropped everywhere
+
 @pytest.mark.asyncio
 async def test_create_sheet_fans_out_cells_with_shared_seed(db_session, project):
     char = Character(id=str(uuid.uuid4()), project_id=project.id, name="Hero",
-                     prompt_profile={"locked_seed": 4242, "wardrobe": ["red cloak"]})
+                     prompt_profile={"locked_seed": 4242, "outfits": [
+                         {"name": "road", "items": ["leather jerkin"], "default": True},
+                         {"name": "court", "items": ["red cloak"]},
+                     ]})
     db_session.add(char)
     await db_session.commit()
 
     batch, jobs = await sheet_service.create_character_sheet(char, db_session)
 
     cell_jobs = [j for j in jobs if j.kind == "character_sheet"]
-    # 4 angles + 4 expressions + 1 wardrobe entry.
-    assert len(cell_jobs) == 9
+    # 4 angles + 1 alternate outfit.
+    assert len(cell_jobs) == 5
     assert batch.kind == "character_sheet"
     # Identical seed across every cell...
     assert {j.seed for j in cell_jobs} == {4242}
     # ...but distinct prompts (the per-cell suffix differs).
-    assert len({j.payload["prompt"] for j in cell_jobs}) == 9
+    assert len({j.payload["prompt"] for j in cell_jobs}) == 5
 
     assets = (await db_session.execute(
         AssetImage.__table__.select().where(AssetImage.kind == "sheet")
     )).all()
-    assert len(assets) == 9
+    assert len(assets) == 5
     slots = {a.params["sheet_slot"] for a in assets}
-    assert "front" in slots and "wardrobe:red cloak" in slots
+    assert "front" in slots and "outfit:court" in slots
     for a in assets:
         assert a.params["sheet_batch_id"] == batch.id
         assert a.params["character_id"] == char.id
@@ -100,7 +139,7 @@ async def test_sheet_endpoint(client, db_session, project):
     resp = await client.post(f"/api/characters/{char.id}/sheet")
     assert resp.status_code == 202
     body = resp.json()
-    assert body["job_count"] == 9  # 8 cells + contact sheet
+    assert body["job_count"] == 5  # 4 angle cells + contact sheet
     assert body["batch_id"]
 
     missing = await client.post(f"/api/characters/{uuid.uuid4()}/sheet")
