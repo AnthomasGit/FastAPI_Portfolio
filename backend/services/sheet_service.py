@@ -153,17 +153,20 @@ SHEET_TEMPLATES = {
 VALID_SHEET_ENTITY_TYPES = tuple(SHEET_TEMPLATES)
 
 
-def default_cells(entity, entity_type: str = "character") -> list[dict]:
-    """The default cell list for an entity: its type's fixed rows, plus one cell
-    per variant for the types that have them (a character's alternate outfits)."""
-    tpl = SHEET_TEMPLATES.get(entity_type)
-    if tpl is None:
-        raise ValueError(
-            f"No sheet template for '{entity_type}' "
-            f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
-        )
-    cells = [dict(c) for c in tpl["cells"]]
+def variant_cells(entity, entity_type: str = "character",
+                  names: list[str] | None = None) -> list[dict]:
+    """Opt-in cells for an entity's alternate outfits.
+
+    `names` selects which ones by outfit name; None means all of them. Unknown
+    names are ignored rather than raising — the caller is a UI checklist, and a
+    renamed outfit should not fail a batch.
+    """
+    tpl = SHEET_TEMPLATES.get(entity_type) or {}
+    wanted = None if names is None else {n.lower() for n in names}
+    cells = []
     for label, item in (tpl["variants"](entity) if "variants" in tpl else []):
+        if wanted is not None and label.lower() not in wanted:
+            continue
         cell = {
             "slot": f"{tpl['variant_prefix']}:{label}",
             "suffix": tpl["variant_suffix"].format(item=item),
@@ -171,6 +174,28 @@ def default_cells(entity, entity_type: str = "character") -> list[dict]:
         if tpl.get("variant_swaps_outfit"):
             cell["swaps_outfit"] = True
         cells.append(cell)
+    return cells
+
+
+def default_cells(entity, entity_type: str = "character",
+                  outfits: list[str] | None = None) -> list[dict]:
+    """The default cell list for an entity: its type's fixed rows only.
+
+    Alternate-outfit cells are NOT included by default. A character may have
+    many outfits and most runs want the angle set; rendering every costume every
+    time spends GPU slots on images the user did not ask for. Pass `outfits` (a
+    list of names, or [] for none) to add them — the UI exposes this as a
+    checklist.
+    """
+    tpl = SHEET_TEMPLATES.get(entity_type)
+    if tpl is None:
+        raise ValueError(
+            f"No sheet template for '{entity_type}' "
+            f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
+        )
+    cells = [dict(c) for c in tpl["cells"]]
+    if outfits:
+        cells += variant_cells(entity, entity_type, outfits)
     return cells
 
 
@@ -186,6 +211,7 @@ async def build_sheet_jobs(
     db: AsyncSession,
     *,
     cells: list[dict] | None = None,
+    outfits: list[str] | None = None,
     workflow: str | None = None,
     from_canonical: bool = True,
 ) -> list[JobRecord]:
@@ -199,8 +225,11 @@ async def build_sheet_jobs(
     `from_canonical` picks the generation route per cell: img2img off the
     entity's canonical image (what makes a sheet actually consistent) or a fresh
     txt2img via `workflow`. It is forced off when there is no canonical image.
+
+    `outfits` names the alternate outfits to add a cell for; they are opt-in and
+    absent otherwise. An explicit `cells` list overrides both.
     """
-    cells = cells if cells is not None else default_cells(entity, entity_type)
+    cells = cells if cells is not None else default_cells(entity, entity_type, outfits)
     cells = [c for c in cells if c and c.get("slot")]
     if not cells:
         raise ValueError(f"{entity_type.title()} sheet needs at least one cell")
@@ -309,6 +338,7 @@ async def create_entity_sheet(
     db: AsyncSession,
     cells: list[dict] | None = None,
     *,
+    outfits: list[str] | None = None,
     workflow: str | None = None,
     from_canonical: bool = True,
 ) -> tuple[Batch, list[JobRecord]]:
@@ -334,9 +364,11 @@ async def create_entity_sheet(
     db.add(batch)
     await db.flush()
     jobs = await build_sheet_jobs(entity, entity_type, batch, db, cells=cells,
-                                  workflow=workflow, from_canonical=from_canonical)
+                                  outfits=outfits, workflow=workflow,
+                                  from_canonical=from_canonical)
     batch.spec = {**batch.spec, "seed": jobs[0].seed,
-                  "cells": cells if cells is not None else default_cells(entity, entity_type)}
+                  "cells": cells if cells is not None
+                  else default_cells(entity, entity_type, outfits)}
     await db.commit()
     return batch, jobs
 
@@ -345,9 +377,11 @@ async def create_character_sheet(
     character: Character,
     db: AsyncSession,
     cells: list[dict] | None = None,
+    *,
+    outfits: list[str] | None = None,
 ) -> tuple[Batch, list[JobRecord]]:
     """Back-compat alias — POST /api/characters/{id}/sheet and its tests use this."""
-    return await create_entity_sheet(character, "character", db, cells)
+    return await create_entity_sheet(character, "character", db, cells, outfits=outfits)
 
 
 # ── contact-sheet composite (KAN-39) ────────────────────────────────────────

@@ -98,9 +98,14 @@ async def update_character(character_id: str, data: CharacterUpdate, db: AsyncSe
 @router.post("/api/characters/{character_id}/sheet", status_code=202)
 async def create_character_sheet(character_id: str, data: dict = Body(default={}),
                                  db: AsyncSession = Depends(get_db)):
-    """Generate a character sheet: a batch of consistent angles/expressions/
-    wardrobe cells sharing a locked seed (KAN-38). Optional body ``cells`` (list
-    of {slot, suffix}) overrides the default grid."""
+    """Generate a character sheet: a batch of consistent angle cells sharing a
+    locked seed (KAN-38).
+
+    Optional body: ``cells`` (list of {slot, suffix}) overrides the grid
+    entirely, and ``outfits`` (list of outfit names from the character's
+    prompt_profile) adds one alternate-outfit cell each. Alternate outfits are
+    opt-in — the default sheet is angles only.
+    """
     char = (await db.execute(
         select(Character).where(Character.id == character_id)
     )).scalars().first()
@@ -108,7 +113,7 @@ async def create_character_sheet(character_id: str, data: dict = Body(default={}
         raise HTTPException(status_code=404, detail="Character not found")
     try:
         batch, jobs = await sheet_service.create_character_sheet(
-            char, db, cells=data.get("cells"),
+            char, db, cells=data.get("cells"), outfits=data.get("outfits"),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e

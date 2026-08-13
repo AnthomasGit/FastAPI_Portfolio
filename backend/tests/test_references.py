@@ -3,8 +3,36 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database import Reference, Character, Project
-from services.reference_service import delete_entity_references
+from database import AssetImage, Reference, Character, Project
+from services.reference_service import delete_entity_references, newest_asset_image_id
+
+
+@pytest.mark.asyncio
+async def test_newest_asset_image_skips_contact_sheets(db_session, project):
+    """A contact sheet is a GRID. Committing a sheet batch creates a Reference
+    for every artifact and the contact sheet lands LAST, so without this filter
+    it wins "newest" and becomes the image the next sheet run edits FROM —
+    yielding a grid of grids. It stays a reference (H3 reads a multi-angle grid
+    well); it is only barred from being an edit source."""
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name="Hero")
+    db_session.add(char)
+    await db_session.flush()
+
+    cell = AssetImage(origin_project_id=project.id, entity_type="character",
+                      kind="sheet", status="completed", image_url="cell.png")
+    grid = AssetImage(origin_project_id=project.id, entity_type="character",
+                      kind="contact_sheet", status="completed", image_url="grid.png")
+    db_session.add_all([cell, grid])
+    await db_session.flush()
+    # Committed in creation order — the grid is newest.
+    for asset in (cell, grid):
+        db_session.add(Reference(entity_type="character", entity_id=char.id,
+                                 role="moodboard", url=asset.image_url,
+                                 asset_image_id=asset.id))
+        await db_session.flush()
+    await db_session.commit()
+
+    assert await newest_asset_image_id(db_session, "character", char.id) == cell.id
 
 
 # ── Polymorphic CRUD ─────────────────────────────────────────────────────

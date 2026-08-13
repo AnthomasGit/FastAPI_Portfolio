@@ -1,7 +1,14 @@
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import Reference
+from database import AssetImage, Reference
+
+# Kinds that must never be handed to an image-edit graph as its source. A
+# contact sheet is a GRID of small pictures: editing it yields a grid, and every
+# cell of the next sheet would be a grid of grids. It stays a first-class
+# reference (H3 reads a multi-angle grid well) — it is only barred from being
+# the image a generation edits FROM.
+NON_EDITABLE_KINDS = ("contact_sheet",)
 
 
 async def newest_asset_image_id(db: AsyncSession, entity_type: str, entity_id: str) -> str | None:
@@ -11,13 +18,19 @@ async def newest_asset_image_id(db: AsyncSession, entity_type: str, entity_id: s
     without a scene in hand — expanding a location plate, picking a sheet's base
     image. Scene-scoped callers should use job_handlers.scene_primary_reference
     instead, so an explicit per-scene pick is honoured.
+
+    Contact sheets are skipped: committing a sheet batch creates a Reference for
+    every artifact, and the contact sheet is created LAST, so without this it
+    would win "newest" and become the base image of the next run.
     """
     result = await db.execute(
         select(Reference.asset_image_id)
+        .join(AssetImage, AssetImage.id == Reference.asset_image_id)
         .where(
             Reference.entity_type == entity_type,
             Reference.entity_id == entity_id,
             Reference.asset_image_id.isnot(None),
+            AssetImage.kind.notin_(NON_EDITABLE_KINDS),
         )
         .order_by(Reference.created_at.desc())
         .limit(1)

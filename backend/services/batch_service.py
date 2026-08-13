@@ -240,6 +240,7 @@ def _entity_sheet_materializer(entity_type: str):
         return await sheet_service.build_sheet_jobs(
             entity, entity_type, batch, db,
             cells=spec.get("cells"),
+            outfits=spec.get("outfits"),
             workflow=spec.get("workflow"),
             from_canonical=bool(spec.get("from_canonical", True)),
         )

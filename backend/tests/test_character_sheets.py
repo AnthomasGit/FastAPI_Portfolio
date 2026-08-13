@@ -49,7 +49,8 @@ async def test_alternate_outfit_cell_drops_the_default_outfit(db_session, projec
     db_session.add(char)
     await db_session.commit()
 
-    _, jobs = await sheet_service.create_character_sheet(char, db_session)
+    _, jobs = await sheet_service.create_character_sheet(char, db_session,
+                                                         outfits=["work"])
     by_slot = {j.payload.get("sheet_slot"): j.payload["prompt"] for j in jobs
                if j.kind == "character_sheet"}
 
@@ -73,10 +74,11 @@ async def test_create_sheet_fans_out_cells_with_shared_seed(db_session, project)
     db_session.add(char)
     await db_session.commit()
 
-    batch, jobs = await sheet_service.create_character_sheet(char, db_session)
+    batch, jobs = await sheet_service.create_character_sheet(char, db_session,
+                                                             outfits=["court"])
 
     cell_jobs = [j for j in jobs if j.kind == "character_sheet"]
-    # 4 angles + 1 alternate outfit.
+    # 4 angles + the 1 alternate outfit that was asked for.
     assert len(cell_jobs) == 5
     assert batch.kind == "character_sheet"
     # Identical seed across every cell...

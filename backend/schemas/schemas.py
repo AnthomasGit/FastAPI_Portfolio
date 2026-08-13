@@ -27,6 +27,9 @@ class BatchCreateRequest(BaseModel):
     # Sheet batches (character_sheet / prop_sheet): override the cell grid, and
     # choose img2img-off-canonical vs a fresh render with `workflow`.
     cells: Optional[List[dict]] = None
+    # Alternate outfits are opt-in: names from the character's prompt_profile,
+    # one extra cell each. Absent/empty means angles only.
+    outfits: Optional[List[str]] = None
     from_canonical: bool = True
     # Location batches: also render the 360 angle set off the new plate.
     with_angles: bool = False

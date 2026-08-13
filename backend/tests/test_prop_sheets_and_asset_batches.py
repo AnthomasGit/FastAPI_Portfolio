@@ -53,15 +53,33 @@ def test_characters_are_angles_plus_alternate_outfits():
     char = Character(id="c", name="Ada", prompt_profile={"outfits": [
         {"name": "day", "items": ["red coat"], "default": True},
         {"name": "gala", "items": ["black gown", "silver heels"]},
+        {"name": "rain", "items": ["yellow oilskin"]},
     ]})
-    slots = {c["slot"] for c in default_cells(char, "character")}
+
+    # Opt-in: the default sheet is angles only, however many outfits exist.
+    assert [c["slot"] for c in default_cells(char, "character")] == \
+           [c["slot"] for c in ANGLE_CELLS]
+
+    cells = default_cells(char, "character", outfits=["gala"])
+    slots = {c["slot"] for c in cells}
     assert not any(s.startswith("expr-") for s in slots)
     assert "outfit:gala" in slots
-    assert "outfit:day" not in slots
+    assert "outfit:rain" not in slots      # not asked for
+    assert "outfit:day" not in slots       # the default is never a cell
 
-    suffix = next(c["suffix"] for c in default_cells(char, "character")
-                  if c["slot"] == "outfit:gala")
+    suffix = next(c["suffix"] for c in cells if c["slot"] == "outfit:gala")
     assert "black gown, silver heels" in suffix   # the whole set, worn together
+
+
+def test_unknown_outfit_name_is_ignored_not_fatal():
+    """The caller is a UI checklist; a renamed outfit must not fail a batch."""
+    char = Character(id="c", name="Ada", prompt_profile={"outfits": [
+        {"name": "day", "items": ["red coat"], "default": True},
+        {"name": "gala", "items": ["black gown"]},
+    ]})
+    cells = default_cells(char, "character", outfits=["gala", "does-not-exist"])
+    assert [c["slot"] for c in cells][-1] == "outfit:gala"
+    assert len(cells) == len(ANGLE_CELLS) + 1
 
 
 def test_legacy_wardrobe_list_reads_as_one_default_outfit():
