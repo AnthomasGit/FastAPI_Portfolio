@@ -27,6 +27,25 @@ def comfy_api_url():
     return "http://test-comfyui:8188"
 
 
+@pytest.fixture(autouse=True)
+def no_llm_profile_calls(monkeypatch):
+    """Never reach for a live LLM to auto-generate a prompt_profile.
+
+    Sheets and plates lazily fill a missing profile, so without this every sheet
+    test makes a real network attempt that fails into the description fallback —
+    slow, and it hides whether a test meant to exercise the profiled path. Tests
+    that want a profile set one explicitly; tests that want generation to happen
+    override this fixture.
+
+    Patches the auto-fill entry point rather than ai_service itself, so
+    test_profiles can still exercise the generator with its own mocked client.
+    """
+    async def _skip(entity, entity_type, db):
+        return None
+
+    monkeypatch.setattr("services.profile_service.ensure_prompt_profile", _skip)
+
+
 @pytest_asyncio.fixture
 async def db_engine():
     engine = create_async_engine(TEST_DB_URL, echo=False)

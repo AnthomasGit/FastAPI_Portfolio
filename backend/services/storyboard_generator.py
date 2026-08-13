@@ -67,4 +67,12 @@ async def save_storyboard(db: AsyncSession, project_id: str, storyboard_data: di
                 await db.flush()
             await db.execute(scene_props.insert().values(scene_id=scene.id, prop_id=prop.id))
 
+    # Every entity needs visual tokens before anything generates an image from
+    # it — without them entity_prompt falls back to the screenplay description,
+    # which pins no identity and lets every attribute resample per render.
+    # Enqueued, not awaited: a project can carry twenty-odd entities and this
+    # runs inside the storyboard-generation request.
+    from services.profile_service import enqueue_profile_jobs
+    await enqueue_profile_jobs(project_id, db)
+
     await db.commit()

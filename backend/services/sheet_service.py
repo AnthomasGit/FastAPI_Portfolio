@@ -39,7 +39,7 @@ from database import AssetImage, Batch, JobRecord, Character, Project
 from services.seed_policy import resolve_seed
 from services.prompt_builder import entity_prompt, outfits_of
 from services.job_handlers import register_local
-from services import base_plate_service
+from services import base_plate_service, profile_service
 
 logger = logging.getLogger("sheet_service")
 
@@ -233,6 +233,13 @@ async def build_sheet_jobs(
     cells = [c for c in cells if c and c.get("slot")]
     if not cells:
         raise ValueError(f"{entity_type.title()} sheet needs at least one cell")
+
+    # Safety net for entities created before profiles were auto-generated, or
+    # added by hand. Without one every prompt below composes from the screenplay
+    # description instead of visual tokens, silently — which is what made that
+    # failure mode expensive to find. Never fatal: a failure here leaves the old
+    # fallback in place rather than killing the batch.
+    await profile_service.ensure_prompt_profile(entity, entity_type, db)
 
     project_id = entity.project_id
     # Palette is dropped from every cell: it restates the default outfit's
