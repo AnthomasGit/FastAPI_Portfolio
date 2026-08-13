@@ -181,22 +181,40 @@ Return ONLY valid JSON with these keys:
 - materials: array of surface/material tokens (e.g. "worn flagstone", "iron sconces")
 - lighting: array of fixed lighting tokens (e.g. "torchlight", "cold north window light")
 - palette: array of colour tokens
-- negative: array of things to avoid (include "people", "characters" so plates stay empty)
+- negative: array of BARE NOUNS naming what to avoid — include "people", "characters" so plates stay empty. Never phrase these as negations ("no people"); the text is fed to the encoder verbatim.
 - locked_seed: an integer, or null
 - notes: a short string
-Pure JSON only, no markdown."""
+Pure JSON only, no markdown.
+
+Every token is repeated in EVERY frame set here, so include only what is permanently true of the PLACE.
+
+  REJECT "tense atmosphere"      — a mood, not a fixture
+  REJECT "crowd watching the TV" — people and action
+  KEEP   "vaulted stone ceiling"
+  KEEP   "cold north window light\""""
     else:
         system_prompt = """You are a subject designer for film production. Given a character or prop and its description, produce a STRUCTURED, REPEATABLE visual profile — fixed tokens that keep this subject looking identical across many generated frames. Emphasise concrete, unchanging physical attributes (hair, build, face, distinguishing features, materials, wardrobe), NOT narrative, mood, or one-off action.
 Return ONLY valid JSON with these keys:
 - appearance: array of short visual tokens for the fixed, unchanging look — body, face, hair, distinguishing features. NEVER clothing.
 - outfits: array of complete outfits, each {"name": short label, "items": array of garment tokens, "default": true on exactly one}. An outfit is a full head-to-toe set worn together, not a single garment. Give one outfit unless the description clearly calls for alternates. Empty array for props.
 - palette: array of colour tokens
-- negative: array of things to avoid
+- negative: array of BARE NOUNS naming what to avoid — "formal wear", "glasses". Never phrase these as negations: "no formal wear" asks the model to avoid the idea of not-formal-wear.
 - locked_seed: an integer, or null
 - notes: a short string
 Pure JSON only, no markdown.
 
-State negations positively in `appearance` ("clean-shaven", "no glasses") — the negative list does not reach every generation path."""
+`appearance` is the strictest field: every token in it is repeated in EVERY frame this subject ever appears in. So it holds only what is permanently true of their body. Judge each token by "would this still be true while they slept?"
+
+  REJECT "uninterested expression"   — a mood, changes shot to shot
+  REJECT "anxiously watching"        — an action, belongs to one scene
+  REJECT "focused on her phone"      — narrative, and drags a prop in
+  REJECT "worn jersey"               — clothing, belongs in outfits
+  KEEP   "heavy-set build"
+  KEEP   "close-cropped greying beard"
+  KEEP   "deep-set brown eyes"
+  KEEP   "scar through left eyebrow"
+
+Most generation paths ignore the negative list entirely, so anything that MUST hold goes in `appearance`, stated positively: "clean-shaven", "no glasses", "unbranded plain clothing"."""
 
     user = f"Type: {entity_type}\nName: {name}\nDescription: {description or '(none)'}"
     if style_profile:

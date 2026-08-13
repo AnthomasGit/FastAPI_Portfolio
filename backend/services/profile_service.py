@@ -30,6 +30,66 @@ logger = logging.getLogger("profile_service")
 
 ENTITY_MODELS = {"character": Character, "location": Location, "prop": Prop}
 
+# ── appearance sanitiser ───────────────────────────────────────────────────
+# `appearance` is the strictest field in the schema: every token in it is
+# repeated in EVERY frame the subject appears in, because _entity_tokens
+# composes from it unconditionally. A mood token there is the same failure as
+# the screenplay-description fallback, just laundered through the LLM into a
+# field we trust — measured: the 14B returned "uninterested expression" for a
+# character despite being told to exclude mood.
+#
+# Abstract state nouns only. "furrowed brow" and "heavy-lidded eyes" are
+# legitimate FIXED features and must survive, so this deliberately under-filters
+# rather than risk stripping real identity. Suspect tokens are MOVED to `notes`,
+# never dropped: nothing consumes `notes`, so it is a safe quarantine the user
+# can inspect and correct.
+_MOOD_HEADS = ("expression", "demeanor", "demeanour", "mood", "attitude",
+               "vibe", "aura", "energy", "disposition")
+
+# Present participles that describe an ACTION rather than a standing state.
+# "watching", "clutching" belong to one scene; "greying", "receding" are
+# permanent, so a blanket -ing rule would be wrong.
+_ACTION_WORDS = ("watching", "holding", "clutching", "carrying", "wearing",
+                 "looking", "staring", "gazing", "sitting", "standing",
+                 "walking", "running", "reading", "smiling", "frowning",
+                 "shouting", "waiting", "focused", "focusing")
+
+
+def _is_narrative(token: str) -> bool:
+    """True for a token describing mood or momentary action rather than a fixed
+    physical attribute."""
+    words = token.lower().replace("-", " ").split()
+    if not words:
+        return False
+    if words[-1] in _MOOD_HEADS:
+        return True
+    return any(w in _ACTION_WORDS for w in words)
+
+
+def sanitize_profile(profile: dict) -> tuple[dict, list[str]]:
+    """Move narrative tokens out of `appearance` into `notes`.
+
+    Returns (profile, moved). Applied to GENERATED profiles only — a user's PUT
+    is persisted verbatim and is authoritative, so it is never rewritten.
+    """
+    appearance = [t for t in (profile.get("appearance") or []) if t]
+    if not appearance:
+        return profile, []
+    kept = [t for t in appearance if not _is_narrative(t)]
+    moved = [t for t in appearance if _is_narrative(t)]
+    if not moved:
+        return profile, []
+    # Never empty the field entirely: if EVERY token looked narrative the filter
+    # is more likely wrong than the model, and an empty appearance would drop
+    # the subject back to the description fallback.
+    if not kept:
+        logger.warning("appearance looked entirely narrative (%s) — left as-is", moved)
+        return profile, []
+    note = "; ".join(["moved from appearance (narrative/mood)"] + moved)
+    profile = {**profile, "appearance": kept,
+               "notes": f"{profile.get('notes') or ''} | {note}".strip(" |")}
+    return profile, moved
+
 # The keys that carry actual visual content. A profile holding only `notes` or
 # `locked_seed` describes nothing, so it counts as missing.
 _CONTENT_KEYS = ("appearance", "outfits", "wardrobe", "palette",
@@ -66,6 +126,10 @@ async def ensure_prompt_profile(entity, entity_type: str, db: AsyncSession) -> d
         return None
     if not profile:
         return None
+    profile, moved = sanitize_profile(profile)
+    if moved:
+        logger.info("quarantined narrative tokens from %s %s appearance: %s",
+                    entity_type, entity.id, moved)
     entity.prompt_profile = profile
     await db.flush()
     return profile

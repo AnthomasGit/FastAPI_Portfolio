@@ -54,6 +54,90 @@ def test_profile_of_only_metadata_counts_as_missing():
         Location(id="l", name="Bar", prompt_profile={"environment": ["dim bar"]}))
 
 
+# ── appearance sanitiser ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("token", [
+    "uninterested expression",     # what the 14B actually returned
+    "calm demeanour",
+    "anxiously watching the game",
+    "focused on her phone",
+    "smiling warmly",
+])
+def test_narrative_tokens_are_caught(token):
+    assert profile_service._is_narrative(token)
+
+
+@pytest.mark.parametrize("token", [
+    "heavy-set build",
+    "close-cropped greying beard",   # -ing, but permanent
+    "receding hairline",             # -ing, but permanent
+    "furrowed brow",                 # reads like a mood, IS a fixed feature
+    "heavy-lidded eyes",
+    "scar through left eyebrow",
+    "no glasses",                    # positively-stated exclusion must survive
+])
+def test_fixed_features_survive(token):
+    """The filter under-filters on purpose: stripping a real identity token is
+    worse than leaving some leakage, because appearance is what holds a subject
+    together across every frame."""
+    assert not profile_service._is_narrative(token)
+
+
+def test_sanitize_quarantines_into_notes_rather_than_deleting():
+    profile, moved = profile_service.sanitize_profile({
+        "appearance": ["mid-40s man", "uninterested expression", "greying beard"],
+        "notes": "Focus on phone",
+    })
+    assert moved == ["uninterested expression"]
+    assert profile["appearance"] == ["mid-40s man", "greying beard"]
+    # Nothing is lost, and the original note survives alongside it.
+    assert "uninterested expression" in profile["notes"]
+    assert "Focus on phone" in profile["notes"]
+
+
+def test_sanitize_leaves_a_clean_profile_untouched():
+    original = {"appearance": ["mid-40s man"], "notes": "n"}
+    profile, moved = profile_service.sanitize_profile(original)
+    assert moved == [] and profile is original
+
+
+def test_sanitize_refuses_to_empty_appearance():
+    """If EVERY token looks narrative, the filter is likelier wrong than the
+    model — and an empty appearance would drop the subject back to the
+    screenplay-description fallback this whole feature exists to avoid."""
+    original = {"appearance": ["uninterested expression", "calm demeanour"]}
+    profile, moved = profile_service.sanitize_profile(original)
+    assert moved == [] and profile is original
+
+
+@pytest.mark.asyncio
+async def test_generated_profile_is_sanitized(db_session, project, real_ensure, monkeypatch):
+    async def _leaky(**kwargs):
+        return {"appearance": ["slim build", "uninterested expression"], "outfits": []}
+
+    monkeypatch.setattr("services.ai_service.generate_prompt_profile", _leaky)
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name="Wife")
+    db_session.add(char)
+    await db_session.commit()
+
+    profile = await profile_service.ensure_prompt_profile(char, "character", db_session)
+    assert profile["appearance"] == ["slim build"]
+
+
+@pytest.mark.asyncio
+async def test_user_edits_are_never_sanitized(client, db_session, project):
+    """PUT persists verbatim — a hand-written profile is authoritative, even if
+    it says something the filter would have flagged."""
+    char = Character(id=str(uuid.uuid4()), project_id=project.id, name="Hero")
+    db_session.add(char)
+    await db_session.commit()
+
+    mine = {"appearance": ["mid-40s man", "permanently sour expression"]}
+    r = await client.put(f"/api/characters/{char.id}/prompt-profile", json=mine)
+    assert r.status_code == 200
+    assert r.json()["prompt_profile"]["appearance"] == mine["appearance"]
+
+
 # ── ensure ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
