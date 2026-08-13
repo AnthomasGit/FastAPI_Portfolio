@@ -37,6 +37,21 @@ JOB_RETRY_BACKOFF_BASE = float(os.environ.get("JOB_RETRY_BACKOFF_BASE", "10"))
 
 TERMINAL = ("completed", "failed", "cancelled")
 
+# ── Concurrency upgrade checklist ──────────────────────────────────────────
+# Two correctness properties currently rest on "one worker, MAX_INFLIGHT=1".
+# Both are silent if broken — nothing raises, the results are just wrong — so
+# check BOTH before raising MAX_INFLIGHT or running a second process:
+#
+#   1. JobWorker.reap_orphans (this module) treats every `running` row at
+#      startup as abandoned. With a second worker it would steal live jobs.
+#      Replace with a lease: started_at + a timeout, refreshed by a heartbeat.
+#
+#   2. sheet_service.build_sheet_jobs hangs the contact-sheet composite off the
+#      LAST cell as a stand-in fan-in barrier, which only means "all cells are
+#      done" while cells run serially. Replace with a batch-level dependency.
+#
+# See docs/BATCH_AUTOMATION_PLAN.md §6.
+
 
 def _is_postgres(db: AsyncSession) -> bool:
     try:
@@ -142,8 +157,57 @@ class JobWorker:
 
     async def start(self) -> None:
         self._stopping = False
+        await self.reap_orphans()
         self._task = asyncio.create_task(self._run())
         logger.info("job worker started (MAX_INFLIGHT=%s)", self.max_inflight)
+
+    async def reap_orphans(self) -> int:
+        """Recover jobs left `running` by a hard stop. Returns the count requeued.
+
+        `stop()` reverts what this worker claimed, but it reads the in-memory
+        `_inflight` set, so SIGKILL / an OOM kill / `docker compose restart`
+        skips it entirely. The rows then sit in `running` forever: claim_jobs
+        only ever selects `queued`, and retry_failed only ever selects `failed`,
+        so nothing in the app can reach them again.
+
+        That strands more than itself now that cells depend on their base plate
+        — claim_jobs requires a dependency to be *completed*, not merely
+        terminal, so one orphaned plate leaves every cell of its sheet queued
+        forever and the batch never reaches a terminal state.
+
+        SAFE ONLY WHILE THERE IS ONE WORKER. With MAX_INFLIGHT=1 and a single
+        process, any `running` row at startup is by definition abandoned. Raise
+        MAX_INFLIGHT or add a second process and this would steal a live job
+        from its owner — it would need a lease (started_at + timeout) instead.
+        See the concurrency upgrade checklist at the top of this module.
+
+        `attempts` was already incremented at claim time and is deliberately
+        left alone, so a job that kills the worker every time still exhausts
+        max_attempts and fails permanently rather than crash-looping.
+        """
+        async with self.session_factory() as db:
+            orphans = (await db.execute(
+                select(JobRecord).where(JobRecord.status == "running")
+            )).scalars().all()
+            requeued = 0
+            for job in orphans:
+                # A prompt already submitted may still be rendering: ComfyUI
+                # outlives the API container. Requeuing that would submit the
+                # same graph twice and burn a GPU slot on a duplicate.
+                if job.prompt_id and await queue_contains(job.prompt_id):
+                    logger.info("job %s still live in ComfyUI (prompt %s) — left running",
+                                job.job_id, job.prompt_id)
+                    continue
+                job.status = "queued"
+                job.started_at = None
+                job.prompt_id = None
+                requeued += 1
+                logger.warning("job %s (%s) was orphaned in `running` -> requeued "
+                               "(attempt %s of %s)",
+                               job.job_id, job.kind, job.attempts, job.max_attempts)
+            if requeued:
+                await db.commit()
+        return requeued
 
     async def stop(self) -> None:
         self._stopping = True
