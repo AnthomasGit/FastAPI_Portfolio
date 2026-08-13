@@ -237,12 +237,14 @@ def reference_label(ref) -> str:
     where it matters most, choosing which look a scene uses. Layered, most
     specific first:
 
-      1. the sheet/angle slot   -> "profile", "gala", "brass", "left45"
+      1. the sheet/angle slot   -> "profile", "gala", "detail", "left45"
       2. a prompt excerpt       -> "late 20s male with a…"
       3. upload + date          -> "upload · Jul 27"
 
-    The ``outfit:``/``materials:`` group prefix is stripped — the group is
-    obvious from context and the trigger is narrow.
+    Any ``group:`` prefix is stripped (``outfit:gala`` -> "gala") — the group is
+    obvious from context and the trigger is narrow. Older rows may still carry a
+    ``wardrobe:``/``materials:`` prefix from retired templates; they strip the
+    same way.
 
     Computed here rather than in the client so every consumer of a reference
     list labels identically, and so the client needs no extra fetch of asset

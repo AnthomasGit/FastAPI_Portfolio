@@ -116,19 +116,19 @@ def _outfit_variants(entity) -> list[tuple[str, str]]:
             for o in outfits_of(entity) if not o["default"]]
 
 
-def _flat_variants(key: str):
-    """(slot label, item text) per entry of a flat profile list — a prop's
-    materials, where each entry genuinely is an independent variant."""
-    def _variants(entity) -> list[tuple[str, str]]:
-        items = (getattr(entity, "prompt_profile", None) or {}).get(key) or []
-        return [(item, item) for item in items if item]
-    return _variants
-
-
-# Per-entity-type sheet shape. `variants` yields the extra cells beyond the
-# fixed rows: alternate outfits for a character, each material for a prop.
+# Per-entity-type sheet shape. `variants` (optional) yields the extra cells
+# beyond the fixed rows; only characters have any, for alternate outfits.
 # `variant_prefix` groups those slots ("outfit:work") so reference_label can
 # strip it back off for display.
+#
+# Props deliberately have NO variant cells. The material-finish variant they
+# used to have answered a pre-production question ("brass or chrome?") rather
+# than a storyboard one — by the time you are boarding, the remote is black
+# plastic, and a brass copy spends a GPU slot and an R2V reference slot on an
+# image no scene asks for. The prop variants that WOULD matter are states
+# (clean → mud-covered, pristine → smashed), which is a different feature and
+# not worth guessing at before a real project needs one. Until then a one-off
+# change is a manual edit of the base image, not a template row.
 SHEET_TEMPLATES = {
     "character": {
         "cells": ANGLE_CELLS,
@@ -146,14 +146,6 @@ SHEET_TEMPLATES = {
     },
     "prop": {
         "cells": PROP_ANGLE_CELLS,
-        "variant_prefix": "materials",
-        "variants": _flat_variants("materials"),
-        # No swaps_outfit equivalent: a material is an alternate FINISH of the
-        # same object, and nothing in the base line contradicts it the way a
-        # default outfit contradicts an alternate one.
-        "variant_suffix": (
-            "remake the object with a {item} finish, " + _PROP_STAGING
-        ),
         "asset_dir": "props",
     },
 }
@@ -162,8 +154,8 @@ VALID_SHEET_ENTITY_TYPES = tuple(SHEET_TEMPLATES)
 
 
 def default_cells(entity, entity_type: str = "character") -> list[dict]:
-    """The default cell list for an entity: its type's fixed rows plus one cell
-    per variant that type varies over (alternate outfits / materials)."""
+    """The default cell list for an entity: its type's fixed rows, plus one cell
+    per variant for the types that have them (a character's alternate outfits)."""
     tpl = SHEET_TEMPLATES.get(entity_type)
     if tpl is None:
         raise ValueError(
@@ -171,7 +163,7 @@ def default_cells(entity, entity_type: str = "character") -> list[dict]:
             f"(known: {', '.join(VALID_SHEET_ENTITY_TYPES)})"
         )
     cells = [dict(c) for c in tpl["cells"]]
-    for label, item in tpl["variants"](entity):
+    for label, item in (tpl["variants"](entity) if "variants" in tpl else []):
         cell = {
             "slot": f"{tpl['variant_prefix']}:{label}",
             "suffix": tpl["variant_suffix"].format(item=item),

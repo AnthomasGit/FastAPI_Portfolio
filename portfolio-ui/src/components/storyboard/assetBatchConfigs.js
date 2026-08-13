@@ -14,8 +14,8 @@ export const ASSET_BATCH_CONFIGS = {
   props: {
     kind: 'prop_sheet',
     title: 'Generate prop sheets',
-    blurb: 'A sheet per prop — front, three-quarter and a material close-up, '
-         + 'plus one cell per material finish.',
+    blurb: 'A sheet per prop — front, three-quarter and a close-up of its '
+         + 'surface material.',
     primaryField: 'reference_url',
     baseImageToggle: true,
     workflow: 'krea2_turbo',

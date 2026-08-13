@@ -74,13 +74,16 @@ def test_legacy_wardrobe_list_reads_as_one_default_outfit():
            [c["slot"] for c in ANGLE_CELLS]
 
 
-def test_props_vary_over_materials():
-    """Each type varies over its own profile list — wardrobe for a character,
-    materials for a prop."""
+def test_props_have_no_variant_cells():
+    """Props vary over nothing. The material-finish variant answered a
+    pre-production question ("brass or chrome?"), not a storyboard one — by
+    boarding time the object is decided, and a brass copy spends a GPU slot and
+    an R2V reference slot no scene asks for. A one-off change is a manual edit
+    of the base image now, not a template row."""
     prop = Prop(id="p", name="Knife", prompt_profile={"materials": ["brass"]})
     cells = default_cells(prop, "prop")
-    assert any(c["slot"] == "materials:brass" for c in cells)
-    assert SHEET_TEMPLATES["prop"]["variant_prefix"] == "materials"
+    assert [c["slot"] for c in cells] == [c["slot"] for c in PROP_ANGLE_CELLS]
+    assert "variants" not in SHEET_TEMPLATES["prop"]
 
 
 def test_unknown_entity_type_rejected():
