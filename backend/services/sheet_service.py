@@ -39,7 +39,7 @@ from database import AssetImage, Batch, JobRecord, Character, Project
 from services.seed_policy import resolve_seed
 from services.prompt_builder import entity_prompt, outfits_of
 from services.job_handlers import register_local
-from services.reference_service import newest_asset_image_id
+from services import base_plate_service
 
 logger = logging.getLogger("sheet_service")
 
@@ -247,13 +247,21 @@ async def build_sheet_jobs(
         "target_id": entity.id,
         "locked_seed": profile.get("locked_seed"),
     })
-    # Sheets are project-level, so there is no scene to ask: use the entity's
-    # newest generated reference as the base image.
-    canonical_id = (await newest_asset_image_id(db, entity_type, entity.id)
-                    if from_canonical else None)
+    # Every cell edits the entity's IDENTITY PLATE, not "whatever was generated
+    # last" — that heuristic is what made a sheet edit a living-room still and
+    # return the subject on the sofa in every cell. A missing plate is rendered
+    # first (txt2img) and the cells depend on it; ensure_base_plate hands back
+    # the asset id before it exists, which is enough to wire the sources up.
+    plate_job = None
+    if from_canonical:
+        canonical_id, plate_job = await base_plate_service.ensure_base_plate(
+            entity, entity_type, db, workflow=workflow, batch=batch, seed=seed,
+        )
+    else:
+        canonical_id = None
     kind = f"{entity_type}_sheet" if entity_type != "character" else "character_sheet"
 
-    jobs: list[JobRecord] = []
+    jobs: list[JobRecord] = [plate_job] if plate_job is not None else []
     last_cell_job: JobRecord | None = None
     for cell in cells:
         base = identity_prompt if cell.get("swaps_outfit") else base_prompt
@@ -287,6 +295,11 @@ async def build_sheet_jobs(
         job = JobRecord(
             kind=kind, status="queued", seed=seed, batch_id=batch.id,
             entity_type="asset_image", entity_id=asset.id,
+            # Every cell waits on the plate it edits. Depending on the plate
+            # rather than chaining cell-to-cell also means a failed plate
+            # cascade-cancels the whole sheet instead of rendering cells with a
+            # dangling source, which ComfyUI rejects at graph validation.
+            depends_on_job_id=plate_job.job_id if plate_job is not None else None,
             payload=payload,
         )
         db.add(job)

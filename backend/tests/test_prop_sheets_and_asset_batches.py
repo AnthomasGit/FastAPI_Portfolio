@@ -116,7 +116,7 @@ async def test_prop_sheet_endpoint_creates_cells_and_composite(client, db_sessio
     prop = await _prop(db_session, project)
     r = await client.post(f"/api/props/{prop.id}/sheet")
     assert r.status_code == 202
-    assert r.json()["job_count"] == len(PROP_ANGLE_CELLS) + 1     # cells + contact sheet
+    assert r.json()["job_count"] == len(PROP_ANGLE_CELLS) + 2   # plate + cells + contact
 
     jobs = (await db_session.execute(
         select(JobRecord).where(JobRecord.batch_id == r.json()["batch_id"])
@@ -159,7 +159,7 @@ async def test_from_canonical_false_clears_source_so_workflow_applies(
     prop = Prop(id=str(uuid.uuid4()), project_id=project.id, name="Knife")
     db_session.add(prop)
     await db_session.flush()
-    # The sheet's base image is the entity's newest generated reference.
+    # A newest reference exists — and is deliberately NOT what a sheet edits.
     db_session.add(Reference(id=str(uuid.uuid4()), entity_type="prop",
                              entity_id=prop.id, role="moodboard",
                              url="x.png", asset_image_id=asset.id))
@@ -173,13 +173,20 @@ async def test_from_canonical_false_clears_source_so_workflow_applies(
     assert job.payload["source_asset_image_id"] is None
     assert job.payload["workflow"] == "krea2_turbo"
 
-    # …and the default keeps img2img off the canonical image.
+    # …and the default edits the entity's BASE PLATE, not its newest reference.
+    # That fallback is the bug this replaced: "whatever was generated last" is
+    # how a sheet ended up editing a living-room still.
     r2 = await client.post(f"/api/props/{prop.id}/sheet")
     jobs = (await db_session.execute(
-        select(JobRecord).where(JobRecord.batch_id == r2.json()["batch_id"],
-                                JobRecord.kind == "prop_sheet")
+        select(JobRecord).where(JobRecord.batch_id == r2.json()["batch_id"])
     )).scalars().all()
-    assert all(j.payload["source_asset_image_id"] == asset.id for j in jobs)
+    plate = next(j for j in jobs if j.kind == "base_plate")
+    cells = [j for j in jobs if j.kind == "prop_sheet"]
+    plate_asset_id = plate.payload["asset_image_id"]
+    assert plate_asset_id != asset.id
+    assert all(j.payload["source_asset_image_id"] == plate_asset_id for j in cells)
+    # Cells wait on the plate they edit, so none can run against a dangling source.
+    assert all(j.depends_on_job_id == plate.job_id for j in cells)
 
 
 # ── per-tab entity batches ─────────────────────────────────────────────────
@@ -193,7 +200,7 @@ async def test_props_tab_batch_makes_one_sheet_per_prop(client, db_session, proj
     })
     assert r.status_code == 201
     # 2 props × (6 cells + 1 composite)
-    assert r.json()["job_count"] == 2 * (len(PROP_ANGLE_CELLS) + 1)
+    assert r.json()["job_count"] == 2 * (len(PROP_ANGLE_CELLS) + 2)
 
     # Exactly ONE batch: the sheet service must not create its own here.
     assert len((await db_session.execute(select(Batch))).scalars().all()) == 1
@@ -263,4 +270,4 @@ async def test_entity_batch_skips_targets_of_other_types(client, db_session, pro
         "target_ids": [prop.id, loc.id],
     })
     assert r.status_code == 201
-    assert r.json()["job_count"] == len(PROP_ANGLE_CELLS) + 1   # prop only
+    assert r.json()["job_count"] == len(PROP_ANGLE_CELLS) + 2   # prop only

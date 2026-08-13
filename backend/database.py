@@ -104,6 +104,11 @@ class Character(Base):
     # NOTE: no canonical/plate image column. An asset's reference image is chosen
     # PER SCENE via scene_<type>.reference_id (falling back to the entity's newest
     # Reference), so the same character can change wardrobe between scenes.
+    #
+    # This is the OTHER axis and not a contradiction of that (see 0028): the
+    # identity plate is the image generations EDIT FROM — one clean, front-on,
+    # background-free render. NULL means "make one from the prompt on first use".
+    base_asset_image_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="characters")
@@ -149,6 +154,7 @@ class Prop(Base):
     # NOTE: no canonical/plate image column. An asset's reference image is chosen
     # PER SCENE via scene_<type>.reference_id (falling back to the entity's newest
     # Reference), so the same character can change wardrobe between scenes.
+    base_asset_image_id = Column(String, nullable=True)  # see Character / 0028
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="props")

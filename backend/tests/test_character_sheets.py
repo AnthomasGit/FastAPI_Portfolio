@@ -141,7 +141,7 @@ async def test_sheet_endpoint(client, db_session, project):
     resp = await client.post(f"/api/characters/{char.id}/sheet")
     assert resp.status_code == 202
     body = resp.json()
-    assert body["job_count"] == 5  # 4 angle cells + contact sheet
+    assert body["job_count"] == 6  # base plate + 4 angle cells + contact sheet
     assert body["batch_id"]
 
     missing = await client.post(f"/api/characters/{uuid.uuid4()}/sheet")
@@ -283,7 +283,8 @@ async def test_worker_runs_contact_sheet_locally(session_factory, project, out_d
         await db.execute(update(JobRecord).where(JobRecord.kind == "contact_sheet")
                          .values(depends_on_job_id=None))
         # Remove the cell job so only the contact_sheet is claimable.
-        await db.execute(JobRecord.__table__.delete().where(JobRecord.kind == "character_sheet"))
+        await db.execute(JobRecord.__table__.delete().where(
+            JobRecord.kind.in_(("character_sheet", "base_plate"))))
         await db.commit()
         contact_id = contact.id
         cj_id = cj.job_id
