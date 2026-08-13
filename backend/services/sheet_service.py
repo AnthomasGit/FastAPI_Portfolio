@@ -69,16 +69,42 @@ ANGLE_CELLS = [
      "suffix": f"turn the subject to face directly away from the camera, {_STAGING}"},
 ]
 
-# A prop has no face, so expression cells are meaningless for one. What a
-# modeller (and an R2V reference slot) actually wants instead is a top-down and
-# a material close-up.
+# A prop is staged differently from a character: there is no "standing upright"
+# for a knife.
+_PROP_STAGING = (
+    "the whole object centred and fully visible, "
+    "isolate it on a plain light grey studio backdrop, "
+    "remove all other objects, hands and background"
+)
+
+# Three cells, not a full turntable. `side`, `back` and `top` were measured and
+# cut: all three came back as the button face again, near-duplicates of `front`.
+#
+# The cause looks structural rather than a wording miss. A prop's `appearance`
+# tokens usually describe ONE face ("two red buttons at the top", "circular
+# navigation pad"), so a cell that turns away from that face contradicts its own
+# base line — the same failure that layered a suit jacket over the jersey it was
+# told to replace. The model resolves it by keeping the described features in
+# shot. It can rotate: `three-quarter` works. It will not rotate off the face it
+# has been told the object has.
+#
+# Duplicates are worse than absent here: these images fill R2V reference slots,
+# and three copies of the front spend slots without adding information. Fixing
+# this properly means splitting `appearance` into form vs face-detail and
+# withholding the detail from turned cells (the `swaps_outfit` mechanism
+# generalised), or routing turntables through the Qwen Edit multi-angle
+# workflow. Neither is worth doing before the identity-plate work lands.
 PROP_ANGLE_CELLS = [
-    {"slot": "front", "suffix": "front view, full object, plain background"},
-    {"slot": "three-quarter", "suffix": "three-quarter view, full object"},
-    {"slot": "side", "suffix": "side view, full object"},
-    {"slot": "back", "suffix": "back view, full object"},
-    {"slot": "top", "suffix": "top-down view, full object"},
-    {"slot": "detail", "suffix": "extreme close-up of surface material and texture"},
+    {"slot": "front",
+     "suffix": f"turn the object to face the camera straight on, {_PROP_STAGING}"},
+    {"slot": "three-quarter",
+     "suffix": f"turn the object 45 degrees to a three-quarter view, {_PROP_STAGING}"},
+    # The odd one out: a camera move, not a rotation, so "the whole object
+    # visible" would contradict it.
+    {"slot": "detail",
+     "suffix": "move in to an extreme close-up of the object's surface material "
+               "and texture, filling the frame, isolate it on a plain light grey "
+               "studio backdrop, remove all other objects, hands and background"},
 ]
 
 
@@ -122,7 +148,12 @@ SHEET_TEMPLATES = {
         "cells": PROP_ANGLE_CELLS,
         "variant_prefix": "materials",
         "variants": _flat_variants("materials"),
-        "variant_suffix": "full object, {item} finish",
+        # No swaps_outfit equivalent: a material is an alternate FINISH of the
+        # same object, and nothing in the base line contradicts it the way a
+        # default outfit contradicts an alternate one.
+        "variant_suffix": (
+            "remake the object with a {item} finish, " + _PROP_STAGING
+        ),
         "asset_dir": "props",
     },
 }

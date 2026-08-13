@@ -34,11 +34,13 @@ async def _location(db_session, project, name="Bar"):
 
 # ── templates ──────────────────────────────────────────────────────────────
 
-def test_props_get_angles_not_expressions():
-    """A prop has no face; expression cells are meaningless for one."""
+def test_props_are_front_three_quarter_and_detail_only():
+    """No full turntable. `side`/`back`/`top` were measured against live ComfyUI
+    and all three came back as the front face again — a prop's appearance tokens
+    describe one face, so a cell that turns away contradicts its own base line.
+    Near-duplicates are worse than absent when these fill R2V reference slots."""
     slots = {c["slot"] for c in default_cells(Prop(id="p", name="Knife"), "prop")}
-    assert {"front", "side", "top", "detail"} <= slots
-    assert not any(s.startswith("expr-") for s in slots)
+    assert slots == {"front", "three-quarter", "detail"}
 
 
 def test_characters_are_angles_plus_alternate_outfits():
