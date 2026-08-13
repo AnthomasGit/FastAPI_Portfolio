@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Pencil, Sparkles, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -95,11 +95,12 @@ function ProfileDialog({ open, onOpenChange, entityType, entityId, entityName, p
   const [draft, setDraft] = useState(() => profileToDraft(profile, fields));
   const [outfits, setOutfits] = useState(() => (profile?.outfits || []).map((o) => ({ ...o })));
 
-  const reset = (p) => {
-    setDraft(profileToDraft(p, fields));
-    setOutfits((p?.outfits || []).map((o) => ({ ...o })));
-  };
-
+  // No Regenerate here on purpose. POST /prompt-profile writes and COMMITS
+  // before the user saves, so Cancel would not undo it; it replaces whatever
+  // was typed in this dialog; and it bypasses profile_service's sanitiser,
+  // making it the one path that can still write a mood token into `appearance`.
+  // Profiles are generated automatically at project build; this dialog is for
+  // reading and correcting them.
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['project'] });
 
   const save = useMutation({
@@ -117,11 +118,6 @@ function ProfileDialog({ open, onOpenChange, entityType, entityId, entityName, p
       return api.savePromptProfile(`${entityType}s`, entityId, next);
     },
     onSuccess: () => { invalidate(); onOpenChange(false); },
-  });
-
-  const regenerate = useMutation({
-    mutationFn: () => api.generatePromptProfile(`${entityType}s`, entityId),
-    onSuccess: (data) => { reset(data.prompt_profile); invalidate(); },
   });
 
   return (
@@ -160,31 +156,26 @@ function ProfileDialog({ open, onOpenChange, entityType, entityId, entityName, p
           </div>
         )}
 
-        {(save.isError || regenerate.isError) && (
-          <p role="alert" className="mt-3 rounded-frame border border-stop/40 bg-stop/10 px-3 py-2 text-xs text-stop">
-            {save.error?.message || regenerate.error?.message || 'Something went wrong'}
-          </p>
-        )}
+        {/* Sticky because DialogContent is itself the scroll container: a
+            location carries six token lists, so Save would otherwise sit a
+            scroll below the fold. Bleeds through the dialog's p-4 with negative
+            margins, and takes bg-popover (not a bay-* step) so it matches
+            whatever surface the dialog primitive is on and content scrolling
+            underneath is fully hidden — no alpha. */}
+        <div className="sticky bottom-0 -mx-4 -mb-4 mt-5 border-t border-line bg-popover px-4 py-3">
+          {save.isError && (
+            <p role="alert" className="mb-2 rounded-frame border border-stop/40 bg-stop/10 px-3 py-2 text-xs text-stop">
+              {save.error?.message || 'Something went wrong'}
+            </p>
+          )}
 
-        <div className="mt-5 flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={() => regenerate.mutate()}
-            disabled={regenerate.isPending}>
-            {regenerate.isPending
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
-              : <><Sparkles className="w-3.5 h-3.5" /> Regenerate</>}
-          </Button>
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={() => save.mutate()} disabled={save.isPending}>
               {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save
             </Button>
           </div>
         </div>
-        {regenerate.isPending && (
-          <p className="mt-2 text-[10px] text-fg-faint">
-            The local model takes around a minute — your edits stay until it returns.
-          </p>
-        )}
       </DialogContent>
     </Dialog>
   );
