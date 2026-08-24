@@ -47,5 +47,6 @@ backend/test.db
 backups/
 
 #User specific files
-docs/
-README.md
+# docs/ holds private planning notes, but the README screenshots must ship.
+docs/*
+!docs/screenshots/
