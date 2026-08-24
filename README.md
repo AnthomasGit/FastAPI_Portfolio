@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/status-research%20only-b91c1c?style=for-the-badge" alt="Research use only" /></a>
+  <a href="#-research-use-only"><img src="https://img.shields.io/badge/status-research%20only-b91c1c?style=for-the-badge" alt="Research use only" /></a>
   <a href="#"><img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
   <a href="#"><img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React" /></a>
   <a href="#"><img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" /></a>
@@ -20,30 +20,14 @@
 </p>
 
 <p align="center">
-  <a href="#-research-use-only">Research Use Only</a> •
   <a href="#-features">Features</a> •
   <a href="#%EF%B8%8F-tech-stack">Tech Stack</a> •
   <a href="#-screens">Screens</a> •
   <a href="#-getting-started">Getting Started</a> •
   <a href="#-architecture">Architecture</a> •
-  <a href="#-project-structure">Structure</a>
+  <a href="#-project-structure">Structure</a> •
+  <a href="#-research-use-only">Research Use Only</a>
 </p>
-
----
-
-## 🔬 Research Use Only
-
-> **This project is a personal research and portfolio experiment. It is provided for
-> research, learning, and demonstration purposes only — it is not a product, and it is
-> not intended or supported for production or commercial use.**
-
-Specifically:
-
-- **No warranty, no support, no stability guarantees.** Schemas, APIs, and workflow graphs change without notice or migration path.
-- **No authentication or authorization.** Every endpoint is open; the stack is meant to run on a trusted local network, never exposed to the public internet as-is.
-- **Generated output is experimental.** Images, video, and 3D assets produced here are research artifacts. Do not publish or commercialize them without checking the licence of every model and checkpoint you loaded into ComfyUI — model weights carry their own terms, and this repository grants you nothing with respect to them.
-- **Third-party terms apply.** ComfyUI, the custom nodes, the GGUF language model, and any hosted LLM endpoint you point it at are each governed by their own licences and acceptable-use policies. Complying with them is your responsibility.
-- **Respect other people's likeness and copyright.** The reference-image, pose-transfer, and character-consistency features make it easy to reproduce a real person or a copyrighted character. Only use material you have the right to use.
 
 ---
 
@@ -239,6 +223,22 @@ FastAPI_Portfolio/
 This is a personal research repository rather than a maintained open-source project, so
 there is no roadmap and no guarantee that pull requests get reviewed. Issues and forks are
 welcome all the same — if something here is useful to your own research, take it and run.
+
+---
+
+## 🔬 Research Use Only
+
+> **This project is a personal research and portfolio experiment. It is provided for
+> research, learning, and demonstration purposes only — it is not a product, and it is
+> not intended or supported for production or commercial use.**
+
+Specifically:
+
+- **No warranty, no support, no stability guarantees.** Schemas, APIs, and workflow graphs change without notice or migration path.
+- **No authentication or authorization.** Every endpoint is open; the stack is meant to run on a trusted local network, never exposed to the public internet as-is.
+- **Generated output is experimental.** Images, video, and 3D assets produced here are research artifacts. Do not publish or commercialize them without checking the licence of every model and checkpoint you loaded into ComfyUI — model weights carry their own terms, and this repository grants you nothing with respect to them.
+- **Third-party terms apply.** ComfyUI, the custom nodes, the GGUF language model, and any hosted LLM endpoint you point it at are each governed by their own licences and acceptable-use policies. Complying with them is your responsibility.
+- **Respect other people's likeness and copyright.** The reference-image, pose-transfer, and character-consistency features make it easy to reproduce a real person or a copyrighted character. Only use material you have the right to use.
 
 ---
 
