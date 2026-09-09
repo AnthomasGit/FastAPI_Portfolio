@@ -12,7 +12,6 @@
   <a href="#"><img src="https://img.shields.io/badge/ComfyUI-1a1a1a?style=for-the-badge&logo=nvidia&logoColor=76B900" alt="ComfyUI" /></a>
   <a href="#"><img src="https://img.shields.io/badge/llama.cpp-000?style=for-the-badge&logo=llama&logoColor=white" alt="llama.cpp" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/Live_Demo-coming_soon-111?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Live demo coming soon" /></a>
 </p>
 
 <p align="center">
@@ -124,8 +123,8 @@ prompt, and queue the clip. Finished clips stack up in the results rail.
 ### Setup
 
 ```bash
-git clone https://github.com/AnthomasGit/FastAPI_Portfolio.git
-cd FastAPI_Portfolio
+git clone https://github.com/AnthomasGit/Storyboard-Pro.git
+cd Storyboard-Pro
 cp .env.example .env
 ```
 
@@ -178,7 +177,7 @@ cd backend && pytest
 | LLM | llama.cpp server (OpenAI-compatible) | 8080 | device 0 |
 | Database | PostgreSQL 15 (async SQLAlchemy) | 5432 | — |
 | Side-cars | Mesh optimizer · background remover | 8300 / 8400 | — |
-| Deploy | Docker Compose · K3s · Cloudflare Tunnel (public demo: coming soon) | — | — |
+| Deploy | Docker Compose · K3s | — | — |
 
 **Key engineering decisions**
 
@@ -245,7 +244,7 @@ Specifically:
 ## 📄 License
 
 **No open-source licence is granted.** The code is published for reading, research, and
-portfolio review only; all rights are reserved by the author, Anthomas Longobardi. If you
+portfolio review only; all rights are reserved by the author, Thomas Longobardi. If you
 want to reuse any of it, open an issue and ask.
 
 Models, checkpoints, custom nodes, and any external LLM endpoint used with this project
@@ -254,7 +253,7 @@ are covered by their own licences — see [Research Use Only](#-research-use-onl
 ---
 
 <p align="center">
-  Built by <strong>Anthomas Longobardi</strong> — <a href="https://github.com/AnthomasGit">@AnthomasGit</a>
+  Built by <strong>Thomas Longobardi</strong> — <a href="https://github.com/AnthomasGit">@AnthomasGit</a>
   <br />
   <em>A research playground for generative-media pipelines.</em>
 </p>
